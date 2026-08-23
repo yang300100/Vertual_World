@@ -15,11 +15,15 @@
 
 ## 当前验证
 
-- `pytest`：首轮5项测试通过；并发回归测试补充后需重跑。
-- `ruff check .`：补充并发测试前已通过，需最终重跑。
+- `pytest`：6项测试通过；另有1条Starlette上游TestClient弃用提醒，不影响当前功能。
+- `ruff check .`：全部通过。
 - `compileall`：通过。
 - `pip check`：通过。
 - 真实HTTP：健康、世界列表、推进与事件接口均为200。
+- SQLite `PRAGMA integrity_check`：`ok`。
+- 独立worker：真实推进成功。
+- “初始世界”已实际推进5轮，当前版本5，世界时间为2040-04-01 13:00 UTC。
+- 敏感信息扫描未发现API密钥、密码、Secret或私钥。
 
 ## 尚未开始
 
@@ -27,4 +31,3 @@
 - 环境、经济、长期目标、谣言和记忆压缩。
 - 表现形式选择与对应前端。
 - Linux服务器systemd、Caddy、备份和SSH部署。
-
