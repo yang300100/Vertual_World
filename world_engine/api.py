@@ -32,7 +32,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         database.initialize()
-        yield
+        try:
+            yield
+        finally:
+            engine.close()
 
     application = FastAPI(
         title="Virtual World Core",
@@ -54,7 +57,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             with database.read() as connection:
                 connection.execute("SELECT 1").fetchone()
-            return {"status": "ok", "database": "ready"}
+            return {
+                "status": "ok",
+                "database": "ready",
+                "decision_provider": engine.decision_provider.name,
+            }
         except sqlite3.Error as exc:
             raise HTTPException(status_code=503, detail="世界数据库不可用") from exc
 
@@ -124,4 +131,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

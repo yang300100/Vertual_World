@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 from collections.abc import Sequence
 
@@ -53,6 +54,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     database.initialize()
     repository = WorldRepository()
     engine = WorldEngine(database, settings)
+    atexit.register(engine.close)
 
     if args.command == "create":
         with database.write() as connection:

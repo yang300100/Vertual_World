@@ -79,9 +79,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, worker.stop)
     if args.once:
-        return 0 if worker.run_once() >= 0 else 1
-    worker.run_forever()
-    return 0
+        try:
+            return 0 if worker.run_once() >= 0 else 1
+        finally:
+            worker.engine.close()
+    try:
+        worker.run_forever()
+        return 0
+    finally:
+        worker.engine.close()
 
 
 if __name__ == "__main__":

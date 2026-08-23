@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import timedelta
 from uuid import uuid4
@@ -8,13 +9,16 @@ from uuid import uuid4
 from world_engine.actions import ActionService
 from world_engine.config import Settings
 from world_engine.database import Database
-from world_engine.decisions import DecisionProvider, RuleDecisionProvider
+from world_engine.decisions import DecisionProvider, RuleDecisionProvider, build_decision_provider
 from world_engine.domain import ActionProposal, CharacterState, TickResult, WorldSnapshot
 from world_engine.repository import WorldRepository, to_iso, utc_now
 
 
 class ConcurrentWorldUpdateError(RuntimeError):
     pass
+
+
+LOGGER = logging.getLogger("virtual-world.engine")
 
 
 class WorldEngine:
@@ -29,7 +33,7 @@ class WorldEngine:
         self.database = database
         self.settings = settings
         self.repository = WorldRepository()
-        self.decision_provider = decision_provider or RuleDecisionProvider()
+        self.decision_provider = decision_provider or build_decision_provider(settings)
         self.fallback_provider = RuleDecisionProvider()
         self.actions = ActionService()
 
@@ -147,6 +151,11 @@ class WorldEngine:
             self._mark_failed(world_id)
             raise
 
+    def close(self) -> None:
+        close = getattr(self.decision_provider, "close", None)
+        if close is not None:
+            close()
+
     def _select_active_characters(self, snapshot: WorldSnapshot) -> list[CharacterState]:
         def priority(character: CharacterState) -> tuple[int, str]:
             urgency = character.hunger + (100 - character.energy)
@@ -163,7 +172,12 @@ class WorldEngine:
     ) -> tuple[list[ActionProposal], str]:
         try:
             return self.decision_provider.propose(snapshot, characters), self.decision_provider.name
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "决策器%s调用失败，当前轮次降级为规则引擎：%s",
+                self.decision_provider.name,
+                exc,
+            )
             return self.fallback_provider.propose(snapshot, characters), self.fallback_provider.name
 
     def _normalize_proposals(

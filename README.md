@@ -11,6 +11,20 @@
 - 世界版本号与写事务防止同一轮被并发重复结算。
 - 决策器通过 `DecisionProvider` 协议替换；模型不可直接写数据库。
 - Web API 不包含定时器，自动推进由独立 worker 负责。
+- 可直接使用DeepSeek模型批量生成结构化人物行动，失败时自动降级为规则决策。
+
+## DeepSeek模型配置
+
+复制 `.env.example` 为Git忽略的 `.env`，只在 `.env` 中填写真实密钥：
+
+```dotenv
+WORLD_DECISION_PROVIDER=deepseek
+DEEPSEEK_API_KEY=请填写轮换后的真实密钥
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash-vision-exp
+```
+
+模型只收到本轮世界时间、地点、活跃人物状态和同地点人物ID。它不能读取数据库文件、执行SQL或直接写入世界状态。API密钥不得进入代码、前端、日志或Git。
 
 ## 本地启动
 
@@ -60,8 +74,7 @@ python -m venv .venv
 ## 后续阶段
 
 1. 增加环境、经济、关系传播与长期目标系统。
-2. 选择第三方模型 API，并通过官方 SDK 实现新的决策器。
-3. 增加模型降级、成本预算、批量人物决策与记忆压缩。
+2. 增加模型成本预算、调用统计、批量人物决策优化与记忆压缩。
+3. 轮换已经在聊天中暴露过的测试密钥，并仅在服务器环境变量中配置新密钥。
 4. 根据体验目标选择文字、网页、视觉小说或游戏表现层。
 5. 本地稳定后再为 2 核 2GB Linux 服务器生成 systemd 与 Caddy 配置。
-

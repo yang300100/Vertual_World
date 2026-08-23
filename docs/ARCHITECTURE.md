@@ -16,7 +16,9 @@ SQLite 是世界事实的唯一来源。第三方模型、未来表现层和人�
 
 ## 决策器边界
 
-`DecisionProvider` 只接收世界快照和允许详细决策的人物，只返回 `ActionProposal`。当前实现是 `RuleDecisionProvider`；选定第三方模型后新增适配器，不改变世界引擎和数据库。
+`DecisionProvider` 只接收世界快照和允许详细决策的人物，只返回 `ActionProposal`。当前实现包括 `RuleDecisionProvider` 与 `DeepSeekDecisionProvider`；切换供应商不改变世界引擎和数据库。
+
+DeepSeek适配器把多个活跃人物合并为一次请求，响应必须通过Pydantic结构化校验。网络错误、限流、服务端错误、空响应或无效JSON都会触发有限重试，最终由规则引擎接管当前轮次。世界事件会记录本轮实际使用的是 `deepseek` 还是 `rules`。
 
 模型无法：
 
@@ -24,6 +26,7 @@ SQLite 是世界事实的唯一来源。第三方模型、未来表现层和人�
 - 直接修改人物属性。
 - 宣告行动已经成功。
 - 读取与本次决策无关的全部私有数据。
+- 从提示词中获得API密钥或服务器环境变量。
 
 ## 动作门禁
 
@@ -36,4 +39,3 @@ SQLite 是世界事实的唯一来源。第三方模型、未来表现层和人�
 - `world_engine.cli`：本地创建、检查和手动推进世界。
 
 服务器部署时保持API单worker和世界worker单实例。未来若需要横向扩展，应先将SQLite迁移到PostgreSQL，再实现租约与任务队列。
-
