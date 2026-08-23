@@ -11,4 +11,5 @@ data/*.db-shm
 data/*.db-wal
 logs/
 backups/
+run/
 .env

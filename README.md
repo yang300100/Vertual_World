@@ -46,6 +46,49 @@ DEEPSEEK_MODEL=deepseek-v4-flash-vision-exp
 
 ## 本地启动
 
+### Windows一键运行
+
+直接双击项目根目录中的：
+
+```text
+启动虚拟世界.cmd
+```
+
+脚本会自动：
+
+1. 检查并按需创建 `.venv`。
+2. 检查并按需安装项目依赖。
+3. 后台隐藏启动FastAPI。
+4. 等待 `/api/health` 返回本项目标识。
+5. 后台隐藏启动独立世界worker。
+6. 自动打开 `http://127.0.0.1:8000/`。
+
+重复双击不会重复启动API或worker。运行日志写入：
+
+```text
+logs/runtime/
+```
+
+停止时双击：
+
+```text
+停止虚拟世界.cmd
+```
+
+停止脚本只终止本项目 `.venv` 中、命令行明确匹配世界API或worker的进程，不会广泛终止其他Python或浏览器进程。
+
+PowerShell高级用法：
+
+```powershell
+# 使用其他端口且不自动打开浏览器
+.\scripts\start_world.ps1 -Port 8766 -NoBrowser
+
+# 停止本项目进程
+.\scripts\stop_world.ps1
+```
+
+### 手动运行
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[dev]"

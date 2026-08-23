@@ -58,6 +58,8 @@ DeepSeek适配器把多个活跃人物合并为一次请求，响应必须通过
 - `world_engine.clock`：负责心跳、调速、离线暂停和人物连续状态。
 - `world_engine.cli`：本地创建、检查和手动推进世界。
 
+Windows本地编排由 `scripts/start_world.ps1` 负责：复用健康API、防止重复worker、隐藏启动进程、写入项目专用PID和运行日志，再打开控制台。`scripts/stop_world.ps1` 只停止可核验为当前项目 `.venv` 的API和worker进程。
+
 ## 轻量表现层
 
 `world_engine.web` 是由FastAPI在 `/ui/` 同源托管的静态控制台，使用HTML、CSS和原生JavaScript，不引入Node常驻进程，也不保存第二份世界状态。页面每5秒只读刷新；调速、心跳、裁判和主视角介入只通过现有API执行。

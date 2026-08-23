@@ -14,6 +14,7 @@ def test_api_creates_reads_and_ticks_world(settings) -> None:
             json={"name": "API世界", "minutes_per_tick": 90, "seed_demo": True},
         )
         assert health.status_code == 200
+        assert health.json()["service"] == "virtual-world-core"
         assert created.status_code == 201
 
         world = created.json()

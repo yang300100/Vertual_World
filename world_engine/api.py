@@ -87,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             with database.read() as connection:
                 connection.execute("SELECT 1").fetchone()
             return {
+                "service": "virtual-world-core",
                 "status": "ok",
                 "database": "ready",
                 "decision_provider": engine.decision_provider.name,
