@@ -38,4 +38,10 @@ DeepSeek适配器把多个活跃人物合并为一次请求，响应必须通过
 - `world_engine.worker`：独立进程，负责自动推进所有运行中的世界。
 - `world_engine.cli`：本地创建、检查和手动推进世界。
 
+## 世界历史日志
+
+`world_events` 客观事件表仍是权威历史。`WorldHistoryLogger` 在轮次提交后把事件派生为中文Markdown、JSONL和逐轮JSON文件。导出采用跨进程目录锁、UTF-8和同目录原子替换，API与worker同时运行时不会交叉写坏日志。
+
+日志同步失败不会回滚已完成的轮次。CLI或API可以再次从SQLite回填，因此日志是可恢复的观察视图，而不是第二份需要人工维护的世界事实。
+
 服务器部署时保持API单worker和世界worker单实例。未来若需要横向扩展，应先将SQLite迁移到PostgreSQL，再实现租约与任务队列。

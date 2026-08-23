@@ -49,6 +49,28 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m world_engine.worker --once
 ```
 
+## 查看世界运行历史
+
+每次成功推进都会把SQLite客观事件自动同步到：
+
+```text
+logs/worlds/<world_id>/history.md
+logs/worlds/<world_id>/history.jsonl
+logs/worlds/<world_id>/ticks/<sequence>_<tick_id>.json
+```
+
+- `history.md`：适合直接阅读，按轮次显示决策器、行动、失败原因和行动理由。
+- `history.jsonl`：每行一个完整客观事件，保留人物与轮次ID。
+- `ticks/`：每个轮次一个结构化快照，方便精确复盘。
+
+旧数据库也可以随时回填日志：
+
+```powershell
+.\.venv\Scripts\python.exe -m world_engine.cli history <world_id>
+```
+
+日志目录已被Git忽略。数据库是权威事实源，日志损坏或删除后仍可重新生成。
+
 ## 命令行快速体验
 
 ```powershell
@@ -56,6 +78,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m world_engine.cli list
 .\.venv\Scripts\python.exe -m world_engine.cli tick <world_id>
 .\.venv\Scripts\python.exe -m world_engine.cli show <world_id>
+.\.venv\Scripts\python.exe -m world_engine.cli history <world_id>
 ```
 
 ## 核心因果链

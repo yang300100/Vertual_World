@@ -9,4 +9,5 @@ htmlcov/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+logs/
 .env

@@ -11,6 +11,7 @@ from world_engine.config import Settings
 from world_engine.database import Database
 from world_engine.decisions import DecisionProvider, RuleDecisionProvider, build_decision_provider
 from world_engine.domain import ActionProposal, CharacterState, TickResult, WorldSnapshot
+from world_engine.history import HistoryExportResult, WorldHistoryLogger
 from world_engine.repository import WorldRepository, to_iso, utc_now
 
 
@@ -36,6 +37,11 @@ class WorldEngine:
         self.decision_provider = decision_provider or build_decision_provider(settings)
         self.fallback_provider = RuleDecisionProvider()
         self.actions = ActionService()
+        self.history_logger = (
+            WorldHistoryLogger(database, settings.history_directory)
+            if settings.history_logging_enabled and settings.history_directory is not None
+            else None
+        )
 
     def tick(self, world_id: str) -> TickResult:
         started_at = utc_now()
@@ -122,6 +128,10 @@ class WorldEngine:
                                 "accepted_action_count": sum(
                                     1 for item in outcomes if item.accepted
                                 ),
+                                "previous_version": snapshot.world.version,
+                                "current_version": new_version,
+                                "previous_time": to_iso(snapshot.world.current_time),
+                                "current_time": to_iso(new_time),
                             },
                             ensure_ascii=False,
                         ),
@@ -129,7 +139,7 @@ class WorldEngine:
                     ),
                 )
 
-            return TickResult(
+            result = TickResult(
                 world_id=world_id,
                 tick_id=tick_id,
                 started_at=started_at,
@@ -140,6 +150,8 @@ class WorldEngine:
                 current_version=new_version,
                 outcomes=outcomes,
             )
+            self._sync_history_safely(world_id)
+            return result
         except ConcurrentWorldUpdateError:
             raise
         except sqlite3.OperationalError as exc:
@@ -155,6 +167,11 @@ class WorldEngine:
         close = getattr(self.decision_provider, "close", None)
         if close is not None:
             close()
+
+    def sync_history(self, world_id: str) -> HistoryExportResult:
+        if self.history_logger is None:
+            raise RuntimeError("世界历史日志未启用")
+        return self.history_logger.sync_world(world_id)
 
     def _select_active_characters(self, snapshot: WorldSnapshot) -> list[CharacterState]:
         def priority(character: CharacterState) -> tuple[int, str]:
@@ -225,3 +242,12 @@ class WorldEngine:
         except Exception:
             # 原始异常必须优先返回，状态记录失败不能掩盖真正原因。
             return
+
+    def _sync_history_safely(self, world_id: str) -> None:
+        if self.history_logger is None:
+            return
+        try:
+            self.history_logger.sync_world(world_id)
+        except Exception:
+            # 日志是客观事件表的派生视图，导出失败不能回滚已经完成的世界轮次。
+            LOGGER.exception("世界%s已完成推进，但历史日志同步失败", world_id)

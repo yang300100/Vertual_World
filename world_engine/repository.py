@@ -210,6 +210,22 @@ class WorldRepository:
         ).fetchall()
         return [self._event_dict(row) for row in rows]
 
+    def list_all_events_ascending(
+        self, connection: sqlite3.Connection, world_id: str
+    ) -> list[dict[str, object]]:
+        """按实际写入顺序读取完整客观历史，用于生成可重复的日志。"""
+
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM world_events
+            WHERE world_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (world_id,),
+        ).fetchall()
+        return [self._event_dict(row) for row in rows]
+
     def list_memories(
         self,
         connection: sqlite3.Connection,

@@ -12,6 +12,7 @@ from world_engine.config import Settings
 from world_engine.database import Database
 from world_engine.domain import TickResult, WorldSnapshot, WorldState
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
+from world_engine.history import HistoryExportResult
 from world_engine.repository import WorldNotFoundError, WorldRepository
 
 
@@ -114,6 +115,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 return repository.list_events(connection, world_id, limit)
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail="世界不存在") from exc
+
+    @application.post(
+        "/api/worlds/{world_id}/history/sync",
+        response_model=HistoryExportResult,
+    )
+    def sync_history(world_id: str) -> HistoryExportResult:
+        try:
+            return engine.sync_history(world_id)
+        except WorldNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="世界不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @application.get("/api/worlds/{world_id}/characters/{character_id}/memories")
     def list_memories(

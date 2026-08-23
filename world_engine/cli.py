@@ -39,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     events.add_argument("world_id")
     events.add_argument("--limit", type=int, default=50)
 
+    history = subparsers.add_parser("history", help="同步并查看世界历史日志位置")
+    history.add_argument("world_id")
+
     memories = subparsers.add_parser("memories", help="查看人物记忆")
     memories.add_argument("world_id")
     memories.add_argument("character_id")
@@ -81,6 +84,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "events":
         with database.read() as connection:
             _print_json(repository.list_events(connection, args.world_id, args.limit))
+        return 0
+    if args.command == "history":
+        _print_json(engine.sync_history(args.world_id))
         return 0
     if args.command == "memories":
         with database.read() as connection:

@@ -31,6 +31,8 @@ class Settings:
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
     deepseek_max_output_tokens: int = 2400
+    history_logging_enabled: bool = False
+    history_directory: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -58,5 +60,12 @@ class Settings:
             deepseek_max_retries=max(0, int(os.getenv("DEEPSEEK_MAX_RETRIES", "2"))),
             deepseek_max_output_tokens=max(
                 256, int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "2400"))
+            ),
+            history_logging_enabled=os.getenv(
+                "WORLD_HISTORY_LOG_ENABLED", "true"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
+            history_directory=_resolve_path(
+                os.getenv("WORLD_HISTORY_LOG_DIR", "logs/worlds")
             ),
         )
