@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "virtual-world-core"
+version = "0.1.0"
+description = "一个可持久化、自主推进且模型供应商无关的虚拟世界内核"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "pydantic>=2.10,<3.0",
+    "uvicorn[standard]>=0.34,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28,<1.0",
+    "pytest>=8.3,<9.0",
+    "ruff>=0.9,<1.0",
+]
+
+[project.scripts]
+virtual-world = "world_engine.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["world_engine*"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
