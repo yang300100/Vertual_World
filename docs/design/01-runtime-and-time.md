@@ -170,4 +170,3 @@ next_adjudication_world_time
 - 人物行动与重大后果。
 
 普通的每分钟数值变化不会淹没 `history.md`。
-
