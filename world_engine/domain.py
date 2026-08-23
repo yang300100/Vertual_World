@@ -51,6 +51,12 @@ class WorldState(BaseModel):
     status: str
     version: int = Field(ge=0)
     tick_count: int = Field(ge=0)
+    time_scale: float = Field(ge=0, le=10080)
+    clock_revision: int = Field(ge=0)
+    offline_policy: str
+    last_adjudication_time: datetime
+    next_adjudication_time: datetime
+    adjudication_interval_minutes: int = Field(ge=1)
 
 
 class WorldSnapshot(BaseModel):
@@ -103,4 +109,36 @@ class TickResult(BaseModel):
     previous_version: int
     current_version: int
     outcomes: list[ActionOutcome]
+    trigger: str = "manual"
+    provider: str = "rules"
+    fallback_used: bool = False
 
+
+class HeartbeatResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    world_id: str
+    heartbeat_id: str
+    real_time: datetime
+    real_elapsed_seconds: float = Field(ge=0)
+    time_scale: float = Field(ge=0, le=10080)
+    world_delta_seconds: float = Field(ge=0)
+    previous_time: datetime
+    current_time: datetime
+    clock_revision: int = Field(ge=0)
+    characters_updated: int = Field(ge=0)
+    state_update_count: int = Field(ge=0)
+    adjudication_due: bool
+    adjudication: TickResult | None = None
+    adjudication_error: str | None = None
+
+
+class ClockUpdateResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    world_id: str
+    old_time_scale: float
+    new_time_scale: float
+    world_time: datetime
+    clock_revision: int
+    event_id: str | None = None

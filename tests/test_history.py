@@ -48,7 +48,7 @@ def test_tick_automatically_writes_markdown_jsonl_and_per_tick_logs(
     assert "行动理由" in markdown
     assert len(jsonl_lines) == 8
     assert len(tick_files) == 2
-    assert json.loads(jsonl_lines[-1])["event_type"] == "world.tick"
+    assert json.loads(jsonl_lines[-1])["event_type"] == "world.adjudication"
     assert json.loads(tick_files[-1].read_text(encoding="utf-8"))["sequence"] == 2
 
 
@@ -104,3 +104,59 @@ def test_history_sync_api_returns_generated_log_paths(settings, tmp_path) -> Non
     assert response.status_code == 200
     assert response.json()["tick_count"] == 1
     assert response.json()["event_count"] == 4
+
+
+def test_heartbeat_and_character_state_logs_are_separate(database, settings, tmp_path) -> None:
+    history_directory = tmp_path / "separate-state-history"
+    history_settings = replace(
+        settings,
+        history_logging_enabled=True,
+        history_directory=history_directory,
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+
+    heartbeat = engine.heartbeat(world_id, elapsed_seconds=3600)
+    export = engine.sync_history(world_id)
+
+    world_directory = history_directory / world_id
+    heartbeat_lines = (world_directory / "heartbeats.jsonl").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    state_lines = (world_directory / "state_updates.jsonl").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    character_files = list((world_directory / "characters").glob("*.state.jsonl"))
+    state_manifest = json.loads(
+        (world_directory / "state_manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert heartbeat.adjudication is None
+    assert export.heartbeat_count == 1
+    assert export.state_update_count == 3
+    assert len(heartbeat_lines) == 1
+    assert len(state_lines) == 3
+    assert len(character_files) == 3
+    assert state_manifest["heartbeat_count"] == 1
+    assert state_manifest["state_update_count"] == 3
+
+
+def test_time_scale_change_is_recorded_in_world_history(database, settings, tmp_path) -> None:
+    history_directory = tmp_path / "clock-history"
+    history_settings = replace(
+        settings,
+        history_logging_enabled=True,
+        history_directory=history_directory,
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+
+    result = engine.set_time_scale(world_id, 2.0, operator="main_view")
+
+    markdown = (history_directory / world_id / "history.md").read_text(
+        encoding="utf-8"
+    )
+    assert result.old_time_scale == 1.0
+    assert result.new_time_scale == 2.0
+    assert "时间比例调整" in markdown
+    assert "世界时间比例由1.0调整为2.0" in markdown

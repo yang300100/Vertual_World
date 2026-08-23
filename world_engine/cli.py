@@ -25,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     create = subparsers.add_parser("create", help="创建一个世界")
     create.add_argument("--name", required=True)
     create.add_argument("--minutes-per-tick", type=int)
+    create.add_argument("--time-scale", type=float)
     create.add_argument("--empty", action="store_true", help="不创建演示人物与地点")
 
     subparsers.add_parser("list", help="列出所有世界")
@@ -32,8 +33,30 @@ def build_parser() -> argparse.ArgumentParser:
     show = subparsers.add_parser("show", help="查看世界快照")
     show.add_argument("world_id")
 
-    tick = subparsers.add_parser("tick", help="手动推进一轮")
+    tick = subparsers.add_parser("tick", help="兼容入口：强制裁判但不推进时间")
     tick.add_argument("world_id")
+
+    heartbeat = subparsers.add_parser("heartbeat", help="执行一次状态心跳")
+    heartbeat.add_argument("world_id")
+    heartbeat.add_argument(
+        "--elapsed-seconds",
+        type=float,
+        help="管理与测试用途：覆盖实际经过秒数",
+    )
+
+    speed = subparsers.add_parser("speed", help="调整世界时间比例")
+    speed.add_argument("world_id")
+    speed.add_argument("time_scale", type=float)
+    speed.add_argument("--operator", default="main_view")
+
+    adjudicate = subparsers.add_parser("adjudicate", help="立即执行一次模型裁判")
+    adjudicate.add_argument("world_id")
+    adjudicate.add_argument(
+        "--trigger",
+        choices=["manual", "player_intervention"],
+        default="manual",
+    )
+    adjudicate.add_argument("--character-id", action="append", dest="character_ids")
 
     events = subparsers.add_parser("events", help="查看世界事件")
     events.add_argument("world_id")
@@ -46,6 +69,10 @@ def build_parser() -> argparse.ArgumentParser:
     memories.add_argument("world_id")
     memories.add_argument("character_id")
     memories.add_argument("--limit", type=int, default=50)
+
+    adjudications = subparsers.add_parser("adjudications", help="查看模型裁判记录")
+    adjudications.add_argument("world_id")
+    adjudications.add_argument("--limit", type=int, default=50)
     return parser
 
 
@@ -65,6 +92,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 connection,
                 name=args.name,
                 minutes_per_tick=args.minutes_per_tick or settings.minutes_per_tick,
+                time_scale=(
+                    args.time_scale
+                    if args.time_scale is not None
+                    else settings.default_time_scale
+                ),
+                adjudication_interval_minutes=settings.adjudication_interval_minutes,
                 seed_demo=not args.empty,
             )
             _print_json(repository.get_snapshot(connection, world_id))
@@ -81,6 +114,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "tick":
         _print_json(engine.tick(args.world_id))
         return 0
+    if args.command == "heartbeat":
+        _print_json(
+            engine.heartbeat(
+                args.world_id,
+                elapsed_seconds=args.elapsed_seconds,
+            )
+        )
+        return 0
+    if args.command == "speed":
+        _print_json(
+            engine.set_time_scale(
+                args.world_id,
+                args.time_scale,
+                operator=args.operator,
+            )
+        )
+        return 0
+    if args.command == "adjudicate":
+        _print_json(
+            engine.adjudicate(
+                args.world_id,
+                trigger=args.trigger,
+                character_ids=args.character_ids,
+            )
+        )
+        return 0
     if args.command == "events":
         with database.read() as connection:
             _print_json(repository.list_events(connection, args.world_id, args.limit))
@@ -93,6 +152,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             _print_json(
                 repository.list_memories(
                     connection, args.world_id, args.character_id, args.limit
+                )
+            )
+        return 0
+    if args.command == "adjudications":
+        with database.read() as connection:
+            _print_json(
+                repository.list_adjudication_runs(
+                    connection, args.world_id, args.limit
                 )
             )
         return 0

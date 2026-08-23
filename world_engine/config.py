@@ -22,8 +22,8 @@ class Settings:
 
     database_path: Path
     minutes_per_tick: int = 60
-    worker_interval_seconds: int = 300
-    active_character_limit: int = 5
+    worker_interval_seconds: int = 60
+    active_character_limit: int = 10
     decision_provider: str = "rules"
     deepseek_api_key: str | None = field(default=None, repr=False)
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -33,6 +33,10 @@ class Settings:
     deepseek_max_output_tokens: int = 2400
     history_logging_enabled: bool = False
     history_directory: Path | None = None
+    default_time_scale: float = 1.0
+    adjudication_interval_minutes: int = 720
+    hunger_per_world_hour: float = 3.0
+    energy_loss_per_world_hour: float = 2.0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -41,10 +45,10 @@ class Settings:
             database_path=_resolve_path(os.getenv("WORLD_DB_PATH", "data/world.db")),
             minutes_per_tick=max(1, int(os.getenv("WORLD_MINUTES_PER_TICK", "60"))),
             worker_interval_seconds=max(
-                1, int(os.getenv("WORLD_WORKER_INTERVAL_SECONDS", "300"))
+                1, int(os.getenv("WORLD_WORKER_INTERVAL_SECONDS", "60"))
             ),
             active_character_limit=max(
-                1, int(os.getenv("WORLD_ACTIVE_CHARACTER_LIMIT", "5"))
+                1, int(os.getenv("WORLD_ACTIVE_CHARACTER_LIMIT", "10"))
             ),
             decision_provider=os.getenv("WORLD_DECISION_PROVIDER", "rules").strip().lower(),
             deepseek_api_key=os.getenv("DEEPSEEK_API_KEY") or None,
@@ -67,5 +71,17 @@ class Settings:
             in {"1", "true", "yes", "on"},
             history_directory=_resolve_path(
                 os.getenv("WORLD_HISTORY_LOG_DIR", "logs/worlds")
+            ),
+            default_time_scale=max(
+                0.0, min(10080.0, float(os.getenv("WORLD_DEFAULT_TIME_SCALE", "1.0")))
+            ),
+            adjudication_interval_minutes=max(
+                1, int(os.getenv("WORLD_ADJUDICATION_INTERVAL_MINUTES", "720"))
+            ),
+            hunger_per_world_hour=max(
+                0.0, float(os.getenv("WORLD_HUNGER_PER_WORLD_HOUR", "3.0"))
+            ),
+            energy_loss_per_world_hour=max(
+                0.0, float(os.getenv("WORLD_ENERGY_LOSS_PER_WORLD_HOUR", "2.0"))
             ),
         )

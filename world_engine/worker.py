@@ -25,7 +25,7 @@ class WorldWorker:
         self.engine = WorldEngine(self.database, settings)
         self.stop_event = threading.Event()
 
-    def run_once(self) -> int:
+    def run_once(self, *, elapsed_seconds: float | None = None) -> int:
         with self.database.read() as connection:
             worlds = [
                 item
@@ -37,13 +37,18 @@ class WorldWorker:
             if self.stop_event.is_set():
                 break
             try:
-                result = self.engine.tick(world.id)
+                result = self.engine.heartbeat(
+                    world.id,
+                    elapsed_seconds=elapsed_seconds,
+                )
                 completed += 1
                 LOGGER.info(
-                    "世界 %s 已推进到 %s，共结算 %s 个行动",
+                    "世界 %s 心跳完成：%s -> %s，状态更新%s人，裁判=%s",
                     world.name,
+                    result.previous_time.isoformat(),
                     result.current_time.isoformat(),
-                    len(result.outcomes),
+                    result.characters_updated,
+                    "是" if result.adjudication else "否",
                 )
             except ConcurrentWorldUpdateError:
                 LOGGER.info("世界 %s 正由另一进程推进，本轮跳过", world.name)
@@ -52,10 +57,16 @@ class WorldWorker:
         return completed
 
     def run_forever(self) -> None:
-        LOGGER.info("世界worker已启动，间隔%s秒", self.settings.worker_interval_seconds)
+        reset_count = self.engine.reset_offline_baseline()
+        LOGGER.info(
+            "世界worker已启动，已暂停补算%s个世界，心跳间隔%s秒",
+            reset_count,
+            self.settings.worker_interval_seconds,
+        )
         while not self.stop_event.is_set():
+            if self.stop_event.wait(self.settings.worker_interval_seconds):
+                break
             self.run_once()
-            self.stop_event.wait(self.settings.worker_interval_seconds)
         LOGGER.info("世界worker已停止")
 
     def stop(self, *_: object) -> None:
@@ -80,7 +91,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         signal.signal(signal.SIGTERM, worker.stop)
     if args.once:
         try:
-            return 0 if worker.run_once() >= 0 else 1
+            worker.engine.reset_offline_baseline()
+            return 0 if worker.run_once(elapsed_seconds=0) >= 0 else 1
         finally:
             worker.engine.close()
     try:

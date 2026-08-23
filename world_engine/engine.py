@@ -3,16 +3,25 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import timedelta
+from datetime import datetime
 from uuid import uuid4
 
 from world_engine.actions import ActionService
+from world_engine.clock import WorldClockService
 from world_engine.config import Settings
 from world_engine.database import Database
 from world_engine.decisions import DecisionProvider, RuleDecisionProvider, build_decision_provider
-from world_engine.domain import ActionProposal, CharacterState, TickResult, WorldSnapshot
+from world_engine.domain import (
+    ActionProposal,
+    CharacterState,
+    ClockUpdateResult,
+    HeartbeatResult,
+    TickResult,
+    WorldSnapshot,
+)
 from world_engine.history import HistoryExportResult, WorldHistoryLogger
 from world_engine.repository import WorldRepository, to_iso, utc_now
+from world_engine.time_utils import next_adjudication_boundary
 
 
 class ConcurrentWorldUpdateError(RuntimeError):
@@ -23,7 +32,7 @@ LOGGER = logging.getLogger("virtual-world.engine")
 
 
 class WorldEngine:
-    """协调感知、决策、校验、结算、事件和记忆的世界推进器。"""
+    """协调状态心跳、人物决策、本地裁判、事件、记忆和历史日志。"""
 
     def __init__(
         self,
@@ -37,21 +46,89 @@ class WorldEngine:
         self.decision_provider = decision_provider or build_decision_provider(settings)
         self.fallback_provider = RuleDecisionProvider()
         self.actions = ActionService()
+        self.clock = WorldClockService(database, settings)
         self.history_logger = (
             WorldHistoryLogger(database, settings.history_directory)
             if settings.history_logging_enabled and settings.history_directory is not None
             else None
         )
 
+    def reset_offline_baseline(self, real_now: datetime | None = None) -> int:
+        return self.clock.reset_offline_baseline(real_now)
+
+    def heartbeat(
+        self,
+        world_id: str,
+        *,
+        real_now: datetime | None = None,
+        elapsed_seconds: float | None = None,
+    ) -> HeartbeatResult:
+        result = self.clock.heartbeat(
+            world_id,
+            real_now=real_now,
+            elapsed_seconds=elapsed_seconds,
+        )
+        if result.adjudication_due:
+            try:
+                with self.database.read() as connection:
+                    snapshot = self.repository.get_snapshot(connection, world_id)
+                result.adjudication = self.adjudicate(
+                    world_id,
+                    trigger="scheduled_12h",
+                    window_start=snapshot.world.last_adjudication_time,
+                    window_end=result.current_time,
+                )
+            except Exception as exc:
+                result.adjudication_error = str(exc)
+                LOGGER.exception("世界%s到达裁判点，但自主裁判未完成", world_id)
+        self._sync_state_logs_safely(world_id)
+        return result
+
+    def set_time_scale(
+        self,
+        world_id: str,
+        new_time_scale: float,
+        *,
+        operator: str = "main_view",
+    ) -> ClockUpdateResult:
+        # 先按旧比例结算到此刻，避免调速把此前的现实时间误按新比例计算。
+        self.heartbeat(world_id)
+        result = self.clock.set_time_scale(
+            world_id,
+            new_time_scale,
+            operator=operator,
+        )
+        self._sync_history_safely(world_id)
+        return result
+
     def tick(self, world_id: str) -> TickResult:
+        """兼容旧入口：现在只强制裁判，不再推进世界时间。"""
+
+        return self.adjudicate(world_id, trigger="manual")
+
+    def adjudicate(
+        self,
+        world_id: str,
+        *,
+        trigger: str,
+        character_ids: list[str] | None = None,
+        window_start: datetime | None = None,
+        window_end: datetime | None = None,
+    ) -> TickResult:
         started_at = utc_now()
-        tick_id = str(uuid4())
+        adjudication_id = str(uuid4())
         with self.database.read() as connection:
             snapshot = self.repository.get_snapshot(connection, world_id)
 
-        active_characters = self._select_active_characters(snapshot)
-        proposals, provider_name = self._propose(snapshot, active_characters)
-        proposal_by_actor = self._normalize_proposals(snapshot, active_characters, proposals)
+        active_characters = self._select_active_characters(snapshot, character_ids)
+        proposals, provider_name, fallback_used, provider_error = self._propose(
+            snapshot, active_characters
+        )
+        proposal_by_actor = self._normalize_proposals(
+            snapshot, active_characters, proposals
+        )
+        resolved_window_start = window_start or snapshot.world.current_time
+        resolved_window_end = window_end or snapshot.world.current_time
 
         try:
             with self.database.write() as connection:
@@ -70,8 +147,6 @@ class WorldEngine:
                     """,
                     (to_iso(started_at), world_id),
                 )
-                self._apply_background_needs(connection, world_id)
-
                 outcomes = []
                 for character in active_characters:
                     proposal = proposal_by_actor[character.id]
@@ -79,24 +154,21 @@ class WorldEngine:
                         self.actions.execute(
                             connection,
                             world_id=world_id,
-                            tick_id=tick_id,
+                            tick_id=adjudication_id,
                             occurred_at=snapshot.world.current_time,
                             proposal=proposal,
                         )
                     )
 
-                new_time = snapshot.world.current_time + timedelta(
-                    minutes=snapshot.world.minutes_per_tick
-                )
                 new_version = snapshot.world.version + 1
                 completed_at = utc_now()
                 connection.execute(
                     """
                     UPDATE worlds
-                    SET current_time = ?, version = ?, updated_at = ?
+                    SET version = ?, updated_at = ?
                     WHERE id = ?
                     """,
-                    (to_iso(new_time), new_version, to_iso(completed_at), world_id),
+                    (new_version, to_iso(completed_at), world_id),
                 )
                 connection.execute(
                     """
@@ -108,47 +180,129 @@ class WorldEngine:
                     """,
                     (to_iso(completed_at), world_id),
                 )
+                if trigger == "scheduled_12h":
+                    next_boundary = next_adjudication_boundary(
+                        resolved_window_end,
+                        snapshot.world.adjudication_interval_minutes,
+                    )
+                    connection.execute(
+                        """
+                        UPDATE world_clock
+                        SET last_adjudication_world_time = ?,
+                            next_adjudication_world_time = ?,
+                            clock_revision = clock_revision + 1,
+                            updated_at = ?
+                        WHERE world_id = ?
+                        """,
+                        (
+                            to_iso(resolved_window_end),
+                            to_iso(next_boundary),
+                            to_iso(completed_at),
+                            world_id,
+                        ),
+                    )
+                elif trigger == "player_intervention":
+                    connection.execute(
+                        """
+                        UPDATE world_clock
+                        SET last_player_intervention_world_time = ?, updated_at = ?
+                        WHERE world_id = ?
+                        """,
+                        (
+                            to_iso(snapshot.world.current_time),
+                            to_iso(completed_at),
+                            world_id,
+                        ),
+                    )
+
+                adjudication_event_id = str(uuid4())
                 connection.execute(
                     """
                     INSERT INTO world_events(
                         id, world_id, tick_id, occurred_at, event_type,
                         summary, payload_json, created_at
-                    ) VALUES (?, ?, ?, ?, 'world.tick', ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, 'world.adjudication', ?, ?, ?)
                     """,
                     (
-                        str(uuid4()),
+                        adjudication_event_id,
                         world_id,
-                        tick_id,
-                        to_iso(new_time),
-                        f"世界时间推进了{snapshot.world.minutes_per_tick}分钟。",
+                        adjudication_id,
+                        to_iso(snapshot.world.current_time),
+                        "世界在当前时间完成了一次人物与事件裁判。",
                         json.dumps(
                             {
+                                "trigger": trigger,
                                 "provider": provider_name,
+                                "fallback_used": fallback_used,
+                                "provider_error": provider_error,
                                 "active_character_count": len(active_characters),
                                 "accepted_action_count": sum(
                                     1 for item in outcomes if item.accepted
                                 ),
                                 "previous_version": snapshot.world.version,
                                 "current_version": new_version,
-                                "previous_time": to_iso(snapshot.world.current_time),
-                                "current_time": to_iso(new_time),
+                                "window_start": to_iso(resolved_window_start),
+                                "window_end": to_iso(resolved_window_end),
                             },
                             ensure_ascii=False,
                         ),
                         to_iso(completed_at),
                     ),
                 )
+                proposal_records = [
+                    proposal_by_actor[item.id].model_dump(mode="json")
+                    for item in active_characters
+                ]
+                rejections = [
+                    item.model_dump(mode="json")
+                    for item in outcomes
+                    if not item.accepted
+                ]
+                final_event_ids = [
+                    item.event_id for item in outcomes if item.event_id is not None
+                ] + [adjudication_event_id]
+                connection.execute(
+                    """
+                    INSERT INTO adjudication_runs(
+                        id, world_id, trigger_type, window_start, window_end,
+                        provider, selected_character_ids_json, proposals_json,
+                        rule_rejections_json, final_event_ids_json,
+                        fallback_used, status, started_at, completed_at, error_text
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)
+                    """,
+                    (
+                        adjudication_id,
+                        world_id,
+                        trigger,
+                        to_iso(resolved_window_start),
+                        to_iso(resolved_window_end),
+                        provider_name,
+                        json.dumps(
+                            [item.id for item in active_characters], ensure_ascii=False
+                        ),
+                        json.dumps(proposal_records, ensure_ascii=False),
+                        json.dumps(rejections, ensure_ascii=False),
+                        json.dumps(final_event_ids, ensure_ascii=False),
+                        int(fallback_used),
+                        to_iso(started_at),
+                        to_iso(completed_at),
+                        provider_error,
+                    ),
+                )
 
             result = TickResult(
                 world_id=world_id,
-                tick_id=tick_id,
+                tick_id=adjudication_id,
                 started_at=started_at,
                 completed_at=completed_at,
                 previous_time=snapshot.world.current_time,
-                current_time=new_time,
+                current_time=snapshot.world.current_time,
                 previous_version=snapshot.world.version,
                 current_version=new_version,
                 outcomes=outcomes,
+                trigger=trigger,
+                provider=provider_name,
+                fallback_used=fallback_used,
             )
             self._sync_history_safely(world_id)
             return result
@@ -173,7 +327,16 @@ class WorldEngine:
             raise RuntimeError("世界历史日志未启用")
         return self.history_logger.sync_world(world_id)
 
-    def _select_active_characters(self, snapshot: WorldSnapshot) -> list[CharacterState]:
+    def _select_active_characters(
+        self,
+        snapshot: WorldSnapshot,
+        character_ids: list[str] | None = None,
+    ) -> list[CharacterState]:
+        if character_ids is not None:
+            allowed = set(character_ids)
+            selected = [item for item in snapshot.characters if item.id in allowed]
+            return selected[: self.settings.active_character_limit]
+
         def priority(character: CharacterState) -> tuple[int, str]:
             urgency = character.hunger + (100 - character.energy)
             if character.money < 10:
@@ -186,16 +349,26 @@ class WorldEngine:
 
     def _propose(
         self, snapshot: WorldSnapshot, characters: list[CharacterState]
-    ) -> tuple[list[ActionProposal], str]:
+    ) -> tuple[list[ActionProposal], str, bool, str | None]:
         try:
-            return self.decision_provider.propose(snapshot, characters), self.decision_provider.name
+            return (
+                self.decision_provider.propose(snapshot, characters),
+                self.decision_provider.name,
+                False,
+                None,
+            )
         except Exception as exc:
             LOGGER.warning(
-                "决策器%s调用失败，当前轮次降级为规则引擎：%s",
+                "决策器%s调用失败，当前裁判降级为规则引擎：%s",
                 self.decision_provider.name,
                 exc,
             )
-            return self.fallback_provider.propose(snapshot, characters), self.fallback_provider.name
+            return (
+                self.fallback_provider.propose(snapshot, characters),
+                self.fallback_provider.name,
+                True,
+                str(exc),
+            )
 
     def _normalize_proposals(
         self,
@@ -213,20 +386,6 @@ class WorldEngine:
         for fallback in self.fallback_provider.propose(snapshot, missing):
             normalized[fallback.actor_id] = fallback
         return normalized
-
-    @staticmethod
-    def _apply_background_needs(connection, world_id: str) -> None:
-        now = to_iso(utc_now())
-        connection.execute(
-            """
-            UPDATE characters
-            SET hunger = MIN(100, hunger + 3),
-                energy = MAX(0, energy - 2),
-                updated_at = ?
-            WHERE world_id = ?
-            """,
-            (now, world_id),
-        )
 
     def _mark_failed(self, world_id: str) -> None:
         try:
@@ -249,5 +408,14 @@ class WorldEngine:
         try:
             self.history_logger.sync_world(world_id)
         except Exception:
-            # 日志是客观事件表的派生视图，导出失败不能回滚已经完成的世界轮次。
-            LOGGER.exception("世界%s已完成推进，但历史日志同步失败", world_id)
+            # 日志是客观事件表的派生视图，导出失败不能回滚已完成事务。
+            LOGGER.exception("世界%s事务已完成，但历史日志同步失败", world_id)
+
+    def _sync_state_logs_safely(self, world_id: str) -> None:
+        if self.history_logger is None:
+            return
+        try:
+            self.history_logger.sync_state_logs(world_id)
+        except Exception:
+            # 状态日志同样可以从SQLite心跳与状态差值表重新生成。
+            LOGGER.exception("世界%s心跳已完成，但人物状态日志同步失败", world_id)

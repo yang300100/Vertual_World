@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+
+from world_engine.time_utils import next_adjudication_boundary
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS worlds (
@@ -93,6 +96,81 @@ CREATE TABLE IF NOT EXISTS character_memories (
 
 CREATE INDEX IF NOT EXISTS idx_character_memories_character_time
 ON character_memories(character_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS world_clock (
+    world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+    time_scale REAL NOT NULL DEFAULT 1.0 CHECK (time_scale BETWEEN 0 AND 10080),
+    heartbeat_interval_seconds INTEGER NOT NULL DEFAULT 60 CHECK (heartbeat_interval_seconds > 0),
+    last_heartbeat_real_time TEXT,
+    clock_revision INTEGER NOT NULL DEFAULT 0,
+    offline_policy TEXT NOT NULL DEFAULT 'pause' CHECK (offline_policy = 'pause'),
+    last_adjudication_world_time TEXT NOT NULL,
+    next_adjudication_world_time TEXT NOT NULL,
+    adjudication_interval_minutes INTEGER NOT NULL DEFAULT 720,
+    last_player_intervention_world_time TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS world_heartbeats (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    real_time TEXT NOT NULL,
+    real_elapsed_seconds REAL NOT NULL CHECK (real_elapsed_seconds >= 0),
+    time_scale REAL NOT NULL CHECK (time_scale >= 0),
+    world_delta_seconds REAL NOT NULL CHECK (world_delta_seconds >= 0),
+    world_time_before TEXT NOT NULL,
+    world_time_after TEXT NOT NULL,
+    characters_updated INTEGER NOT NULL DEFAULT 0,
+    adjudication_due INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_heartbeats_world_time
+ON world_heartbeats(world_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS character_state_accumulators (
+    character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    hunger_residual REAL NOT NULL DEFAULT 0,
+    energy_residual REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS character_state_updates (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    heartbeat_id TEXT NOT NULL REFERENCES world_heartbeats(id) ON DELETE CASCADE,
+    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    world_time_before TEXT NOT NULL,
+    world_time_after TEXT NOT NULL,
+    changes_json TEXT NOT NULL,
+    cause TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_state_updates_character_time
+ON character_state_updates(character_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS adjudication_runs (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    trigger_type TEXT NOT NULL,
+    window_start TEXT NOT NULL,
+    window_end TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    selected_character_ids_json TEXT NOT NULL,
+    proposals_json TEXT NOT NULL,
+    rule_rejections_json TEXT NOT NULL,
+    final_event_ids_json TEXT NOT NULL,
+    fallback_used INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    error_text TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_adjudication_runs_world_time
+ON adjudication_runs(world_id, completed_at ASC);
 """
 
 
@@ -114,6 +192,45 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._ensure_clock_and_accumulator_rows(connection)
+
+    @staticmethod
+    def _ensure_clock_and_accumulator_rows(connection: sqlite3.Connection) -> None:
+        world_rows = connection.execute(
+            """
+            SELECT worlds.id,
+                   worlds."current_time" AS current_time,
+                   worlds.updated_at
+            FROM worlds
+            """
+        ).fetchall()
+        for row in world_rows:
+            current_time = datetime.fromisoformat(row["current_time"])
+            next_boundary = next_adjudication_boundary(current_time)
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO world_clock(
+                    world_id, time_scale, heartbeat_interval_seconds,
+                    last_heartbeat_real_time, clock_revision, offline_policy,
+                    last_adjudication_world_time, next_adjudication_world_time,
+                    adjudication_interval_minutes, updated_at
+                ) VALUES (?, 1.0, 60, NULL, 0, 'pause', ?, ?, 720, ?)
+                """,
+                (
+                    row["id"],
+                    row["current_time"],
+                    next_boundary.isoformat(),
+                    row["updated_at"],
+                ),
+            )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO character_state_accumulators(
+                character_id, world_id, hunger_residual, energy_residual, updated_at
+            )
+            SELECT id, world_id, 0, 0, updated_at FROM characters
+            """
+        )
 
     @contextmanager
     def read(self) -> Iterator[sqlite3.Connection]:
@@ -135,4 +252,3 @@ class Database:
             raise
         finally:
             connection.close()
-

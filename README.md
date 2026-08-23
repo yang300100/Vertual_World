@@ -26,6 +26,10 @@
 - 决策器通过 `DecisionProvider` 协议替换；模型不可直接写数据库。
 - Web API 不包含定时器，自动推进由独立 worker 负责。
 - 可直接使用DeepSeek模型批量生成结构化人物行动，失败时自动降级为规则决策。
+- 独立worker每现实60秒执行一次轻量状态心跳，默认现实时间与世界时间1:1。
+- 世界时间比例可运行时调整，0表示暂停；服务器重启后不补算离线时间。
+- 自主模型裁判固定在世界时间00:00和12:00，裁判本身不推进时间。
+- 人物状态心跳、世界事件和模型裁判过程分别记录。
 
 ## DeepSeek模型配置
 
@@ -71,11 +75,19 @@ python -m venv .venv
 logs/worlds/<world_id>/history.md
 logs/worlds/<world_id>/history.jsonl
 logs/worlds/<world_id>/ticks/<sequence>_<tick_id>.json
+logs/worlds/<world_id>/heartbeats.jsonl
+logs/worlds/<world_id>/state_updates.jsonl
+logs/worlds/<world_id>/state_manifest.json
+logs/worlds/<world_id>/characters/<character_id>.state.jsonl
 ```
 
 - `history.md`：适合直接阅读，按轮次显示决策器、行动、失败原因和行动理由。
 - `history.jsonl`：每行一个完整客观事件，保留人物与轮次ID。
 - `ticks/`：每个轮次一个结构化快照，方便精确复盘。
+- `heartbeats.jsonl`：每分钟世界时钟和状态更新摘要。
+- `state_updates.jsonl`：人物连续状态差值，不污染世界编年史。
+- `state_manifest.json`：独立保存心跳和人物状态日志的最新计数。
+- `characters/`：按人物拆分的状态变化历史。
 
 旧数据库也可以随时回填日志：
 
@@ -91,6 +103,10 @@ logs/worlds/<world_id>/ticks/<sequence>_<tick_id>.json
 .\.venv\Scripts\python.exe -m world_engine.cli create --name "初始小镇"
 .\.venv\Scripts\python.exe -m world_engine.cli list
 .\.venv\Scripts\python.exe -m world_engine.cli tick <world_id>
+.\.venv\Scripts\python.exe -m world_engine.cli heartbeat <world_id>
+.\.venv\Scripts\python.exe -m world_engine.cli speed <world_id> 2
+.\.venv\Scripts\python.exe -m world_engine.cli adjudicate <world_id>
+.\.venv\Scripts\python.exe -m world_engine.cli adjudications <world_id>
 .\.venv\Scripts\python.exe -m world_engine.cli show <world_id>
 .\.venv\Scripts\python.exe -m world_engine.cli history <world_id>
 ```
@@ -98,14 +114,15 @@ logs/worlds/<world_id>/ticks/<sequence>_<tick_id>.json
 ## 核心因果链
 
 ```text
-读取世界快照
-  -> 选出活跃人物
+现实一分钟心跳
+  -> 按当前比例推进世界时间
+  -> 确定性更新人物连续状态
+  -> 检查00:00/12:00裁判边界
+  -> 到期时选择活跃人物
   -> 决策器提出结构化行动
   -> 世界版本与规则校验
   -> 事务内执行行动
-  -> 写入客观事件
-  -> 形成主观人物记忆
-  -> 推进世界时间与版本
+  -> 写入客观事件与主观记忆
 ```
 
 ## 后续阶段

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from world_engine.domain import CharacterState, LocationState, WorldSnapshot, WorldState
+from world_engine.time_utils import next_adjudication_boundary
 
 
 def utc_now() -> datetime:
@@ -33,6 +34,8 @@ class WorldRepository:
         *,
         name: str,
         minutes_per_tick: int,
+        time_scale: float = 1.0,
+        adjudication_interval_minutes: int = 720,
         seed_demo: bool = True,
     ) -> str:
         world_id = str(uuid4())
@@ -60,8 +63,40 @@ class WorldRepository:
             """,
             (world_id,),
         )
+        connection.execute(
+            """
+            INSERT INTO world_clock(
+                world_id, time_scale, heartbeat_interval_seconds,
+                last_heartbeat_real_time, clock_revision, offline_policy,
+                last_adjudication_world_time, next_adjudication_world_time,
+                adjudication_interval_minutes, updated_at
+            ) VALUES (?, ?, 60, NULL, 0, 'pause', ?, ?, ?, ?)
+            """,
+            (
+                world_id,
+                time_scale,
+                to_iso(world_time),
+                to_iso(
+                    next_adjudication_boundary(
+                        world_time, adjudication_interval_minutes
+                    )
+                ),
+                adjudication_interval_minutes,
+                to_iso(now),
+            ),
+        )
         if seed_demo:
             self._seed_demo(connection, world_id, now)
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO character_state_accumulators(
+                character_id, world_id, hunger_residual, energy_residual, updated_at
+            )
+            SELECT id, world_id, 0, 0, updated_at
+            FROM characters WHERE world_id = ?
+            """,
+            (world_id,),
+        )
         return world_id
 
     def _seed_demo(
@@ -160,9 +195,13 @@ class WorldRepository:
     def list_worlds(self, connection: sqlite3.Connection) -> list[WorldState]:
         rows = connection.execute(
             """
-            SELECT w.*, r.tick_count
+            SELECT w.*, r.tick_count,
+                   c.time_scale, c.clock_revision, c.offline_policy,
+                   c.last_adjudication_world_time, c.next_adjudication_world_time,
+                   c.adjudication_interval_minutes
             FROM worlds w
             JOIN world_runtime r ON r.world_id = w.id
+            JOIN world_clock c ON c.world_id = w.id
             ORDER BY w.created_at ASC
             """
         ).fetchall()
@@ -171,9 +210,13 @@ class WorldRepository:
     def get_snapshot(self, connection: sqlite3.Connection, world_id: str) -> WorldSnapshot:
         world_row = connection.execute(
             """
-            SELECT w.*, r.tick_count
+            SELECT w.*, r.tick_count,
+                   c.time_scale, c.clock_revision, c.offline_policy,
+                   c.last_adjudication_world_time, c.next_adjudication_world_time,
+                   c.adjudication_interval_minutes
             FROM worlds w
             JOIN world_runtime r ON r.world_id = w.id
+            JOIN world_clock c ON c.world_id = w.id
             WHERE w.id = ?
             """,
             (world_id,),
@@ -226,6 +269,67 @@ class WorldRepository:
         ).fetchall()
         return [self._event_dict(row) for row in rows]
 
+    def list_heartbeats_ascending(
+        self, connection: sqlite3.Connection, world_id: str
+    ) -> list[dict[str, object]]:
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM world_heartbeats
+            WHERE world_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (world_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_state_updates_ascending(
+        self, connection: sqlite3.Connection, world_id: str
+    ) -> list[dict[str, object]]:
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM character_state_updates
+            WHERE world_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (world_id,),
+        ).fetchall()
+        items: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            item["changes"] = json.loads(item.pop("changes_json"))
+            items.append(item)
+        return items
+
+    def list_adjudication_runs(
+        self, connection: sqlite3.Connection, world_id: str, limit: int = 100
+    ) -> list[dict[str, object]]:
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT * FROM adjudication_runs
+            WHERE world_id = ?
+            ORDER BY completed_at DESC, id DESC
+            LIMIT ?
+            """,
+            (world_id, max(1, min(limit, 500))),
+        ).fetchall()
+        json_fields = {
+            "selected_character_ids_json": "selected_character_ids",
+            "proposals_json": "proposals",
+            "rule_rejections_json": "rule_rejections",
+            "final_event_ids_json": "final_event_ids",
+        }
+        items: list[dict[str, object]] = []
+        for row in rows:
+            item = dict(row)
+            for source, target in json_fields.items():
+                item[target] = json.loads(item.pop(source))
+            item["fallback_used"] = bool(item["fallback_used"])
+            items.append(item)
+        return items
+
     def list_memories(
         self,
         connection: sqlite3.Connection,
@@ -264,6 +368,12 @@ class WorldRepository:
             status=row["status"],
             version=row["version"],
             tick_count=row["tick_count"],
+            time_scale=row["time_scale"],
+            clock_revision=row["clock_revision"],
+            offline_policy=row["offline_policy"],
+            last_adjudication_time=from_iso(row["last_adjudication_world_time"]),
+            next_adjudication_time=from_iso(row["next_adjudication_world_time"]),
+            adjudication_interval_minutes=row["adjudication_interval_minutes"],
         )
 
     @staticmethod

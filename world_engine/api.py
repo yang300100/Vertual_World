@@ -10,7 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.config import Settings
 from world_engine.database import Database
-from world_engine.domain import TickResult, WorldSnapshot, WorldState
+from world_engine.domain import (
+    ClockUpdateResult,
+    HeartbeatResult,
+    TickResult,
+    WorldSnapshot,
+    WorldState,
+)
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
 from world_engine.history import HistoryExportResult
 from world_engine.repository import WorldNotFoundError, WorldRepository
@@ -21,7 +27,22 @@ class CreateWorldRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     minutes_per_tick: int | None = Field(default=None, ge=1, le=24 * 60)
+    time_scale: float | None = Field(default=None, ge=0, le=10080)
     seed_demo: bool = True
+
+
+class ClockUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    time_scale: float = Field(ge=0, le=10080)
+    operator: str = Field(default="main_view", min_length=1, max_length=100)
+
+
+class AdjudicationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trigger: str = Field(default="manual", pattern="^(manual|player_intervention)$")
+    character_ids: list[str] | None = Field(default=None, max_length=10)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         database.initialize()
+        engine.reset_offline_baseline()
         try:
             yield
         finally:
@@ -62,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "status": "ok",
                 "database": "ready",
                 "decision_provider": engine.decision_provider.name,
+                "heartbeat_interval_seconds": resolved_settings.worker_interval_seconds,
             }
         except sqlite3.Error as exc:
             raise HTTPException(status_code=503, detail="世界数据库不可用") from exc
@@ -75,6 +98,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     connection,
                     name=payload.name,
                     minutes_per_tick=minutes_per_tick,
+                    time_scale=(
+                        payload.time_scale
+                        if payload.time_scale is not None
+                        else resolved_settings.default_time_scale
+                    ),
+                    adjudication_interval_minutes=(
+                        resolved_settings.adjudication_interval_minutes
+                    ),
                     seed_demo=payload.seed_demo,
                 )
                 return repository.get_snapshot(connection, world_id)
@@ -94,7 +125,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail="世界不存在") from exc
 
-    @application.post("/api/worlds/{world_id}/tick", response_model=TickResult)
+    @application.post(
+        "/api/worlds/{world_id}/tick",
+        response_model=TickResult,
+        deprecated=True,
+    )
     def tick_world(world_id: str) -> TickResult:
         try:
             return engine.tick(world_id)
@@ -104,6 +139,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except sqlite3.OperationalError as exc:
             raise HTTPException(status_code=503, detail="世界正在由另一个进程结算") from exc
+
+    @application.post(
+        "/api/worlds/{world_id}/heartbeat",
+        response_model=HeartbeatResult,
+    )
+    def heartbeat_world(world_id: str) -> HeartbeatResult:
+        try:
+            return engine.heartbeat(world_id)
+        except WorldNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="世界不存在") from exc
+        except sqlite3.OperationalError as exc:
+            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
+
+    @application.patch(
+        "/api/worlds/{world_id}/clock",
+        response_model=ClockUpdateResult,
+    )
+    def update_clock(world_id: str, payload: ClockUpdateRequest) -> ClockUpdateResult:
+        try:
+            return engine.set_time_scale(
+                world_id,
+                payload.time_scale,
+                operator=payload.operator,
+            )
+        except WorldNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="世界不存在") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/worlds/{world_id}/adjudicate",
+        response_model=TickResult,
+    )
+    def adjudicate_world(
+        world_id: str, payload: AdjudicationRequest
+    ) -> TickResult:
+        try:
+            return engine.adjudicate(
+                world_id,
+                trigger=payload.trigger,
+                character_ids=payload.character_ids,
+            )
+        except WorldNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="世界不存在") from exc
+        except ConcurrentWorldUpdateError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @application.get("/api/worlds/{world_id}/events")
     def list_events(
@@ -129,6 +210,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @application.get("/api/worlds/{world_id}/adjudications")
+    def list_adjudications(
+        world_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> list[dict[str, object]]:
+        try:
+            with database.read() as connection:
+                return repository.list_adjudication_runs(connection, world_id, limit)
+        except WorldNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="世界不存在") from exc
 
     @application.get("/api/worlds/{world_id}/characters/{character_id}/memories")
     def list_memories(

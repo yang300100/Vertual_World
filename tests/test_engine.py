@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 from world_engine.database import Database
@@ -21,7 +19,9 @@ def _create_demo_world(database: Database, minutes_per_tick: int = 60) -> str:
         )
 
 
-def test_tick_advances_time_and_persists_events(database, settings) -> None:
+def test_tick_adjudicates_without_advancing_time_and_persists_events(
+    database, settings
+) -> None:
     world_id = _create_demo_world(database)
     repository = WorldRepository()
     with database.read() as connection:
@@ -33,12 +33,13 @@ def test_tick_advances_time_and_persists_events(database, settings) -> None:
         after = repository.get_snapshot(connection, world_id)
         events = repository.list_events(connection, world_id)
 
-    assert result.current_time == before.world.current_time + timedelta(minutes=60)
+    assert result.current_time == before.world.current_time
     assert after.world.version == 1
     assert after.world.tick_count == 1
     assert len(result.outcomes) == 3
     assert all(item.event_id for item in result.outcomes)
-    assert any(item["event_type"] == "world.tick" for item in events)
+    assert result.trigger == "manual"
+    assert any(item["event_type"] == "world.adjudication" for item in events)
 
 
 def test_actions_change_character_state_and_create_subjective_memory(database, settings) -> None:
@@ -97,4 +98,3 @@ def test_concurrent_version_change_is_not_recorded_as_world_failure(database, se
             "SELECT last_tick_status FROM world_runtime WHERE world_id = ?", (world_id,)
         ).fetchone()
     assert runtime["last_tick_status"] == "never"
-

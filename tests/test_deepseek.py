@@ -127,7 +127,9 @@ def test_provider_failure_falls_back_to_rules(database, settings) -> None:
     )
     with database.read() as connection:
         events = WorldRepository().list_events(connection, snapshot.world.id)
-    tick_event = next(item for item in events if item["event_type"] == "world.tick")
+    tick_event = next(
+        item for item in events if item["event_type"] == "world.adjudication"
+    )
 
     assert result.current_version == 1
     assert len(result.outcomes) == 3
