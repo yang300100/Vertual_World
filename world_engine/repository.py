@@ -195,10 +195,11 @@ class WorldRepository:
     def list_worlds(self, connection: sqlite3.Connection) -> list[WorldState]:
         rows = connection.execute(
             """
-            SELECT w.*, r.tick_count,
+            SELECT w.*, r.tick_count, r.last_worker_seen_at,
                    c.time_scale, c.clock_revision, c.offline_policy,
                    c.last_adjudication_world_time, c.next_adjudication_world_time,
-                   c.adjudication_interval_minutes
+                   c.adjudication_interval_minutes, c.heartbeat_interval_seconds,
+                   c.last_heartbeat_real_time
             FROM worlds w
             JOIN world_runtime r ON r.world_id = w.id
             JOIN world_clock c ON c.world_id = w.id
@@ -210,10 +211,11 @@ class WorldRepository:
     def get_snapshot(self, connection: sqlite3.Connection, world_id: str) -> WorldSnapshot:
         world_row = connection.execute(
             """
-            SELECT w.*, r.tick_count,
+            SELECT w.*, r.tick_count, r.last_worker_seen_at,
                    c.time_scale, c.clock_revision, c.offline_policy,
                    c.last_adjudication_world_time, c.next_adjudication_world_time,
-                   c.adjudication_interval_minutes
+                   c.adjudication_interval_minutes, c.heartbeat_interval_seconds,
+                   c.last_heartbeat_real_time
             FROM worlds w
             JOIN world_runtime r ON r.world_id = w.id
             JOIN world_clock c ON c.world_id = w.id
@@ -374,6 +376,17 @@ class WorldRepository:
             last_adjudication_time=from_iso(row["last_adjudication_world_time"]),
             next_adjudication_time=from_iso(row["next_adjudication_world_time"]),
             adjudication_interval_minutes=row["adjudication_interval_minutes"],
+            heartbeat_interval_seconds=row["heartbeat_interval_seconds"],
+            last_heartbeat_real_time=(
+                from_iso(row["last_heartbeat_real_time"])
+                if row["last_heartbeat_real_time"]
+                else None
+            ),
+            last_worker_seen_at=(
+                from_iso(row["last_worker_seen_at"])
+                if row["last_worker_seen_at"]
+                else None
+            ),
         )
 
     @staticmethod

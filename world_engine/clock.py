@@ -32,6 +32,26 @@ class WorldClockService:
             )
             return cursor.rowcount
 
+    def mark_worker_seen(self, real_now: datetime | None = None) -> int:
+        now = real_now or utc_now()
+        with self.database.write() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE world_runtime
+                SET last_worker_seen_at = ?
+                WHERE world_id IN (SELECT id FROM worlds WHERE status = 'running')
+                """,
+                (to_iso(now),),
+            )
+            return cursor.rowcount
+
+    def clear_worker_seen(self) -> int:
+        with self.database.write() as connection:
+            cursor = connection.execute(
+                "UPDATE world_runtime SET last_worker_seen_at = NULL"
+            )
+            return cursor.rowcount
+
     def heartbeat(
         self,
         world_id: str,

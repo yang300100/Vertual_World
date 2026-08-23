@@ -450,6 +450,14 @@ button:disabled {
   font-weight: 700;
 }
 
+.summary-list dd.runtime-ok {
+  color: var(--green-strong);
+}
+
+.summary-list dd.runtime-offline {
+  color: var(--danger);
+}
+
 .intervention-box {
   display: grid;
   gap: 10px;

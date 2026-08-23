@@ -15,6 +15,7 @@ def test_api_creates_reads_and_ticks_world(settings) -> None:
         )
         assert health.status_code == 200
         assert health.json()["service"] == "virtual-world-core"
+        assert health.json()["server_time"].endswith("+00:00")
         assert created.status_code == 201
 
         world = created.json()
@@ -85,9 +86,11 @@ def test_frontend_assets_are_served_by_fastapi(settings) -> None:
     assert "虚拟世界控制台" in page.text
     assert 'id="heartbeat-button"' in page.text
     assert 'id="character-grid"' in page.text
+    assert 'id="worker-status"' in page.text
     assert styles.status_code == 200
     assert "--green-strong" in styles.text
     assert script.status_code == 200
     assert "/api/worlds/${state.worldId}/heartbeat" in script.text
+    assert "function updateLiveClock()" in script.text
     assert favicon.status_code == 200
     assert "image/svg+xml" in favicon.headers["content-type"]

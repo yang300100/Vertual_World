@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS world_runtime (
     tick_count INTEGER NOT NULL DEFAULT 0,
     last_tick_started_at TEXT,
     last_tick_finished_at TEXT,
-    last_tick_status TEXT
+    last_tick_status TEXT,
+    last_worker_seen_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS locations (
@@ -192,7 +193,19 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            self._ensure_runtime_columns(connection)
             self._ensure_clock_and_accumulator_rows(connection)
+
+    @staticmethod
+    def _ensure_runtime_columns(connection: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(world_runtime)").fetchall()
+        }
+        if "last_worker_seen_at" not in columns:
+            connection.execute(
+                "ALTER TABLE world_runtime ADD COLUMN last_worker_seen_at TEXT"
+            )
 
     @staticmethod
     def _ensure_clock_and_accumulator_rows(connection: sqlite3.Connection) -> None:

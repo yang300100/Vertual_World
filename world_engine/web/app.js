@@ -6,6 +6,8 @@ const state = {
   snapshot: null,
   busy: false,
   toastTimer: null,
+  serverOffsetMs: 0,
+  liveClock: null,
 };
 
 const elements = {
@@ -29,6 +31,8 @@ const elements = {
   tickCount: document.querySelector("#tick-count"),
   providerName: document.querySelector("#provider-name"),
   offlinePolicy: document.querySelector("#offline-policy"),
+  workerStatus: document.querySelector("#worker-status"),
+  lastHeartbeat: document.querySelector("#last-heartbeat"),
   interventionCharacter: document.querySelector("#intervention-character"),
   interventionButton: document.querySelector("#intervention-button"),
   characterCount: document.querySelector("#character-count"),
@@ -168,6 +172,8 @@ async function refreshAll({ reloadWorlds = false } = {}) {
       api("/api/health"),
     ]);
     state.snapshot = snapshot;
+    const serverTime = Date.parse(health.server_time);
+    state.serverOffsetMs = Number.isNaN(serverTime) ? 0 : serverTime - Date.now();
     renderSnapshot(snapshot, health);
     renderEvents(events);
     renderAdjudications(adjudications);
@@ -185,11 +191,7 @@ function renderSnapshot(snapshot, health) {
   );
   elements.worldTitle.textContent = world.name;
   elements.worldStatus.textContent = world.status === "running" ? "运行中" : world.status;
-  elements.worldTime.textContent = formatWorldTime(world.current_time);
-  elements.timeDescription.textContent =
-    world.time_scale === 0
-      ? "世界已暂停，状态心跳仍会记录但不会推进世界时间。"
-      : `现实 1 分钟 = 世界 ${world.time_scale} 分钟`;
+  configureLiveClock(world);
   elements.speedValue.textContent = formatSpeed(world.time_scale);
   elements.nextAdjudication.textContent = formatWorldTime(
     world.next_adjudication_time,
@@ -212,6 +214,61 @@ function renderSnapshot(snapshot, health) {
 
   renderCharacters(snapshot.characters, locationNames);
   renderInterventionOptions(snapshot.characters);
+}
+
+function configureLiveClock(world) {
+  const serverNow = Date.now() + state.serverOffsetMs;
+  const workerSeen = Date.parse(world.last_worker_seen_at || "");
+  const lastHeartbeat = Date.parse(world.last_heartbeat_real_time || "");
+  const heartbeatInterval = Number(world.heartbeat_interval_seconds || 60);
+  const staleAfterMs = Math.max(heartbeatInterval * 2500, 150000);
+  const workerAgeMs = serverNow - workerSeen;
+  const workerOnline =
+    !Number.isNaN(workerSeen) && workerAgeMs >= -10000 && workerAgeMs <= staleAfterMs;
+
+  state.liveClock = {
+    baseWorldMs: Date.parse(world.current_time),
+    lastHeartbeatMs: Number.isNaN(lastHeartbeat) ? null : lastHeartbeat,
+    timeScale: Number(world.time_scale),
+    workerOnline,
+    staleAfterMs,
+  };
+
+  elements.workerStatus.textContent = workerOnline ? "心跳正常" : "未自动运行";
+  elements.workerStatus.classList.toggle("runtime-ok", workerOnline);
+  elements.workerStatus.classList.toggle("runtime-offline", !workerOnline);
+  elements.lastHeartbeat.textContent = Number.isNaN(lastHeartbeat)
+    ? "尚未执行"
+    : formatRealTime(world.last_heartbeat_real_time);
+  updateLiveClock();
+}
+
+function updateLiveClock() {
+  const clock = state.liveClock;
+  if (!clock || Number.isNaN(clock.baseWorldMs)) {
+    elements.worldTime.textContent = "—";
+    return;
+  }
+  let displayedWorldMs = clock.baseWorldMs;
+  if (clock.workerOnline && clock.lastHeartbeatMs !== null && clock.timeScale > 0) {
+    const serverNow = Date.now() + state.serverOffsetMs;
+    const elapsedMs = Math.max(0, serverNow - clock.lastHeartbeatMs);
+    displayedWorldMs += Math.min(elapsedMs, clock.staleAfterMs) * clock.timeScale;
+  }
+  elements.worldTime.textContent = formatWorldTime(
+    new Date(displayedWorldMs).toISOString(),
+  );
+
+  if (clock.timeScale === 0) {
+    elements.timeDescription.textContent =
+      "世界已暂停，状态心跳仍会记录但不会推进世界时间。";
+  } else if (clock.workerOnline) {
+    elements.timeDescription.textContent =
+      `实时估算 · 现实 1 分钟 = 世界 ${clock.timeScale} 分钟`;
+  } else {
+    elements.timeDescription.textContent =
+      "worker未运行或心跳延迟，当前显示已保存的世界时间。";
+  }
 }
 
 function renderCharacters(characters, locationNames) {
@@ -495,5 +552,7 @@ document.addEventListener("visibilitychange", () => {
 window.setInterval(() => {
   if (document.visibilityState === "visible" && !state.busy) refreshAll();
 }, 5000);
+
+window.setInterval(updateLiveClock, 250);
 
 refreshAll({ reloadWorlds: true });

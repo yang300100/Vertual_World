@@ -56,6 +56,12 @@ class WorldEngine:
     def reset_offline_baseline(self, real_now: datetime | None = None) -> int:
         return self.clock.reset_offline_baseline(real_now)
 
+    def mark_worker_seen(self, real_now: datetime | None = None) -> int:
+        return self.clock.mark_worker_seen(real_now)
+
+    def clear_worker_seen(self) -> int:
+        return self.clock.clear_worker_seen()
+
     def heartbeat(
         self,
         world_id: str,

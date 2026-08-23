@@ -57,6 +57,9 @@ class WorldState(BaseModel):
     last_adjudication_time: datetime
     next_adjudication_time: datetime
     adjudication_interval_minutes: int = Field(ge=1)
+    heartbeat_interval_seconds: int = Field(ge=1)
+    last_heartbeat_real_time: datetime | None = None
+    last_worker_seen_at: datetime | None = None
 
 
 class WorldSnapshot(BaseModel):

@@ -58,6 +58,7 @@ class WorldWorker:
 
     def run_forever(self) -> None:
         reset_count = self.engine.reset_offline_baseline()
+        self.engine.mark_worker_seen()
         LOGGER.info(
             "世界worker已启动，已暂停补算%s个世界，心跳间隔%s秒",
             reset_count,
@@ -66,6 +67,7 @@ class WorldWorker:
         while not self.stop_event.is_set():
             if self.stop_event.wait(self.settings.worker_interval_seconds):
                 break
+            self.engine.mark_worker_seen()
             self.run_once()
         LOGGER.info("世界worker已停止")
 
@@ -99,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         worker.run_forever()
         return 0
     finally:
+        worker.engine.clear_worker_seen()
         worker.engine.close()
 
 

@@ -22,7 +22,7 @@ from world_engine.domain import (
 )
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
 from world_engine.history import HistoryExportResult
-from world_engine.repository import WorldNotFoundError, WorldRepository
+from world_engine.repository import WorldNotFoundError, WorldRepository, to_iso, utc_now
 
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
 
@@ -89,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {
                 "service": "virtual-world-core",
                 "status": "ok",
+                "server_time": to_iso(utc_now()),
                 "database": "ready",
                 "decision_provider": engine.decision_provider.name,
                 "heartbeat_interval_seconds": resolved_settings.worker_interval_seconds,

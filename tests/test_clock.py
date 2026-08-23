@@ -166,3 +166,20 @@ def test_worker_zero_elapsed_probe_does_not_advance_world(database, settings) ->
         after = repository.get_snapshot(connection, world_id)
     assert completed == 1
     assert after.world.current_time == before.world.current_time
+
+
+def test_worker_presence_is_exposed_and_can_be_cleared(database, settings) -> None:
+    world_id = _create_world(database)
+    seen_at = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
+    engine = WorldEngine(database, settings)
+
+    engine.mark_worker_seen(seen_at)
+    with database.read() as connection:
+        online = WorldRepository().get_snapshot(connection, world_id)
+    engine.clear_worker_seen()
+    with database.read() as connection:
+        offline = WorldRepository().get_snapshot(connection, world_id)
+
+    assert online.world.last_worker_seen_at == seen_at
+    assert online.world.heartbeat_interval_seconds == 60
+    assert offline.world.last_worker_seen_at is None
