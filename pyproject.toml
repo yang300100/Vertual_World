@@ -28,6 +28,9 @@ virtual-world = "world_engine.cli:main"
 [tool.setuptools.packages.find]
 include = ["world_engine*"]
 
+[tool.setuptools.package-data]
+world_engine = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["."]

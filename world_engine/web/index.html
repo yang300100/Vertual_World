@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>虚拟世界控制台</title>
+    <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <a class="brand" href="/ui/" aria-label="虚拟世界控制台首页">
+        <span class="brand-mark" aria-hidden="true">V</span>
+        <span>
+          <strong>Virtual World</strong>
+          <small>自主世界控制台</small>
+        </span>
+      </a>
+
+      <div class="topbar-actions">
+        <label class="world-picker">
+          <span>当前世界</span>
+          <select id="world-select" aria-label="选择当前世界"></select>
+        </label>
+        <span id="connection-status" class="connection-badge" data-state="loading">
+          正在连接
+        </span>
+        <button id="refresh-button" class="icon-button" type="button" title="刷新数据">
+          <span aria-hidden="true">↻</span>
+          <span class="sr-only">刷新数据</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section id="empty-state" class="empty-state" hidden>
+        <p class="eyebrow">尚未创建世界</p>
+        <h1>这里还没有可以观察的世界</h1>
+        <p>可以先通过命令行或 API 创建世界，页面会自动发现它。</p>
+        <a class="button primary" href="/docs">打开 API 文档</a>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="hero-grid" aria-labelledby="world-title">
+          <article class="clock-card panel">
+            <div class="clock-header">
+              <div>
+                <p class="eyebrow">世界时钟</p>
+                <h1 id="world-title">载入中</h1>
+              </div>
+              <span id="world-status" class="status-pill">—</span>
+            </div>
+
+            <time id="world-time" class="world-time">—</time>
+            <p id="time-description" class="muted">世界时间正在同步</p>
+
+            <div class="speed-section">
+              <div class="section-label-row">
+                <span>时间比例</span>
+                <strong id="speed-value">1×</strong>
+              </div>
+              <div id="speed-presets" class="segmented" aria-label="时间速度快捷设置">
+                <button type="button" data-speed="0">暂停</button>
+                <button type="button" data-speed="0.5">0.5×</button>
+                <button type="button" data-speed="1">1×</button>
+                <button type="button" data-speed="2">2×</button>
+                <button type="button" data-speed="10">10×</button>
+                <button type="button" data-speed="60">60×</button>
+              </div>
+              <form id="custom-speed-form" class="inline-form">
+                <label for="custom-speed">自定义比例</label>
+                <input
+                  id="custom-speed"
+                  name="time_scale"
+                  type="number"
+                  min="0"
+                  max="10080"
+                  step="0.1"
+                  inputmode="decimal"
+                  placeholder="例如 5"
+                />
+                <button type="submit" class="button secondary">应用</button>
+              </form>
+            </div>
+
+            <div class="primary-actions">
+              <button id="heartbeat-button" class="button secondary" type="button">
+                执行状态心跳
+              </button>
+              <button id="adjudicate-button" class="button primary" type="button">
+                立即模型裁判
+              </button>
+            </div>
+          </article>
+
+          <aside class="summary-panel panel" aria-label="世界运行摘要">
+            <p class="eyebrow">运行摘要</p>
+            <dl class="summary-list">
+              <div>
+                <dt>下一裁判点</dt>
+                <dd id="next-adjudication">—</dd>
+              </div>
+              <div>
+                <dt>世界版本</dt>
+                <dd id="world-version">—</dd>
+              </div>
+              <div>
+                <dt>裁判次数</dt>
+                <dd id="tick-count">—</dd>
+              </div>
+              <div>
+                <dt>模型供应商</dt>
+                <dd id="provider-name">—</dd>
+              </div>
+              <div>
+                <dt>离线策略</dt>
+                <dd id="offline-policy">—</dd>
+              </div>
+            </dl>
+
+            <div class="intervention-box">
+              <label for="intervention-character">主视角介入人物</label>
+              <select id="intervention-character"></select>
+              <button id="intervention-button" class="button ghost" type="button">
+                执行局部裁判
+              </button>
+              <p>局部介入不会重置全局00:00 / 12:00裁判点。</p>
+            </div>
+          </aside>
+        </section>
+
+        <section class="section-block" aria-labelledby="characters-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">居民状态</p>
+              <h2 id="characters-title">人物</h2>
+            </div>
+            <span id="character-count" class="count-badge">0 人</span>
+          </div>
+          <div id="character-grid" class="character-grid"></div>
+        </section>
+
+        <section class="timeline-grid">
+          <article class="panel stream-panel" aria-labelledby="events-title">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">客观历史</p>
+                <h2 id="events-title">最近事件</h2>
+              </div>
+              <button id="sync-history-button" class="text-button" type="button">
+                同步日志
+              </button>
+            </div>
+            <ol id="event-list" class="event-list"></ol>
+          </article>
+
+          <article class="panel stream-panel" aria-labelledby="adjudications-title">
+            <div class="section-heading compact">
+              <div>
+                <p class="eyebrow">模型运行</p>
+                <h2 id="adjudications-title">最近裁判</h2>
+              </div>
+            </div>
+            <ol id="adjudication-list" class="adjudication-list"></ol>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <div id="busy-overlay" class="busy-overlay" hidden aria-hidden="true">
+      <div class="spinner" aria-hidden="true"></div>
+      <span id="busy-message">正在处理</span>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="/ui/app.js" defer></script>
+  </body>
+</html>

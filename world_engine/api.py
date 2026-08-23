@@ -3,9 +3,12 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.config import Settings
@@ -20,6 +23,8 @@ from world_engine.domain import (
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
 from world_engine.history import HistoryExportResult
 from world_engine.repository import WorldNotFoundError, WorldRepository
+
+WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
 
 
 class CreateWorldRequest(BaseModel):
@@ -66,14 +71,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="自主世界的事实、人物、事件、记忆与推进接口",
         lifespan=lifespan,
     )
+    application.mount(
+        "/ui",
+        StaticFiles(directory=WEB_DIRECTORY, html=True),
+        name="world-ui",
+    )
 
     @application.get("/")
-    def root() -> dict[str, str]:
-        return {
-            "name": "Virtual World Core",
-            "docs": "/docs",
-            "health": "/api/health",
-        }
+    def root() -> RedirectResponse:
+        return RedirectResponse(url="/ui/", status_code=307)
 
     @application.get("/api/health")
     def health() -> dict[str, object]:

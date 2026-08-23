@@ -58,6 +58,12 @@ DeepSeek适配器把多个活跃人物合并为一次请求，响应必须通过
 - `world_engine.clock`：负责心跳、调速、离线暂停和人物连续状态。
 - `world_engine.cli`：本地创建、检查和手动推进世界。
 
+## 轻量表现层
+
+`world_engine.web` 是由FastAPI在 `/ui/` 同源托管的静态控制台，使用HTML、CSS和原生JavaScript，不引入Node常驻进程，也不保存第二份世界状态。页面每5秒只读刷新；调速、心跳、裁判和主视角介入只通过现有API执行。
+
+当前页面仅面向本地环境。公网部署前必须为写接口增加身份认证、权限门禁、CSRF或等价同源保护，并限制管理员操作频率。
+
 ## 世界历史日志
 
 `world_events` 客观事件表仍是权威历史。`WorldHistoryLogger` 在轮次提交后把事件派生为中文Markdown、JSONL和逐轮JSON文件。导出采用跨进程目录锁、UTF-8和同目录原子替换，API与worker同时运行时不会交叉写坏日志。
