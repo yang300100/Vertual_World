@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
+from world_engine.database import Database
 from world_engine.engine import WorldEngine
 from world_engine.repository import WorldRepository, to_iso
 from world_engine.worker import WorldWorker
@@ -47,7 +50,7 @@ def test_fractional_state_changes_accumulate_without_rounding_loss(
         updates = repository.list_state_updates_ascending(connection, world_id)
     assert result.current_time - result.previous_time == timedelta(minutes=20)
     assert all(
-        after.character_by_id(item.id).hunger == item.hunger + 1
+        after.character_by_id(item.id).satiety == item.satiety - 1
         for item in before.characters
     )
     assert all(
@@ -183,3 +186,129 @@ def test_worker_presence_is_exposed_and_can_be_cleared(database, settings) -> No
     assert online.world.last_worker_seen_at == seen_at
     assert online.world.heartbeat_interval_seconds == 60
     assert offline.world.last_worker_seen_at is None
+
+
+def test_time_scale_change_is_one_atomic_world_version(database, settings) -> None:
+    world_id = _create_world(database)
+    baseline = datetime(2026, 8, 23, 10, 0, tzinfo=UTC)
+    engine = WorldEngine(database, settings)
+    engine.reset_offline_baseline(baseline)
+    repository = WorldRepository()
+    with database.read() as connection:
+        before = repository.get_snapshot(connection, world_id)
+
+    changed = engine.set_time_scale(
+        world_id,
+        2.0,
+        operator="test",
+        real_now=baseline + timedelta(seconds=60),
+    )
+    with database.read() as connection:
+        after_change = repository.get_snapshot(connection, world_id)
+        event_count = connection.execute(
+            "SELECT COUNT(*) FROM world_events WHERE world_id = ?", (world_id,)
+        ).fetchone()[0]
+        heartbeat_count = connection.execute(
+            "SELECT COUNT(*) FROM world_heartbeats WHERE world_id = ?", (world_id,)
+        ).fetchone()[0]
+
+    unchanged = engine.set_time_scale(
+        world_id,
+        2.0,
+        operator="test",
+        real_now=baseline + timedelta(seconds=120),
+    )
+    with database.read() as connection:
+        after_no_op = repository.get_snapshot(connection, world_id)
+        final_event_count = connection.execute(
+            "SELECT COUNT(*) FROM world_events WHERE world_id = ?", (world_id,)
+        ).fetchone()[0]
+
+    assert changed.world_version == before.world.version + 1
+    assert after_change.world.version == before.world.version + 1
+    assert after_change.world.clock_revision == before.world.clock_revision + 1
+    assert changed.world_time - changed.previous_world_time == timedelta(seconds=60)
+    assert heartbeat_count == 1
+    assert event_count == 1
+    assert unchanged.no_op is True
+    assert unchanged.event_id is None
+    assert after_no_op.world.version == after_change.world.version
+    assert final_event_count == event_count
+
+
+def test_legacy_hunger_schema_migrates_to_positive_satiety(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-hunger.db"
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE worlds (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, current_time TEXT NOT NULL,
+            minutes_per_tick INTEGER NOT NULL, status TEXT NOT NULL,
+            version INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE world_runtime (
+            world_id TEXT PRIMARY KEY, tick_count INTEGER NOT NULL,
+            last_tick_started_at TEXT, last_tick_finished_at TEXT, last_tick_status TEXT
+        );
+        CREATE TABLE locations (
+            id TEXT PRIMARY KEY, world_id TEXT NOT NULL, name TEXT NOT NULL,
+            kind TEXT NOT NULL, resources_json TEXT NOT NULL
+        );
+        CREATE TABLE characters (
+            id TEXT PRIMARY KEY, world_id TEXT NOT NULL, name TEXT NOT NULL,
+            location_id TEXT NOT NULL, energy INTEGER NOT NULL,
+            hunger INTEGER NOT NULL, money INTEGER NOT NULL,
+            traits_json TEXT NOT NULL, goals_json TEXT NOT NULL,
+            is_core INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE character_state_accumulators (
+            character_id TEXT PRIMARY KEY, world_id TEXT NOT NULL,
+            hunger_residual REAL NOT NULL, energy_residual REAL NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        INSERT INTO worlds VALUES (
+            'world-1', 'legacy', '2040-04-01T08:00:00+00:00', 60,
+            'running', 0, '2026-08-23T00:00:00+00:00', '2026-08-23T00:00:00+00:00'
+        );
+        INSERT INTO world_runtime VALUES ('world-1', 0, NULL, NULL, 'never');
+        INSERT INTO locations VALUES ('place-1', 'world-1', 'home', 'home', '{}');
+        INSERT INTO characters VALUES (
+            'npc-1', 'world-1', 'legacy npc', 'place-1', 80, 75, 10,
+            '[]', '[]', 1, '2026-08-23T00:00:00+00:00', '2026-08-23T00:00:00+00:00'
+        );
+        INSERT INTO character_state_accumulators VALUES (
+            'npc-1', 'world-1', 0.6, 0.2, '2026-08-23T00:00:00+00:00'
+        );
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    database = Database(path)
+    database.initialize()
+    with database.read() as migrated:
+        character_columns = {
+            row["name"] for row in migrated.execute("PRAGMA table_info(characters)")
+        }
+        accumulator_columns = {
+            row["name"]
+            for row in migrated.execute(
+                "PRAGMA table_info(character_state_accumulators)"
+            )
+        }
+        character = migrated.execute(
+            "SELECT satiety FROM characters WHERE id = 'npc-1'"
+        ).fetchone()
+        accumulator = migrated.execute(
+            """
+            SELECT satiety_residual
+            FROM character_state_accumulators WHERE character_id = 'npc-1'
+            """
+        ).fetchone()
+
+    assert "hunger" not in character_columns
+    assert "satiety" in character_columns
+    assert character["satiety"] == 25
+    assert "hunger_residual" not in accumulator_columns
+    assert accumulator["satiety_residual"] == 0.6

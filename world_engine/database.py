@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS characters (
     name TEXT NOT NULL,
     location_id TEXT NOT NULL REFERENCES locations(id),
     energy INTEGER NOT NULL CHECK (energy BETWEEN 0 AND 100),
-    hunger INTEGER NOT NULL CHECK (hunger BETWEEN 0 AND 100),
+    satiety INTEGER NOT NULL CHECK (satiety BETWEEN 0 AND 100),
     money INTEGER NOT NULL CHECK (money >= 0),
     traits_json TEXT NOT NULL DEFAULT '[]',
     goals_json TEXT NOT NULL DEFAULT '[]',
@@ -132,7 +132,7 @@ ON world_heartbeats(world_id, created_at ASC);
 CREATE TABLE IF NOT EXISTS character_state_accumulators (
     character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-    hunger_residual REAL NOT NULL DEFAULT 0,
+    satiety_residual REAL NOT NULL DEFAULT 0,
     energy_residual REAL NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
@@ -194,6 +194,7 @@ class Database:
         with self.connect() as connection:
             connection.executescript(SCHEMA)
             self._ensure_runtime_columns(connection)
+            self._migrate_satiety_columns(connection)
             self._ensure_clock_and_accumulator_rows(connection)
 
     @staticmethod
@@ -205,6 +206,35 @@ class Database:
         if "last_worker_seen_at" not in columns:
             connection.execute(
                 "ALTER TABLE world_runtime ADD COLUMN last_worker_seen_at TEXT"
+            )
+
+    @staticmethod
+    def _migrate_satiety_columns(connection: sqlite3.Connection) -> None:
+        character_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(characters)").fetchall()
+        }
+        if "hunger" in character_columns and "satiety" not in character_columns:
+            connection.execute(
+                "ALTER TABLE characters RENAME COLUMN hunger TO satiety"
+            )
+            connection.execute("UPDATE characters SET satiety = 100 - satiety")
+
+        accumulator_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(character_state_accumulators)"
+            ).fetchall()
+        }
+        if (
+            "hunger_residual" in accumulator_columns
+            and "satiety_residual" not in accumulator_columns
+        ):
+            connection.execute(
+                """
+                ALTER TABLE character_state_accumulators
+                RENAME COLUMN hunger_residual TO satiety_residual
+                """
             )
 
     @staticmethod
@@ -239,7 +269,7 @@ class Database:
         connection.execute(
             """
             INSERT OR IGNORE INTO character_state_accumulators(
-                character_id, world_id, hunger_residual, energy_residual, updated_at
+                character_id, world_id, satiety_residual, energy_residual, updated_at
             )
             SELECT id, world_id, 0, 0, updated_at FROM characters
             """

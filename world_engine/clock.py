@@ -178,16 +178,18 @@ class WorldClockService:
         new_time_scale: float,
         *,
         operator: str = "main_view",
+        real_now: datetime | None = None,
     ) -> ClockUpdateResult:
         if not 0 <= new_time_scale <= 10080:
             raise ValueError("时间比例必须在0到10080之间")
-        now = utc_now()
-        event_id = str(uuid4())
-        event_group_id = str(uuid4())
+        now = real_now or utc_now()
         with self.database.write() as connection:
             row = connection.execute(
                 """
-                SELECT w.current_time, c.time_scale, c.clock_revision
+                SELECT w.current_time, w.version,
+                       c.time_scale, c.clock_revision,
+                       c.last_heartbeat_real_time,
+                       c.next_adjudication_world_time
                 FROM worlds w
                 JOIN world_clock c ON c.world_id = w.id
                 WHERE w.id = ?
@@ -197,19 +199,104 @@ class WorldClockService:
             if row is None:
                 raise WorldNotFoundError(world_id)
             old_time_scale = float(row["time_scale"])
+            previous_time = from_iso(row["current_time"])
+            if abs(old_time_scale - new_time_scale) < 0.000001:
+                return ClockUpdateResult(
+                    world_id=world_id,
+                    old_time_scale=old_time_scale,
+                    new_time_scale=new_time_scale,
+                    previous_world_time=previous_time,
+                    world_time=previous_time,
+                    clock_revision=int(row["clock_revision"]),
+                    world_version=int(row["version"]),
+                    settled_world_seconds=0,
+                    state_update_count=0,
+                    no_op=True,
+                )
+
+            last_real = row["last_heartbeat_real_time"]
+            real_elapsed_seconds = max(
+                0.0,
+                (now - from_iso(last_real)).total_seconds() if last_real else 0.0,
+            )
+            world_delta_seconds = real_elapsed_seconds * old_time_scale
+            current_time = previous_time + timedelta(seconds=world_delta_seconds)
+            adjudication_due = current_time >= from_iso(
+                row["next_adjudication_world_time"]
+            )
             clock_revision = int(row["clock_revision"]) + 1
+            heartbeat_id: str | None = None
+            state_update_count = 0
+            characters_updated = 0
+            if world_delta_seconds > 0:
+                heartbeat_id = str(uuid4())
+                connection.execute(
+                    """
+                    INSERT INTO world_heartbeats(
+                        id, world_id, real_time, real_elapsed_seconds, time_scale,
+                        world_delta_seconds, world_time_before, world_time_after,
+                        characters_updated, adjudication_due, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                    """,
+                    (
+                        heartbeat_id,
+                        world_id,
+                        to_iso(now),
+                        real_elapsed_seconds,
+                        old_time_scale,
+                        world_delta_seconds,
+                        to_iso(previous_time),
+                        to_iso(current_time),
+                        int(adjudication_due),
+                        to_iso(now),
+                    ),
+                )
+                state_update_count, characters_updated = self._update_character_states(
+                    connection,
+                    world_id=world_id,
+                    heartbeat_id=heartbeat_id,
+                    previous_time=previous_time,
+                    current_time=current_time,
+                    world_delta_seconds=world_delta_seconds,
+                    created_at=now,
+                )
+                connection.execute(
+                    """
+                    UPDATE world_heartbeats
+                    SET characters_updated = ?
+                    WHERE id = ?
+                    """,
+                    (characters_updated, heartbeat_id),
+                )
+
+            new_world_version = int(row["version"]) + 1
             connection.execute(
                 """
                 UPDATE world_clock
-                SET time_scale = ?, clock_revision = ?, updated_at = ?
+                SET time_scale = ?,
+                    last_heartbeat_real_time = ?,
+                    clock_revision = ?,
+                    updated_at = ?
                 WHERE world_id = ?
                 """,
-                (new_time_scale, clock_revision, to_iso(now), world_id),
+                (
+                    new_time_scale,
+                    to_iso(now),
+                    clock_revision,
+                    to_iso(now),
+                    world_id,
+                ),
             )
             connection.execute(
-                "UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?",
-                (to_iso(now), world_id),
+                """
+                UPDATE worlds
+                SET current_time = ?, version = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (to_iso(current_time), new_world_version, to_iso(now), world_id),
             )
+            event_id = str(uuid4())
+            event_group_id = str(uuid4())
             connection.execute(
                 """
                 INSERT INTO world_events(
@@ -221,13 +308,16 @@ class WorldClockService:
                     event_id,
                     world_id,
                     event_group_id,
-                    row["current_time"],
+                    to_iso(current_time),
                     f"世界时间比例由{old_time_scale}调整为{new_time_scale}。",
                     json.dumps(
                         {
                             "old_time_scale": old_time_scale,
                             "new_time_scale": new_time_scale,
                             "operator": operator,
+                            "settled_real_seconds": real_elapsed_seconds,
+                            "settled_world_seconds": world_delta_seconds,
+                            "state_update_count": state_update_count,
                         },
                         ensure_ascii=False,
                     ),
@@ -238,8 +328,13 @@ class WorldClockService:
             world_id=world_id,
             old_time_scale=old_time_scale,
             new_time_scale=new_time_scale,
-            world_time=from_iso(row["current_time"]),
+            previous_world_time=previous_time,
+            world_time=current_time,
             clock_revision=clock_revision,
+            world_version=new_world_version,
+            settled_world_seconds=world_delta_seconds,
+            state_update_count=state_update_count,
+            adjudication_due=adjudication_due,
             event_id=event_id,
         )
 
@@ -271,7 +366,7 @@ class WorldClockService:
         connection.execute(
             """
             INSERT OR IGNORE INTO character_state_accumulators(
-                character_id, world_id, hunger_residual, energy_residual, updated_at
+                character_id, world_id, satiety_residual, energy_residual, updated_at
             )
             SELECT id, world_id, 0, 0, updated_at
             FROM characters WHERE world_id = ?
@@ -280,8 +375,8 @@ class WorldClockService:
         )
         rows = connection.execute(
             """
-            SELECT c.id, c.hunger, c.energy,
-                   a.hunger_residual, a.energy_residual
+            SELECT c.id, c.satiety, c.energy,
+                   a.satiety_residual, a.energy_residual
             FROM characters c
             JOIN character_state_accumulators a ON a.character_id = c.id
             WHERE c.world_id = ?
@@ -293,39 +388,41 @@ class WorldClockService:
         state_update_count = 0
         characters_updated = 0
         for row in rows:
-            hunger_total = float(row["hunger_residual"]) + (
-                self.settings.hunger_per_world_hour * world_hours
+            satiety_total = float(row["satiety_residual"]) + (
+                self.settings.satiety_loss_per_world_hour * world_hours
             )
             energy_total = float(row["energy_residual"]) + (
                 self.settings.energy_loss_per_world_hour * world_hours
             )
-            hunger_step = int(hunger_total)
+            satiety_step = int(satiety_total)
             energy_step = int(energy_total)
-            hunger_before = int(row["hunger"])
+            satiety_before = int(row["satiety"])
             energy_before = int(row["energy"])
-            hunger_after = min(100, hunger_before + hunger_step)
+            satiety_after = max(0, satiety_before - satiety_step)
             energy_after = max(0, energy_before - energy_step)
-            hunger_residual = 0.0 if hunger_after >= 100 else hunger_total - hunger_step
+            satiety_residual = (
+                0.0 if satiety_after <= 0 else satiety_total - satiety_step
+            )
             energy_residual = 0.0 if energy_after <= 0 else energy_total - energy_step
             connection.execute(
                 """
                 UPDATE character_state_accumulators
-                SET hunger_residual = ?, energy_residual = ?, updated_at = ?
+                SET satiety_residual = ?, energy_residual = ?, updated_at = ?
                 WHERE character_id = ?
                 """,
                 (
-                    hunger_residual,
+                    satiety_residual,
                     energy_residual,
                     to_iso(created_at),
                     row["id"],
                 ),
             )
             changes: dict[str, object] = {}
-            if hunger_after != hunger_before:
-                changes["hunger"] = {
-                    "before": hunger_before,
-                    "after": hunger_after,
-                    "delta": hunger_after - hunger_before,
+            if satiety_after != satiety_before:
+                changes["satiety"] = {
+                    "before": satiety_before,
+                    "after": satiety_after,
+                    "delta": satiety_after - satiety_before,
                 }
             if energy_after != energy_before:
                 changes["energy"] = {
@@ -340,10 +437,10 @@ class WorldClockService:
             connection.execute(
                 """
                 UPDATE characters
-                SET hunger = ?, energy = ?, updated_at = ?
+                SET satiety = ?, energy = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (hunger_after, energy_after, to_iso(created_at), row["id"]),
+                (satiety_after, energy_after, to_iso(created_at), row["id"]),
             )
             connection.execute(
                 """

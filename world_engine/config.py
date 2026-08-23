@@ -35,7 +35,7 @@ class Settings:
     history_directory: Path | None = None
     default_time_scale: float = 1.0
     adjudication_interval_minutes: int = 720
-    hunger_per_world_hour: float = 3.0
+    satiety_loss_per_world_hour: float = 3.0
     energy_loss_per_world_hour: float = 2.0
 
     @classmethod
@@ -78,8 +78,14 @@ class Settings:
             adjudication_interval_minutes=max(
                 1, int(os.getenv("WORLD_ADJUDICATION_INTERVAL_MINUTES", "720"))
             ),
-            hunger_per_world_hour=max(
-                0.0, float(os.getenv("WORLD_HUNGER_PER_WORLD_HOUR", "3.0"))
+            satiety_loss_per_world_hour=max(
+                0.0,
+                float(
+                    os.getenv(
+                        "WORLD_SATIETY_LOSS_PER_WORLD_HOUR",
+                        os.getenv("WORLD_HUNGER_PER_WORLD_HOUR", "3.0"),
+                    )
+                ),
             ),
             energy_loss_per_world_hour=max(
                 0.0, float(os.getenv("WORLD_ENERGY_LOSS_PER_WORLD_HOUR", "2.0"))

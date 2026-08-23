@@ -45,11 +45,11 @@ class RuleDecisionProvider:
         return proposals
 
     def _decide(self, snapshot: WorldSnapshot, character: CharacterState) -> ActionProposal:
-        if character.hunger >= 70 and character.money >= 3:
+        if character.satiety <= 30 and character.money >= 3:
             return ActionProposal(
                 actor_id=character.id,
                 action=ActionType.EAT,
-                reason="饥饿已经明显影响状态，决定先寻找食物。",
+                reason="饱食度已经明显偏低，决定先寻找食物。",
             )
         if character.energy <= 30:
             return ActionProposal(

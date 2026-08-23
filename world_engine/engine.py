@@ -96,14 +96,30 @@ class WorldEngine:
         new_time_scale: float,
         *,
         operator: str = "main_view",
+        real_now: datetime | None = None,
     ) -> ClockUpdateResult:
-        # 先按旧比例结算到此刻，避免调速把此前的现实时间误按新比例计算。
-        self.heartbeat(world_id)
         result = self.clock.set_time_scale(
             world_id,
             new_time_scale,
             operator=operator,
+            real_now=real_now,
         )
+        if result.no_op:
+            return result
+        if result.adjudication_due and not result.no_op:
+            try:
+                with self.database.read() as connection:
+                    snapshot = self.repository.get_snapshot(connection, world_id)
+                self.adjudicate(
+                    world_id,
+                    trigger="scheduled_12h",
+                    window_start=snapshot.world.last_adjudication_time,
+                    window_end=result.world_time,
+                )
+                result.adjudication_triggered = True
+            except Exception:
+                LOGGER.exception("世界%s调速结算跨过裁判点，但自主裁判未完成", world_id)
+        self._sync_state_logs_safely(world_id)
         self._sync_history_safely(world_id)
         return result
 
@@ -141,7 +157,7 @@ class WorldEngine:
                 current_snapshot = self.repository.get_snapshot(connection, world_id)
                 if current_snapshot.world.version != snapshot.world.version:
                     raise ConcurrentWorldUpdateError(
-                        f"世界版本已经从{snapshot.world.version}变化为"
+                        f"状态修订号已经从{snapshot.world.version}变化为"
                         f"{current_snapshot.world.version}，本轮必须重新决策"
                     )
 
@@ -344,7 +360,7 @@ class WorldEngine:
             return selected[: self.settings.active_character_limit]
 
         def priority(character: CharacterState) -> tuple[int, str]:
-            urgency = character.hunger + (100 - character.energy)
+            urgency = (100 - character.satiety) + (100 - character.energy)
             if character.money < 10:
                 urgency += 15
             if character.is_core:

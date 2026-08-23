@@ -295,7 +295,7 @@ function renderCharacters(characters, locationNames) {
     meters.className = "meter-list";
     meters.append(
       createMeter("精力", character.energy),
-      createMeter("饱食", Math.max(0, 100 - character.hunger)),
+      createMeter("饱食", character.satiety),
     );
 
     const chips = document.createElement("div");

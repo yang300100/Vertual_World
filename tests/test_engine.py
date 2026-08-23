@@ -57,7 +57,7 @@ def test_actions_change_character_state_and_create_subjective_memory(database, s
         memories = repository.list_memories(connection, world_id, lin_after.id)
 
     assert lin_after.money == lin_before.money - 3
-    assert lin_after.hunger < lin_before.hunger
+    assert lin_after.satiety > lin_before.satiety
     assert memories
     assert memories[0]["memory_type"] == "experienced"
 

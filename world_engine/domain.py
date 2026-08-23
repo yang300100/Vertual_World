@@ -34,7 +34,7 @@ class CharacterState(BaseModel):
     name: str
     location_id: str
     energy: int = Field(ge=0, le=100)
-    hunger: int = Field(ge=0, le=100)
+    satiety: int = Field(ge=0, le=100)
     money: int = Field(ge=0)
     traits: list[str] = Field(default_factory=list)
     goals: list[str] = Field(default_factory=list)
@@ -142,6 +142,13 @@ class ClockUpdateResult(BaseModel):
     world_id: str
     old_time_scale: float
     new_time_scale: float
+    previous_world_time: datetime
     world_time: datetime
     clock_revision: int
+    world_version: int
+    settled_world_seconds: float = Field(ge=0)
+    state_update_count: int = Field(ge=0)
+    adjudication_due: bool = False
+    adjudication_triggered: bool = False
+    no_op: bool = False
     event_id: str | None = None

@@ -120,8 +120,8 @@ class ActionService:
 
     def _rest(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         energy = _clamp(actor["energy"] + 28)
-        hunger = _clamp(actor["hunger"] + 4)
-        self._update_character(connection, actor["id"], energy=energy, hunger=hunger)
+        satiety = _clamp(actor["satiety"] - 4)
+        self._update_character(connection, actor["id"], energy=energy, satiety=satiety)
         return f"{actor['name']}停下来休息，精力恢复到{energy}。"
 
     def _eat(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
@@ -139,10 +139,10 @@ class ActionService:
             "UPDATE locations SET resources_json = ? WHERE id = ?",
             (json.dumps(resources, ensure_ascii=False), actor["location_id"]),
         )
-        hunger = _clamp(actor["hunger"] - 42)
+        satiety = _clamp(actor["satiety"] + 42)
         money = actor["money"] - 3
-        self._update_character(connection, actor["id"], hunger=hunger, money=money)
-        return f"{actor['name']}在{location['name']}获得食物，饥饿降到{hunger}。"
+        self._update_character(connection, actor["id"], satiety=satiety, money=money)
+        return f"{actor['name']}在{location['name']}获得食物，饱食度升到{satiety}。"
 
     def _work(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         location = connection.execute(
@@ -154,10 +154,10 @@ class ActionService:
         if actor["energy"] < 20:
             raise ActionRuleError("精力不足以完成工作")
         energy = _clamp(actor["energy"] - 16)
-        hunger = _clamp(actor["hunger"] + 8)
+        satiety = _clamp(actor["satiety"] - 8)
         money = actor["money"] + 9
         self._update_character(
-            connection, actor["id"], energy=energy, hunger=hunger, money=money
+            connection, actor["id"], energy=energy, satiety=satiety, money=money
         )
         return f"{actor['name']}在{location['name']}完成工作，获得9枚货币。"
 
@@ -181,12 +181,12 @@ class ActionService:
         if actor["energy"] < 8:
             raise ActionRuleError("精力不足以旅行")
         energy = _clamp(actor["energy"] - 7)
-        hunger = _clamp(actor["hunger"] + 3)
+        satiety = _clamp(actor["satiety"] - 3)
         self._update_character(
             connection,
             actor["id"],
             energy=energy,
-            hunger=hunger,
+            satiety=satiety,
             location_id=destination["id"],
         )
         return f"{actor['name']}动身前往{destination['name']}。"
@@ -216,14 +216,14 @@ class ActionService:
             connection,
             actor["id"],
             energy=_clamp(actor["energy"] - 4),
-            hunger=_clamp(actor["hunger"] + 2),
+            satiety=_clamp(actor["satiety"] - 2),
         )
         return f"{actor['name']}与{target['name']}进行了一次交流。", target["id"]
 
     def _idle(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         energy = _clamp(actor["energy"] + 2)
-        hunger = _clamp(actor["hunger"] + 2)
-        self._update_character(connection, actor["id"], energy=energy, hunger=hunger)
+        satiety = _clamp(actor["satiety"] - 2)
+        self._update_character(connection, actor["id"], energy=energy, satiety=satiety)
         return f"{actor['name']}观察周围，没有采取重大行动。"
 
     @staticmethod

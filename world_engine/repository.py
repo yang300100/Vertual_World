@@ -90,7 +90,7 @@ class WorldRepository:
         connection.execute(
             """
             INSERT OR IGNORE INTO character_state_accumulators(
-                character_id, world_id, hunger_residual, energy_residual, updated_at
+                character_id, world_id, satiety_residual, energy_residual, updated_at
             )
             SELECT id, world_id, 0, 0, updated_at
             FROM characters WHERE world_id = ?
@@ -127,7 +127,7 @@ class WorldRepository:
                 "林澈",
                 square_id,
                 65,
-                78,
+                22,
                 12,
                 ["谨慎", "善良"],
                 ["照顾家人", "在城镇站稳脚跟"],
@@ -138,7 +138,7 @@ class WorldRepository:
                 "白露",
                 home_id,
                 24,
-                42,
+                58,
                 18,
                 ["敏感", "好奇"],
                 ["寻找失踪的旧友"],
@@ -149,7 +149,7 @@ class WorldRepository:
                 "瑞恩",
                 workshop_id,
                 76,
-                35,
+                65,
                 5,
                 ["勤奋", "固执"],
                 ["修复工坊的大钟"],
@@ -159,7 +159,7 @@ class WorldRepository:
         connection.executemany(
             """
             INSERT INTO characters(
-                id, world_id, name, location_id, energy, hunger, money,
+                id, world_id, name, location_id, energy, satiety, money,
                 traits_json, goals_json, is_core, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -170,7 +170,7 @@ class WorldRepository:
                     name,
                     location_id,
                     energy,
-                    hunger,
+                    satiety,
                     money,
                     json.dumps(traits, ensure_ascii=False),
                     json.dumps(goals, ensure_ascii=False),
@@ -183,7 +183,7 @@ class WorldRepository:
                     name,
                     location_id,
                     energy,
-                    hunger,
+                    satiety,
                     money,
                     traits,
                     goals,
@@ -407,7 +407,7 @@ class WorldRepository:
             name=row["name"],
             location_id=row["location_id"],
             energy=row["energy"],
-            hunger=row["hunger"],
+            satiety=row["satiety"],
             money=row["money"],
             traits=json.loads(row["traits_json"]),
             goals=json.loads(row["goals_json"]),
