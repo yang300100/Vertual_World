@@ -137,4 +137,3 @@ def test_provider_failure_falls_back_to_rules(database, settings) -> None:
 def test_secret_is_hidden_from_settings_repr(settings) -> None:
     deepseek_settings = replace(settings, deepseek_api_key="test-secret")
     assert "test-secret" not in repr(deepseek_settings)
-
