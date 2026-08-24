@@ -144,6 +144,7 @@ def test_deepseek_request_injects_separated_rag_context(
 # 作者隐藏真相
 
 地下核心由纳米机器人维持，这是人物绝对不能获得的秘密。
+魔纹能够拆分为循环、分支和并行模块，这也是当前人物不能获得的知识。
 """,
         encoding="utf-8",
     )
@@ -192,6 +193,7 @@ def test_deepseek_request_injects_separated_rag_context(
     assert "author_hidden" not in serialized_request
     assert "作者隐藏真相" not in serialized_request
     assert "纳米机器人" not in serialized_request
+    assert "循环、分支和并行模块" not in serialized_request
     assert "narrative_guardrails只约束叙事边界" in system_prompt
     assert "test-secret" not in serialized_request
 
