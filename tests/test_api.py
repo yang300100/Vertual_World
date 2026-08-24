@@ -16,6 +16,7 @@ def test_api_creates_reads_and_ticks_world(settings) -> None:
         assert health.status_code == 200
         assert health.json()["service"] == "virtual-world-core"
         assert health.json()["server_time"].endswith("+00:00")
+        assert health.json()["knowledge"] == {"enabled": True, "loaded_chunks": 0}
         assert created.status_code == 201
 
         world = created.json()

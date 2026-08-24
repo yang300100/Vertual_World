@@ -16,6 +16,14 @@ def _resolve_path(raw_path: str) -> Path:
     return path.resolve()
 
 
+def _resolve_paths(raw_paths: str) -> tuple[Path, ...]:
+    """使用分号分隔多个路径，避免与Windows盘符中的冒号冲突。"""
+
+    return tuple(
+        _resolve_path(item.strip()) for item in raw_paths.split(";") if item.strip()
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """运行配置；所有路径都显式解析，便于测试隔离和服务器迁移。"""
@@ -31,6 +39,10 @@ class Settings:
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
     deepseek_max_output_tokens: int = 2400
+    knowledge_enabled: bool = True
+    knowledge_paths: tuple[Path, ...] = field(default_factory=tuple)
+    knowledge_top_k: int = 6
+    knowledge_max_context_chars: int = 8000
     history_logging_enabled: bool = False
     history_directory: Path | None = None
     default_time_scale: float = 1.0
@@ -64,6 +76,19 @@ class Settings:
             deepseek_max_retries=max(0, int(os.getenv("DEEPSEEK_MAX_RETRIES", "2"))),
             deepseek_max_output_tokens=max(
                 256, int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "2400"))
+            ),
+            knowledge_enabled=os.getenv("WORLD_KNOWLEDGE_ENABLED", "true").strip().lower()
+            in {"1", "true", "yes", "on"},
+            knowledge_paths=_resolve_paths(
+                os.getenv(
+                    "WORLD_KNOWLEDGE_PATHS",
+                    "docs/worldbuilding;docs/knowledge",
+                )
+            ),
+            knowledge_top_k=max(1, int(os.getenv("WORLD_KNOWLEDGE_TOP_K", "6"))),
+            knowledge_max_context_chars=max(
+                1000,
+                int(os.getenv("WORLD_KNOWLEDGE_MAX_CONTEXT_CHARS", "8000")),
             ),
             history_logging_enabled=os.getenv(
                 "WORLD_HISTORY_LOG_ENABLED", "true"

@@ -48,6 +48,53 @@ DEEPSEEK_MODEL=deepseek-v4-flash-vision-exp
 
 模型只收到本轮世界时间、地点、活跃人物状态和同地点人物ID。它不能读取数据库文件、执行SQL或直接写入世界状态。API密钥不得进入代码、前端、日志或Git。
 
+## 世界设定RAG知识库
+
+DeepSeek人物决策会在本地检索Markdown设定，只把与当前世界、地点、人物特质和目标相关的少量片段加入请求。检索使用针对中文字符二元组、三元组优化的本地BM25，不需要额外向量数据库、Embedding接口或联网索引服务。
+
+默认知识来源为：
+
+```text
+docs/worldbuilding  作者掌握的完整设定，默认audience=author_hidden
+docs/knowledge      人物通用常识与始终生效的安全叙事护栏
+```
+
+人物决策器只会检索 `guardrail` 和 `character_common`。`author_hidden` 会保留在本地索引中供作者检查和未来的世界级裁判使用，但在构造人物模型请求前就被排除，模型无法暗中依据隐藏真相行动。知识文档顶部可以使用：
+
+```markdown
+<!-- rag: audience=character_common; always_include=true; tags=魔法,社会常识 -->
+```
+
+- `audience=author_hidden`：作者底层真相；未写元数据时安全地默认为此级别。
+- `audience=guardrail`：不含隐藏事实的叙事边界，只约束模型如何使用资料。
+- `audience=character_common`：所有普通人物都可以使用的通用常识。
+- `always_include=true` 适合短小且每轮必须执行的防穿帮约束。
+- `tags` 用于增强中文召回，可以用中文或英文逗号分隔。
+- 修改知识文档后需要重启API和worker，让运行中的决策器重新建立索引。
+
+`guardrail` 中也不能写入隐藏事实。它只能要求“未知时保持未知”“只描述可观察现象”等行为规则；具体底层原因必须保存在 `author_hidden`。
+
+先用本地命令检查召回内容，不会调用模型或消耗额度：
+
+```powershell
+.\.venv\Scripts\python.exe -m world_engine.cli knowledge-search "魔力枯竭时法师会怎么理解"
+.\.venv\Scripts\python.exe -m world_engine.cli knowledge-search "遗迹物品归谁" --audience character_common
+.\.venv\Scripts\python.exe -m world_engine.cli knowledge-search "魔法的底层真相" --audience author_hidden
+```
+
+CLI 的 `all` 模式仅供本地作者检查，不代表人物模型能够读取所有结果。人物模型请求中的知识只分为 `narrative_guardrails` 和 `character_common`，每段都保留稳定ID、来源文件和章节。若模型仍在人物理由或元数据中输出明确的底层禁用术语，本轮模型结果会被拒绝，并沿用既有规则决策器降级路径。
+
+当前 `character_common` 只能存放所有普通人物共享的知识，不能放入单个人物的秘密、记忆或传闻。个体知识仍应由未来的观察者知识图按人物ID提供，不能在批量人物决策中共享。
+
+相关配置：
+
+```dotenv
+WORLD_KNOWLEDGE_ENABLED=true
+WORLD_KNOWLEDGE_PATHS=docs/worldbuilding;docs/knowledge
+WORLD_KNOWLEDGE_TOP_K=6
+WORLD_KNOWLEDGE_MAX_CONTEXT_CHARS=8000
+```
+
 ## 本地启动
 
 ### Windows一键运行

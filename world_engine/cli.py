@@ -5,10 +5,11 @@ import atexit
 import json
 from collections.abc import Sequence
 
-from world_engine.config import Settings
+from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
 from world_engine.engine import WorldEngine
+from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
 
 
@@ -73,6 +74,19 @@ def build_parser() -> argparse.ArgumentParser:
     adjudications = subparsers.add_parser("adjudications", help="查看模型裁判记录")
     adjudications.add_argument("world_id")
     adjudications.add_argument("--limit", type=int, default=50)
+
+    knowledge_search = subparsers.add_parser(
+        "knowledge-search",
+        help="本地检索世界设定，不调用模型",
+    )
+    knowledge_search.add_argument("query", help="要检索的场景、概念或人物问题")
+    knowledge_search.add_argument(
+        "--audience",
+        choices=["all", "author_hidden", "guardrail", "character_common"],
+        default="all",
+        help="限制作者隐藏真相、叙事护栏或人物通用知识",
+    )
+    knowledge_search.add_argument("--limit", type=int, default=6)
     return parser
 
 
@@ -80,6 +94,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_console_encoding()
     args = build_parser().parse_args(argv)
     settings = Settings.from_env()
+    if args.command == "knowledge-search":
+        knowledge_base = WorldKnowledgeBase.from_paths(
+            settings.knowledge_paths,
+            project_root=PROJECT_ROOT,
+        )
+        audiences = (
+            {"author_hidden", "guardrail", "character_common"}
+            if args.audience == "all"
+            else {args.audience}
+        )
+        hits = knowledge_base.search(
+            args.query,
+            audiences=audiences,
+            limit=max(1, args.limit),
+            max_total_chars=settings.knowledge_max_context_chars,
+        )
+        _print_json(
+            {
+                "chunk_count": knowledge_base.chunk_count,
+                "results": [hit.to_dict() for hit in hits],
+            }
+        )
+        return 0
     database = Database(settings.database_path)
     database.initialize()
     repository = WorldRepository()

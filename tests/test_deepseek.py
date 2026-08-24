@@ -11,6 +11,7 @@ from world_engine.decisions import (
     build_decision_provider,
 )
 from world_engine.engine import WorldEngine
+from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
 
 
@@ -101,6 +102,98 @@ def test_deepseek_provider_rejects_non_json_content(settings) -> None:
     )
     with pytest.raises(DecisionProviderError):
         provider._parse_decisions("这不是JSON")
+
+
+def test_deepseek_provider_rejects_hidden_author_terms(database, settings) -> None:
+    snapshot = _create_snapshot(database)
+    character = snapshot.characters[0]
+    response_payload = {
+        "decisions": [
+            {
+                "actor_id": character.id,
+                "action": "idle",
+                "reason": "我知道墙后是纳米机器人控制的自动门。",
+                "target_id": None,
+                "destination_id": None,
+                "metadata": {},
+            }
+        ]
+    }
+    deepseek_settings = replace(
+        settings,
+        decision_provider="deepseek",
+        deepseek_api_key="test-secret",
+    )
+    provider = DeepSeekDecisionProvider(
+        deepseek_settings,
+        client=FakeClient(
+            FakeResponse(json.dumps(response_payload, ensure_ascii=False))
+        ),
+    )
+
+    with pytest.raises(DecisionProviderError, match="人物不可知"):
+        provider.propose(snapshot, [character])
+
+
+def test_deepseek_request_injects_separated_rag_context(
+    database, settings, tmp_path
+) -> None:
+    snapshot = _create_snapshot(database)
+    (tmp_path / "hidden.md").write_text(
+        """<!-- rag: audience=author_hidden; always_include=true -->
+# 作者隐藏真相
+
+地下核心由纳米机器人维持，这是人物绝对不能获得的秘密。
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "guardrail.md").write_text(
+        """<!-- rag: audience=guardrail; always_include=true -->
+# 叙事护栏
+
+人物只能依据亲历信息行动。
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "common.md").write_text(
+        """<!-- rag: audience=character_common; always_include=true -->
+# 人物常识
+
+市场里的货物都有主人。
+""",
+        encoding="utf-8",
+    )
+    knowledge_base = WorldKnowledgeBase.from_paths((tmp_path,))
+    deepseek_settings = replace(
+        settings,
+        decision_provider="deepseek",
+        deepseek_api_key="test-secret",
+        knowledge_top_k=4,
+    )
+    provider = DeepSeekDecisionProvider(
+        deepseek_settings,
+        client=FakeClient(FakeResponse('{"decisions":[]}')),
+        knowledge_base=knowledge_base,
+    )
+
+    request = provider._build_request(snapshot, snapshot.characters[:1])
+    context = json.loads(request["messages"][1]["content"])
+    system_prompt = request["messages"][0]["content"]
+    serialized_request = json.dumps(request, ensure_ascii=False)
+
+    assert (
+        context["knowledge_context"]["narrative_guardrails"][0]["section"]
+        == "叙事护栏"
+    )
+    assert (
+        context["knowledge_context"]["character_common"][0]["section"]
+        == "人物常识"
+    )
+    assert "author_hidden" not in serialized_request
+    assert "作者隐藏真相" not in serialized_request
+    assert "纳米机器人" not in serialized_request
+    assert "narrative_guardrails只约束叙事边界" in system_prompt
+    assert "test-secret" not in serialized_request
 
 
 def test_deepseek_configuration_requires_key(settings) -> None:

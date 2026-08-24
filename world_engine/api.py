@@ -92,6 +92,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "server_time": to_iso(utc_now()),
                 "database": "ready",
                 "decision_provider": engine.decision_provider.name,
+                "knowledge": {
+                    "enabled": resolved_settings.knowledge_enabled,
+                    "loaded_chunks": getattr(
+                        getattr(engine.decision_provider, "knowledge_base", None),
+                        "chunk_count",
+                        0,
+                    ),
+                },
                 "heartbeat_interval_seconds": resolved_settings.worker_interval_seconds,
             }
         except sqlite3.Error as exc:
