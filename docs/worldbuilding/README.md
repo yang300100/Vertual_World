@@ -56,6 +56,7 @@
 | W028 | 第一版主要基源种族为人类、精灵、矮人、地精和兽人 | 已确认 | `05-species-and-cultures.md` |
 | W029 | 龙族和巨人属于数量稀少但拥有独立谱系的稀有基源种族 | 已确认 | `05-species-and-cultures.md` |
 | W030 | 灰精灵来自精灵分支，蜥蜴人来自人类与龙族形成的稳定混合谱系 | 已确认 | `05-species-and-cultures.md` |
+| W031 | 当前时代普通人类在医疗、卫生、营养和社会风险影响下，常见实际寿命约为50年 | 已确认 | `06-humans.md` |
 
 ## 推荐阅读顺序
 
@@ -64,6 +65,7 @@
 3. `03-ruins-containers-and-property.md`：遗迹、容器、所有权与合法发掘。
 4. `04-knowledge-and-magic-society.md`：法师如何产生，以及知识传播如何改变世界。
 5. `05-species-and-cultures.md`：智慧种族如何拥有不同生理、社会和魔法特点。
+6. `06-humans.md`：人类的生命周期、身体、魔法和社会特点。
 
 ## 当前待决定问题
 
