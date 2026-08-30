@@ -1,0 +1,133 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "forge-river",
+      "properties": {
+        "id": "forge-river",
+        "name": "锻河",
+        "navigable": "candidate_partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -132,
+            38
+          ],
+          [
+            -112,
+            34
+          ],
+          [
+            -91,
+            31
+          ],
+          [
+            -71,
+            28
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mirror-river",
+      "properties": {
+        "id": "mirror-river",
+        "name": "镜河",
+        "navigable": "candidate_partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -62,
+            56
+          ],
+          [
+            -64,
+            47
+          ],
+          [
+            -67,
+            38
+          ],
+          [
+            -71,
+            28
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "red-spring-river",
+      "properties": {
+        "id": "red-spring-river",
+        "name": "赤泉河",
+        "navigable": "candidate_no",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -67,
+            12
+          ],
+          [
+            -68,
+            19
+          ],
+          [
+            -70,
+            24
+          ],
+          [
+            -71,
+            28
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "adde-river",
+      "properties": {
+        "id": "adde-river",
+        "name": "阿德河",
+        "navigable": "candidate_yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71,
+            28
+          ],
+          [
+            -55,
+            28.5
+          ],
+          [
+            -38,
+            29
+          ],
+          [
+            -22,
+            30
+          ]
+        ]
+      }
+    }
+  ]
+}

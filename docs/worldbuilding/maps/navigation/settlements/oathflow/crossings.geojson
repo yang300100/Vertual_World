@@ -1,0 +1,21 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "three-rivers-bridge-group",
+      "properties": {
+        "id": "three-rivers-bridge-group",
+        "name": "三汇桥渡群",
+        "crossing_type": "bridge_and_ferry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.0,
+          28.0
+        ]
+      }
+    }
+  ]
+}

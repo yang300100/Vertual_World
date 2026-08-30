@@ -3,188 +3,94 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
-    <title>虚拟世界控制台</title>
+    <meta name="theme-color" content="#10131d" />
+    <title>伊瑟拉 · 旅人之书</title>
     <link rel="icon" href="/ui/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/ui/styles.css" />
+    <link rel="stylesheet" href="/ui/styles.css?v=20260828-movement1" />
   </head>
   <body>
-    <div class="ambient ambient-one" aria-hidden="true"></div>
-    <div class="ambient ambient-two" aria-hidden="true"></div>
-
-    <header class="topbar">
-      <a class="brand" href="/ui/" aria-label="虚拟世界控制台首页">
-        <span class="brand-mark" aria-hidden="true">V</span>
-        <span>
-          <strong>Virtual World</strong>
-          <small>自主世界控制台</small>
-        </span>
-      </a>
-
-      <div class="topbar-actions">
-        <label class="world-picker">
-          <span>当前世界</span>
-          <select id="world-select" aria-label="选择当前世界"></select>
-        </label>
-        <span id="connection-status" class="connection-badge" data-state="loading">
-          正在连接
-        </span>
-        <button id="refresh-button" class="icon-button" type="button" title="刷新数据">
-          <span aria-hidden="true">↻</span>
-          <span class="sr-only">刷新数据</span>
-        </button>
+    <header class="masthead">
+      <button id="mobile-nav-toggle" class="icon-button mobile-only" type="button" aria-label="打开导航">☰</button>
+      <div class="brand-mark" aria-hidden="true">✦</div>
+      <div class="brand-copy"><strong>伊瑟拉</strong><small>旅人之书</small></div>
+      <div class="masthead-actions">
+        <label class="world-switcher"><span>世界</span><select id="world-select" aria-label="选择当前世界"></select></label>
+        <span id="connection-status" class="connection-badge" data-state="loading">连接中</span>
+        <button id="refresh-button" class="icon-button" type="button" title="刷新世界">↻</button>
       </div>
     </header>
-
-    <main class="page-shell">
-      <section id="empty-state" class="empty-state" hidden>
-        <p class="eyebrow">尚未创建世界</p>
-        <h1>这里还没有可以观察的世界</h1>
-        <p>可以先通过命令行或 API 创建世界，页面会自动发现它。</p>
-        <a class="button primary" href="/docs">打开 API 文档</a>
-      </section>
-
-      <div id="dashboard" hidden>
-        <section class="hero-grid" aria-labelledby="world-title">
-          <article class="clock-card panel">
-            <div class="clock-header">
-              <div>
-                <p class="eyebrow">世界时钟</p>
-                <h1 id="world-title">载入中</h1>
-              </div>
-              <span id="world-status" class="status-pill">—</span>
-            </div>
-
-            <time id="world-time" class="world-time">—</time>
-            <p id="time-description" class="muted">世界时间正在同步</p>
-
-            <div class="speed-section">
-              <div class="section-label-row">
-                <span>时间比例</span>
-                <strong id="speed-value">1×</strong>
-              </div>
-              <div id="speed-presets" class="segmented" aria-label="时间速度快捷设置">
-                <button type="button" data-speed="0">暂停</button>
-                <button type="button" data-speed="0.5">0.5×</button>
-                <button type="button" data-speed="1">1×</button>
-                <button type="button" data-speed="2">2×</button>
-                <button type="button" data-speed="10">10×</button>
-                <button type="button" data-speed="60">60×</button>
-              </div>
-              <form id="custom-speed-form" class="inline-form">
-                <label for="custom-speed">自定义比例</label>
-                <input
-                  id="custom-speed"
-                  name="time_scale"
-                  type="number"
-                  min="0"
-                  max="10080"
-                  step="0.1"
-                  inputmode="decimal"
-                  placeholder="例如 5"
-                />
-                <button type="submit" class="button secondary">应用</button>
-              </form>
-            </div>
-
-            <div class="primary-actions">
-              <button id="heartbeat-button" class="button secondary" type="button">
-                执行状态心跳
-              </button>
-              <button id="adjudicate-button" class="button primary" type="button">
-                立即模型裁判
-              </button>
-            </div>
-          </article>
-
-          <aside class="summary-panel panel" aria-label="世界运行摘要">
-            <p class="eyebrow">运行摘要</p>
-            <dl class="summary-list">
-              <div>
-                <dt>下一裁判点</dt>
-                <dd id="next-adjudication">—</dd>
-              </div>
-              <div>
-                <dt>状态修订号</dt>
-                <dd id="world-version">—</dd>
-              </div>
-              <div>
-                <dt>裁判次数</dt>
-                <dd id="tick-count">—</dd>
-              </div>
-              <div>
-                <dt>模型供应商</dt>
-                <dd id="provider-name">—</dd>
-              </div>
-              <div>
-                <dt>离线策略</dt>
-                <dd id="offline-policy">—</dd>
-              </div>
-              <div>
-                <dt>自动运行</dt>
-                <dd id="worker-status">—</dd>
-              </div>
-              <div>
-                <dt>最后心跳</dt>
-                <dd id="last-heartbeat">—</dd>
-              </div>
-            </dl>
-
-            <div class="intervention-box">
-              <label for="intervention-character">主视角介入人物</label>
-              <select id="intervention-character"></select>
-              <button id="intervention-button" class="button ghost" type="button">
-                执行局部裁判
-              </button>
-              <p>局部介入不会重置全局00:00 / 12:00裁判点。</p>
-            </div>
+    <main>
+      <section id="empty-state" class="empty-state" hidden><p class="eyebrow">尚无可读卷宗</p><h1>这个世界还没有被写下</h1><p>先通过接口或命令行创建一个世界，再回到这里继续旅程。</p></section>
+      <div id="dashboard" class="dashboard" hidden>
+        <section id="player-setup" class="player-setup" hidden>
+          <div class="setup-copy"><p class="eyebrow">第一次翻开旅人之书</p><h1>你会以谁的名字走进伊瑟拉？</h1><p>选择一处已知地点。角色写入后，那里会成为你的第一组精确世界坐标。</p></div>
+          <form id="player-create-form" class="player-create-form">
+            <label>姓名<input id="player-create-name" name="name" required maxlength="60" placeholder="你的角色叫什么？" /></label>
+            <label>身份<input id="player-create-identity" name="identity" required maxlength="100" value="旅人" /></label>
+            <section class="setup-location-field" aria-labelledby="setup-location-title">
+              <div class="field-heading"><span id="setup-location-title">起始地点</span><strong id="player-create-location-name">尚未选择</strong></div>
+              <div id="setup-map-shell" class="setup-map-shell" tabindex="0" aria-label="可缩放的 Noryia 出生点地图"><div id="setup-map-camera" class="setup-map-camera"><img src="/world-assets/map_new/Noryia.svg" alt="Noryia 世界地图" /><div id="player-create-map-markers" class="setup-map-markers"></div></div><span class="setup-map-hint">滚轮缩放 · 点击城镇选择出生点</span></div>
+              <div id="player-create-secondary-locations" class="secondary-locations"></div>
+              <select id="player-create-location" name="location_id" required aria-label="选择起始地点"></select>
+            </section>
+            <label>性格关键词<input id="player-create-traits" name="traits" maxlength="120" placeholder="例如：谨慎，好奇" /></label>
+            <label>此行所求<textarea id="player-create-goal" name="goal" rows="3" maxlength="200" placeholder="你为什么来到这里？"></textarea></label>
+            <button class="button primary" type="submit">写下我的名字</button>
+          </form>
+        </section>
+        <div id="game-layout" class="game-layout" data-player-content>
+          <aside id="side-navigation" class="side-navigation" aria-label="旅人之书导航">
+            <div class="nav-world"><p class="nav-caption">此刻身处</p><strong id="nav-location">—</strong><span id="nav-coordinate">—</span></div>
+            <section><h2>旅人视角</h2><button class="nav-item active" data-room="scene" type="button"><span>◈</span>场景</button><button class="nav-item" data-room="map" type="button"><span>⌖</span>地图</button><button class="nav-item" data-room="chronicle" type="button"><span>☷</span>编年</button><button class="nav-item" data-room="log" type="button"><span>≡</span>日志</button><button class="nav-item" data-room="relationships" type="button"><span>⌘</span>关系网</button><button class="nav-item" data-room="notebook" type="button"><span>▤</span>笔记本</button></section>
+            <section class="observer-navigation"><h2>编年者</h2><button class="nav-item" data-room="observer-clock" type="button"><span>◷</span>世界流速</button><button class="nav-item" data-room="observer-characters" type="button"><span>♙</span>人物管理</button><button class="nav-item" data-room="observer-registrations" type="button"><span>✦</span>元素注册</button><button class="nav-item" data-room="observer-judge" type="button"><span>◉</span>裁判</button></section>
+            <footer><span id="worker-status-dot" class="status-dot"></span><span id="worker-status">正在检查自动运行</span></footer>
           </aside>
-        </section>
-
-        <section class="section-block" aria-labelledby="characters-title">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">居民状态</p>
-              <h2 id="characters-title">人物</h2>
-            </div>
-            <span id="character-count" class="count-badge">0 人</span>
+          <div class="room-stack">
+            <section id="movement-status" class="movement-status global-movement-status" hidden><div><p class="kicker">正在移动</p><h2 id="movement-title">前往目标坐标</h2><p id="movement-detail">—</p></div><div class="movement-progress"><i><b id="movement-progress-bar"></b></i><span id="movement-progress-text">0%</span></div><button id="movement-cancel" class="button danger" type="button">取消移动</button></section>
+            <section id="room-scene" class="room active" data-room-panel="scene">
+              <header class="scene-header"><div><p class="kicker">当前场景</p><h1 id="scene-location">正在读取地点</h1></div><div class="scene-clock"><time id="scene-time">—</time><span id="scene-speed" class="speed-badge">1×</span><strong id="scene-coordinate">—</strong></div></header>
+              <div class="player-hud">
+                <button id="player-profile-button" class="portrait" type="button" title="打开我的人物档案"><span id="player-monogram">旅</span></button>
+                <div class="hud-name"><h2 id="player-name">载入中</h2><span id="player-identity">身份尚未显明</span><p id="player-objective">世界正在回忆你的目标……</p></div>
+                <dl class="hud-resources"><div><dt>生命</dt><dd><i class="meter"><b id="player-health-bar"></b></i><span id="player-health">—</span></dd></div><div><dt>精力</dt><dd><i class="meter"><b id="player-energy-bar"></b></i><span id="player-energy">—</span></dd></div><div><dt>饱食</dt><dd><i class="meter"><b id="player-satiety-bar"></b></i><span id="player-satiety">—</span></dd></div><div><dt>钱币</dt><dd><span class="coin">◈</span><span id="player-money">—</span></dd></div></dl>
+              </div>
+              <article class="narrative-block"><span aria-hidden="true">“</span><p id="scene-narration">世界正在向你展开。</p></article>
+              <div id="action-result" class="action-result" hidden></div>
+              <section id="combat-panel" class="combat-panel" hidden><header><p class="kicker">战斗情境</p><h2>敌我对阵</h2></header><div class="combat-sides"><div><h3>我方</h3><div id="combat-allies"></div></div><div><h3>敌方</h3><div id="combat-enemies"></div></div></div></section>
+              <div class="scene-columns">
+                <section class="story-section"><header class="section-heading"><div><p class="kicker">我所感知的</p><h2>近期故事</h2></div><button class="text-link" data-room-jump="chronicle" type="button">查看全部 →</button></header><ol id="story-cards" class="story-cards"></ol></section>
+                <section id="encounters" class="nearby-section"><header class="section-heading"><div><p class="kicker">视野之内</p><h2>在场的人</h2></div><span class="live-dot" title="随世界状态更新"></span></header><div id="scene-characters" class="presence-list"></div><ul id="nearby-characters" class="nearby-characters"></ul></section>
+              </div>
+              <div id="location-map" class="location-shortcuts" aria-label="可行地点"></div>
+            </section>
+            <section id="room-map" class="room" data-room-panel="map" hidden>
+              <header class="room-header"><div><p class="kicker">连续世界地图</p><h1>世界坐标</h1><p>滚轮缩放、拖拽平移；进入城镇/遗迹范围时自动切换对应详细地图。</p></div><div class="map-controls"><b id="map-context-name">世界地图</b><strong id="map-coordinate">—</strong><span id="map-zoom">100%</span><label class="map-style-label">图层<select id="map-style" class="map-style-select"><option value="">默认世界图</option></select></label><div><button id="map-zoom-out" class="icon-button" type="button" aria-label="缩小地图">−</button><button id="map-reset" class="icon-button" type="button" aria-label="重置地图">◎</button><button id="map-zoom-in" class="icon-button" type="button" aria-label="放大地图">＋</button></div></div></header>
+              <div class="atlas-layout"><div id="world-map-shell" class="world-map-shell" tabindex="0" aria-label="可缩放世界地图"><div id="map-camera" class="map-camera"><div id="map-tile-layer" class="map-tile-layer"></div><div class="coordinate-grid" aria-hidden="true"></div></div><svg id="map-route" class="map-route" aria-hidden="true"><polyline id="map-route-polyline"></polyline></svg><div id="map-points" class="map-points"></div><div id="map-hover-coordinate" class="map-hover-coordinate">滚轮缩放 · 拖拽平移 · 点击前往</div></div><aside class="map-legend"><h2>图例</h2><span><i class="legend-player"></i>我</span><span><i class="legend-location"></i><span id="map-layer-legend">国家标签</span></span><p id="map-bounds">世界范围：W 180° 至 E 180° · S 90° 至 N 90°</p></aside></div>
+            </section>
+            <section id="room-chronicle" class="room" data-room-panel="chronicle" hidden>
+              <header class="room-header"><div><p class="kicker">载入史册的事</p><h1>世界编年</h1><p>这里只记录重大死亡、灾难、条约、政权变化等世界级事件；普通行动请查看日志。</p></div><div id="event-filters" class="filter-row"><button class="active" data-event-filter="all" type="button">全部</button><button data-event-filter="conflict" type="button">冲突</button><button data-event-filter="politics" type="button">政治</button><button data-event-filter="disaster" type="button">灾变</button><button data-event-filter="other" type="button">其他</button></div></header><ol id="event-list" class="event-list timeline"></ol>
+            </section>
+            <section id="room-log" class="room" data-room-panel="log" hidden><header class="room-header"><div><p class="kicker">最近发生的动作</p><h1>旅程日志</h1><p>对话、普通战斗、移动、相遇、取消、抵达和系统操作会依次记录在这里。</p></div></header><ol id="log-list" class="event-list log-list"></ol></section>
+            <section id="room-relationships" class="room" data-room-panel="relationships" hidden><header class="room-header"><div><p class="kicker">以我为中心</p><h1>关系网</h1><p>拖拽人物节点，或点击查看档案。连线颜色与粗细反映亲和和信任。</p></div></header><div id="relationship-graph" class="relationship-graph"></div></section>
+            <section id="room-notebook" class="room" data-room-panel="notebook" hidden>
+              <header class="room-header"><div><p class="kicker">只属于旅人的</p><h1>笔记本</h1><p>这些记录只保存在当前浏览器，不进入世界事实库。</p></div><button id="notebook-new" class="button primary" type="button">新建一页</button></header>
+              <div class="notebook-layout"><aside><label class="search-field">搜索<input id="notebook-search" type="search" placeholder="标题或正文" /></label><div id="notebook-list" class="notebook-list"></div></aside><form id="notebook-form" class="notebook-form"><input id="notebook-id" type="hidden" /><label>标题<input id="notebook-title" maxlength="100" required placeholder="今天遇见了什么？" /></label><label>正文<textarea id="notebook-body" rows="12" maxlength="5000" required></textarea></label><div class="link-fields"><label>关联人物<select id="notebook-character"><option value="">无</option></select></label><label>关联地点<select id="notebook-location"><option value="">无</option></select></label><label>关联事件<select id="notebook-event"><option value="">无</option></select></label></div><div class="form-actions"><button class="button primary" type="submit">保存笔记</button><button id="notebook-delete" class="button danger" type="button">删除</button></div></form></div>
+            </section>
+            <section id="room-observer-clock" class="room observer-room" data-room-panel="observer-clock" hidden>
+              <header class="room-header"><div><p class="kicker">编年者 · 世界流速</p><h1 id="world-title">载入中</h1><p id="time-description">世界时间正在同步</p></div><span id="world-status" class="status-pill">—</span></header>
+              <div class="observer-grid"><section class="observer-card clock-card"><h2>世界时钟</h2><time id="world-time">—</time><div class="speed-section"><div class="section-label-row"><span>时间比例</span><strong id="speed-value">1×</strong></div><div id="speed-presets" class="segmented"><button data-speed="0" type="button">暂停</button><button data-speed="0.5" type="button">0.5×</button><button data-speed="1" type="button">1×</button><button data-speed="2" type="button">2×</button><button data-speed="10" type="button">10×</button><button data-speed="60" type="button">60×</button></div><form id="custom-speed-form" class="inline-form"><input id="custom-speed" name="time_scale" type="number" min="0" max="10080" step="0.1" placeholder="自定义倍率" /><button class="button secondary" type="submit">应用</button></form></div></section><section class="observer-card"><h2>运行状态</h2><dl class="summary-list"><div><dt>下一裁判点</dt><dd id="next-adjudication">—</dd></div><div><dt>状态修订号</dt><dd id="world-version">—</dd></div><div><dt>裁判次数</dt><dd id="tick-count">—</dd></div><div><dt>模型供应商</dt><dd id="provider-name">—</dd></div><div><dt>离线策略</dt><dd id="offline-policy">—</dd></div><div><dt>最后心跳</dt><dd id="last-heartbeat">—</dd></div></dl></section></div>
+            </section>
+            <section id="room-observer-characters" class="room observer-room" data-room-panel="observer-characters" hidden><header class="room-header"><div><p class="kicker">编年者 · 人物管理</p><h1>全部人物档案</h1></div><span id="character-count" class="count-badge">0 人</span></header><div id="character-grid" class="character-grid"></div></section>
+            <section id="room-observer-registrations" class="room observer-room" data-room-panel="observer-registrations" hidden><header class="room-header"><div><p class="kicker">编年者 · 元素注册</p><h1>注册与建设审计</h1><p>查看玩家和NPC造成的长期影响；注册器仍由本地规则最终裁决。</p></div><span id="registration-count" class="count-badge">0 项</span></header><div class="observer-grid"><section class="observer-card"><h2>最近注册</h2><div id="registration-list" class="registration-list"></div></section><section class="observer-card"><h2>建设项目</h2><div id="construction-list" class="registration-list"></div></section></div></section>
+            <section id="room-observer-judge" class="room observer-room" data-room-panel="observer-judge" hidden><header class="room-header"><div><p class="kicker">编年者 · 裁判</p><h1>世界运行与卷宗</h1></div></header><div class="judge-actions"><button id="heartbeat-button" class="button secondary" type="button">执行心跳</button><button id="adjudicate-button" class="button secondary" type="button">全局裁判</button><button id="sync-history-button" class="button secondary" type="button">同步卷宗</button></div><div class="intervention-box"><label>局部介入人物<select id="intervention-character"></select></label><button id="intervention-button" class="button primary" type="button">执行局部裁判</button></div><section class="adjudication-archive"><header class="section-heading"><div><p class="kicker">模型运行</p><h2>最近裁判</h2></div></header><ol id="adjudication-list" class="adjudication-list"></ol></section></section>
           </div>
-          <div id="character-grid" class="character-grid"></div>
-        </section>
-
-        <section class="timeline-grid">
-          <article class="panel stream-panel" aria-labelledby="events-title">
-            <div class="section-heading compact">
-              <div>
-                <p class="eyebrow">客观历史</p>
-                <h2 id="events-title">最近事件</h2>
-              </div>
-              <button id="sync-history-button" class="text-button" type="button">
-                同步日志
-              </button>
-            </div>
-            <ol id="event-list" class="event-list"></ol>
-          </article>
-
-          <article class="panel stream-panel" aria-labelledby="adjudications-title">
-            <div class="section-heading compact">
-              <div>
-                <p class="eyebrow">模型运行</p>
-                <h2 id="adjudications-title">最近裁判</h2>
-              </div>
-            </div>
-            <ol id="adjudication-list" class="adjudication-list"></ol>
-          </article>
-        </section>
+        </div>
+        <div id="floating-desk" class="floating-desk" data-player-content><div class="desk-panels"><section id="desk-skills" class="desk-panel" hidden><header><h2>技能</h2><button data-desk-close type="button">×</button></header><div id="player-skills" class="tool-list"></div></section><section id="desk-bag" class="desk-panel" hidden><header><h2>背包</h2><button data-desk-close type="button">×</button></header><div id="player-bag" class="tool-list"></div></section><section id="desk-gear" class="desk-panel" hidden><header><h2>装备</h2><button data-desk-close type="button">×</button></header><div id="player-gear" class="tool-list"></div></section><section id="desk-transport" class="desk-panel transport-panel" hidden><header><h2>交通工具</h2><button data-desk-close type="button">×</button></header><label>当前方式<select id="player-transport"><option value="">徒步 · 陆行 · 5 km/h</option></select></label><dl><div><dt>移动类型</dt><dd id="transport-type">陆行</dd></div><div><dt>移动速度</dt><dd id="transport-speed">5 km/h</dd></div></dl><p id="transport-hint">移动中不能更换交通工具。</p></section></div><div class="desk-bar"><button data-desk="skills" type="button">⚔<span>技能</span></button><button data-desk="bag" type="button">▣<span>背包</span></button><button data-desk="gear" type="button">♢<span>装备</span></button><button data-desk="transport" type="button">➤<span>交通</span></button></div></div>
+        <form id="player-intent-form" class="action-composer" data-player-content><div class="composer-title"><strong>你此刻想做什么？</strong><span id="draft-label">草稿自动保留</span></div><textarea id="player-intent" name="intent" rows="2" maxlength="1000" placeholder="描述你的行动、态度或想说的话……"></textarea><div id="suggested-actions" class="suggested-actions"></div><button class="submit-intent" type="submit"><span>写入世界</span><b>Ctrl ↵</b></button></form>
       </div>
     </main>
-
-    <div id="busy-overlay" class="busy-overlay" hidden aria-hidden="true">
-      <div class="spinner" aria-hidden="true"></div>
-      <span id="busy-message">正在处理</span>
-    </div>
-    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-
-    <script src="/ui/app.js" defer></script>
+    <dialog id="character-dialog" class="character-dialog"><button id="character-dialog-close" class="dialog-close" type="button" aria-label="关闭">×</button><div id="character-profile"></div></dialog>
+    <div id="busy-overlay" class="busy-overlay" hidden><span class="spinner"></span><span id="busy-message">正在处理</span></div><div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script src="/ui/app.js?v=20260828-movement1" defer></script>
   </body>
 </html>

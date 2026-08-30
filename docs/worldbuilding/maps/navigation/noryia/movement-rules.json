@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "review_status": "candidate",
+  "surface_speed_multipliers": {
+    "marine": 0.0,
+    "desert": 0.55,
+    "savanna": 0.9,
+    "grassland": 1.0,
+    "forest": 0.72,
+    "rainforest": 0.6,
+    "taiga": 0.5,
+    "tundra": 0.5,
+    "glacier": 0.2,
+    "wetland": 0.45
+  },
+  "road_speed_multipliers": {
+    "road": 1.45,
+    "trail": 1.2
+  },
+  "searoute_speed_multiplier": 1.0,
+  "land_slope_rules": [
+    {
+      "max_degrees": 10,
+      "multiplier": 1.0
+    },
+    {
+      "max_degrees": 20,
+      "multiplier": 0.8
+    },
+    {
+      "max_degrees": 35,
+      "multiplier": 0.45
+    },
+    {
+      "max_degrees": 90,
+      "multiplier": 0.0
+    }
+  ],
+  "river_crossing_requires": [
+    "bridge",
+    "ford",
+    "ferry"
+  ],
+  "modes": {
+    "land": {
+      "passable": "land cells, roads, bridges/fords/ferries",
+      "forbidden": "ocean/lake; major river without a crossing portal; slope>35 degrees"
+    },
+    "ship": {
+      "passable": "navigable water, navigable rivers, port edges",
+      "forbidden": "land; disembark outside a port; closed waterways"
+    },
+    "water": {
+      "passable": "small-boat rivers, lakes, near-shore water",
+      "forbidden": "open ocean unless ocean_capable"
+    },
+    "flight": {
+      "passable": "land, water, high mountains",
+      "forbidden": "vehicle ceiling, energy, no-fly and weather limits"
+    },
+    "underground": {
+      "passable": "registered mine/tunnel edges",
+      "forbidden": "arbitrary straight digging; collapsed/closed tunnels"
+    }
+  }
+}

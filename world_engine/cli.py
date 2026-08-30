@@ -9,8 +9,10 @@ from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
 from world_engine.engine import WorldEngine
+from world_engine.iserra_time import to_era
 from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
+from world_engine.seeder import create_iserra_world
 
 
 def _print_json(value: object) -> None:
@@ -28,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--minutes-per-tick", type=int)
     create.add_argument("--time-scale", type=float)
     create.add_argument("--empty", action="store_true", help="不创建演示人物与地点")
+
+    seed = subparsers.add_parser(
+        "seed-isera", help="创建伊瑟拉·澜誓城正式初始世界"
+    )
+    seed.add_argument("--name", default="伊瑟拉·澜誓城")
 
     subparsers.add_parser("list", help="列出所有世界")
 
@@ -139,6 +146,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             _print_json(repository.get_snapshot(connection, world_id))
         return 0
+    if args.command == "seed-isera":
+        world_id = create_iserra_world(database, name=args.name)
+        with database.read() as connection:
+            snapshot = repository.get_snapshot(connection, world_id)
+        _print_json(
+            {
+                "world_id": world_id,
+                "name": snapshot.world.name,
+                "locations": len(snapshot.locations),
+                "characters": len(snapshot.characters),
+                "core_characters": sum(1 for c in snapshot.characters if c.is_core),
+                "world_time": snapshot.world.current_time.isoformat(),
+            }
+        )
+        return 0
     if args.command == "list":
         with database.read() as connection:
             worlds = repository.list_worlds(connection)
@@ -146,7 +168,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "show":
         with database.read() as connection:
-            _print_json(repository.get_snapshot(connection, args.world_id))
+            snapshot = repository.get_snapshot(connection, args.world_id)
+        payload = snapshot.model_dump(mode="json")
+        payload["world"]["current_era"] = to_era(snapshot.world.current_time)
+        _print_json(payload)
         return 0
     if args.command == "tick":
         _print_json(engine.tick(args.world_id))

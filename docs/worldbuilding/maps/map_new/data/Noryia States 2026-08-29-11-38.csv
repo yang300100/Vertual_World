@@ -1,0 +1,22 @@
+Id,State,Full Name,Form,Color,Capital,Culture,Type,Expansionism,Cells,Burgs,Area km2,Total Population,Rural Population,Urban Population
+13,Engai,Republic of Engai,Republic,#6ae3ab,Phax,狗头人（哥布林）,Generic,2.5,444,94,30540640,6294355,5793569,500786
+14,Olerin,Olerin Empire,Empire,#ad9cda,Dretheas,昆雅（精灵）,Generic,2.2,341,51,27253552,4230258,3992846,237412
+17,Giruzar,Giruzar Empire,Empire,#ffab63,Memruch,尤顿（巨人）,Generic,1.4,336,51,25692848,4597821,4236381,361440
+0,Neutrals,,,,,,,,444,4,25651840,417337,383661,33676
+10,Zrio,Kingdom of Zrio,Kingdom,#ff8ace,Zrio,狗头人（哥布林）,Generic,1.4,338,62,20918512,3689428,3352444,336984
+18,Milstar,Kingdom of Milstar,Kingdom,#ffcf4e,Cryshield,阿诺（人类）,Generic,2.8,317,34,18838176,3154424,2954171,200253
+8,Vreagab,Kingdom of Vreagab,Kingdom,#ff8b7f,Vreagab,狗头人（哥布林）,Generic,1.5,172,42,12235056,2591834,2417013,174821
+15,Kyathlulil,Kingdom of Kyathlulil,Kingdom,#e290dc,Elase,昆雅（精灵）,Generic,1.8,159,40,11750496,2455053,2228004,227049
+4,Solka,Kingdom of Solka,Kingdom,#e78ac3,Bothar,尤顿（巨人）,Generic,3.1,161,45,11137152,2533478,2254209,279269
+1,Dawnwalia,Principality of Dawnwalia,Principality,#66c2a5,Wilhalmi,阿诺（人类）,Generic,2,166,33,9274336,1949616,1727664,221952
+9,Brat,Principality of Brat,Principality,#b7a1ce,Brat,狗头人（哥布林）,Generic,2.9,135,42,8917376,2131337,1854739,276598
+20,Karion,Protectorate of Karion,Protectorate,#d3aad5,Myths,昆雅（精灵）,Generic,2,98,12,7669072,945453,865705,79748
+6,Tolnarg,Grand Duchy of Tolnarg,Grand Duchy,#ffd92f,Tolnarg,尤顿（巨人）,Generic,2.8,96,19,6488352,993519,881250,112269
+19,Yethmel,Republic of Yethmel,Republic,#62d5c2,Eliemaran,昆雅（精灵）,Generic,2.7,86,13,5802480,1075481,1020127,55354
+11,Biok,Republic of Biok,Republic,#a0e07d,Phig,狗头人（哥布林）,Generic,3,111,15,5463808,1434588,1351304,83284
+5,Eartland,Grand Duchy of Eartland,Grand Duchy,#a6d854,Drayhost,阿诺（人类）,Generic,1.9,62,14,4626384,1142642,1038858,103784
+3,Digez,Digezan League,League,#8da0cb,Razinb,尤顿（巨人）,Generic,2.8,61,10,4330848,910671,826855,83816
+7,Srach,Grand Duchy of Srach,Grand Duchy,#64d1c4,Zel,阿拉戈（蛛形）,Hunting,1.6,82,13,4222912,662395,588011,74384
+2,Shemnaselu,Grand Duchy of Shemnaselu,Grand Duchy,#fc8d62,Genosanil,昆雅（精灵）,Generic,2.2,60,15,3534912,718133,639364,78769
+16,Grur,Gruran Marches,Marches,#e38eda,Duzec,乌鲁克（兽人）,Highland,3.2,29,6,2306976,596282,558662,37620
+12,Bug,Duchy of Bug,Duchy,#ffcf51,Bug,狗头人（哥布林）,Generic,2.1,25,3,1487136,305179,286129,19050

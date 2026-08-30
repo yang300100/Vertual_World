@@ -1,0 +1,329 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "ancient-east-west-road",
+      "properties": {
+        "id": "ancient-east-west-road",
+        "name": "古老东西陆路",
+        "road_type": "stone_trade_road"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.21,
+            28.0
+          ],
+          [
+            -71.08,
+            28.01
+          ],
+          [
+            -71.0,
+            28.0
+          ],
+          [
+            -70.79,
+            28.0
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "archives-road",
+      "properties": {
+        "id": "archives-road",
+        "name": "档案大道",
+        "road_type": "city_stone_road"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.08,
+            28.01
+          ],
+          [
+            -71.08,
+            28.04
+          ],
+          [
+            -71.11,
+            28.1
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "granary-road",
+      "properties": {
+        "id": "granary-road",
+        "name": "粮仓路",
+        "road_type": "service_road"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.08,
+            28.01
+          ],
+          [
+            -71.05,
+            27.96
+          ],
+          [
+            -71.03,
+            27.92
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "embankment-road",
+      "properties": {
+        "id": "embankment-road",
+        "name": "堤岸路",
+        "road_type": "embankment_road"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.0,
+            28.0
+          ],
+          [
+            -70.97,
+            27.99
+          ],
+          [
+            -70.94,
+            27.98
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "north-ring-street",
+      "properties": {
+        "id": "north-ring-street",
+        "name": "北环街",
+        "road_type": "city_street"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.17,
+            28.09
+          ],
+          [
+            -71.1,
+            28.12
+          ],
+          [
+            -71.02,
+            28.1
+          ],
+          [
+            -70.9,
+            28.08
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "south-market-street",
+      "properties": {
+        "id": "south-market-street",
+        "name": "南市街",
+        "road_type": "city_street"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.15,
+            27.94
+          ],
+          [
+            -71.07,
+            27.95
+          ],
+          [
+            -70.99,
+            27.94
+          ],
+          [
+            -70.89,
+            27.94
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "west-gate-street",
+      "properties": {
+        "id": "west-gate-street",
+        "name": "西门街",
+        "road_type": "city_street"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.16,
+            28.06
+          ],
+          [
+            -71.14,
+            28.0
+          ],
+          [
+            -71.13,
+            27.91
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "east-harbor-street",
+      "properties": {
+        "id": "east-harbor-street",
+        "name": "港仓街",
+        "road_type": "city_street"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -70.94,
+            28.08
+          ],
+          [
+            -70.94,
+            28.0
+          ],
+          [
+            -70.96,
+            27.9
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "archive-lane",
+      "properties": {
+        "id": "archive-lane",
+        "name": "抄本巷",
+        "road_type": "local_lane"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.13,
+            28.07
+          ],
+          [
+            -71.08,
+            28.07
+          ],
+          [
+            -71.03,
+            28.07
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "caravan-lane",
+      "properties": {
+        "id": "caravan-lane",
+        "name": "商旅巷",
+        "road_type": "local_lane"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.12,
+            27.98
+          ],
+          [
+            -71.07,
+            27.98
+          ],
+          [
+            -71.02,
+            27.98
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "dock-lane",
+      "properties": {
+        "id": "dock-lane",
+        "name": "码头巷",
+        "road_type": "local_lane"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.02,
+            27.96
+          ],
+          [
+            -70.98,
+            27.96
+          ],
+          [
+            -70.91,
+            27.96
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "granary-lane",
+      "properties": {
+        "id": "granary-lane",
+        "name": "仓廒巷",
+        "road_type": "local_lane"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.09,
+            27.91
+          ],
+          [
+            -71.03,
+            27.91
+          ],
+          [
+            -70.97,
+            27.91
+          ]
+        ]
+      }
+    }
+  ]
+}

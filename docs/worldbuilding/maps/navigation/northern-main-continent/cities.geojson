@@ -1,0 +1,85 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "forge_valley",
+      "properties": {
+        "id": "forge_valley",
+        "name": "锻谷城",
+        "kind": "city"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -132.0,
+          31.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "oathflow",
+      "properties": {
+        "id": "oathflow",
+        "name": "澜誓城",
+        "kind": "city"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.0,
+          28.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mirror_lake",
+      "properties": {
+        "id": "mirror_lake",
+        "name": "望镜湖庭",
+        "kind": "city"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -62.0,
+          50.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "east_port",
+      "properties": {
+        "id": "east_port",
+        "name": "东澜港",
+        "kind": "city"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -22.0,
+          30.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "red_spring",
+      "properties": {
+        "id": "red_spring",
+        "name": "赭泉关",
+        "kind": "city"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -67.0,
+          12.0
+        ]
+      }
+    }
+  ]
+}

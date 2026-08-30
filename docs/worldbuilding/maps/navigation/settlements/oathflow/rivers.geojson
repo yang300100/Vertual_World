@@ -1,0 +1,105 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "forge-river-local",
+      "properties": {
+        "id": "forge-river-local",
+        "name": "锻河"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.21,
+            28.08
+          ],
+          [
+            -71.11,
+            28.04
+          ],
+          [
+            -71.0,
+            28.0
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mirror-river-local",
+      "properties": {
+        "id": "mirror-river-local",
+        "name": "镜河"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.03,
+            28.18
+          ],
+          [
+            -71.02,
+            28.09
+          ],
+          [
+            -71.0,
+            28.0
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "red-spring-local",
+      "properties": {
+        "id": "red-spring-local",
+        "name": "赤泉河"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.08,
+            27.82
+          ],
+          [
+            -71.04,
+            27.91
+          ],
+          [
+            -71.0,
+            28.0
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "adde-river-local",
+      "properties": {
+        "id": "adde-river-local",
+        "name": "阿德河"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.0,
+            28.0
+          ],
+          [
+            -70.91,
+            27.98
+          ],
+          [
+            -70.79,
+            27.97
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -36,7 +36,7 @@ def test_tick_adjudicates_without_advancing_time_and_persists_events(
     assert result.current_time == before.world.current_time
     assert after.world.version == 1
     assert after.world.tick_count == 1
-    assert len(result.outcomes) == 3
+    assert len(result.outcomes) == 2
     assert all(item.event_id for item in result.outcomes)
     assert result.trigger == "manual"
     assert any(item["event_type"] == "world.adjudication" for item in events)

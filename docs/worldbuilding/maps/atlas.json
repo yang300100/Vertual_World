@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "coordinate_system": "WGS84-like logical longitude/latitude",
+  "boundary_rule": "[min,max), terminal east/north edge inclusive",
+  "master": {
+    "asset_path": "planet-master.png",
+    "min_longitude": -180,
+    "max_longitude": 180,
+    "min_latitude": -90,
+    "max_latitude": 90,
+    "width_pixels": 1536,
+    "height_pixels": 1024
+  },
+  "tiles": [
+    { "asset_path": "tiles/z1/r0-c0.png", "row": 0, "column": 0, "min_longitude": -180, "max_longitude": -90, "min_latitude": 0, "max_latitude": 90 },
+    { "asset_path": "tiles/z1/r0-c1.png", "row": 0, "column": 1, "min_longitude": -90, "max_longitude": 0, "min_latitude": 0, "max_latitude": 90 },
+    { "asset_path": "tiles/z1/r0-c2.png", "row": 0, "column": 2, "min_longitude": 0, "max_longitude": 90, "min_latitude": 0, "max_latitude": 90 },
+    { "asset_path": "tiles/z1/r0-c3.png", "row": 0, "column": 3, "min_longitude": 90, "max_longitude": 180, "min_latitude": 0, "max_latitude": 90 },
+    { "asset_path": "tiles/z1/r1-c0.png", "row": 1, "column": 0, "min_longitude": -180, "max_longitude": -90, "min_latitude": -90, "max_latitude": 0 },
+    { "asset_path": "tiles/z1/r1-c1.png", "row": 1, "column": 1, "min_longitude": -90, "max_longitude": 0, "min_latitude": -90, "max_latitude": 0 },
+    { "asset_path": "tiles/z1/r1-c2.png", "row": 1, "column": 2, "min_longitude": 0, "max_longitude": 90, "min_latitude": -90, "max_latitude": 0 },
+    { "asset_path": "tiles/z1/r1-c3.png", "row": 1, "column": 3, "min_longitude": 90, "max_longitude": 180, "min_latitude": -90, "max_latitude": 0 }
+  ]
+}

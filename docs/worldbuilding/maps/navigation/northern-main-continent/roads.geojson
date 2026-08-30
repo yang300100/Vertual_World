@@ -1,0 +1,116 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "forge-adde-east-road",
+      "properties": {
+        "id": "forge-adde-east-road",
+        "name": "锻河—阿德—东澜路",
+        "road_type": "trade_road",
+        "speed_multiplier": 1.45,
+        "kind": "road",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -132,
+            31
+          ],
+          [
+            -112,
+            31
+          ],
+          [
+            -105,
+            31
+          ],
+          [
+            -91,
+            29
+          ],
+          [
+            -71,
+            28
+          ],
+          [
+            -49,
+            29
+          ],
+          [
+            -22,
+            30
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mirror-oath-seasonal-road",
+      "properties": {
+        "id": "mirror-oath-seasonal-road",
+        "name": "镜湖—澜誓季节路",
+        "road_type": "seasonal_road",
+        "speed_multiplier": 1.2,
+        "kind": "road",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -62,
+            50
+          ],
+          [
+            -65,
+            42
+          ],
+          [
+            -68,
+            35
+          ],
+          [
+            -71,
+            28
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "red-pass-oath-road",
+      "properties": {
+        "id": "red-pass-oath-road",
+        "name": "赭泉—澜誓护粮路",
+        "road_type": "guarded_track",
+        "speed_multiplier": 1.25,
+        "kind": "road",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -67,
+            12
+          ],
+          [
+            -68,
+            19
+          ],
+          [
+            -69,
+            24
+          ],
+          [
+            -71,
+            28
+          ]
+        ]
+      }
+    }
+  ]
+}

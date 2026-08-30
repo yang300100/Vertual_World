@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "review_status": "candidate",
+  "generator": "scripts/generate_northern_navigation_data.py",
+  "source": "docs/worldbuilding/maps/northern-main-continent.png",
+  "source_sha256": "06097e577a9138e7e996b5b8226fbd5288da76261eb1549ad2262da9f3b69534",
+  "width": 768,
+  "height": 512,
+  "bounds": {
+    "min_longitude": -170.0,
+    "max_longitude": 0.0,
+    "min_latitude": 0.0,
+    "max_latitude": 72.0
+  },
+  "projection": "logical_equirectangular",
+  "encoding": {
+    "elevation": "uint16 meters, sea level=0",
+    "water_mask": {
+      "land": 0,
+      "inland_water": 160,
+      "ocean": 255
+    },
+    "slope": "uint8, value / 255 * 90 degrees",
+    "surface": {
+      "ocean": 0,
+      "inland_water": 1,
+      "grassland": 2,
+      "forest": 3,
+      "dryland": 4,
+      "mountain": 5,
+      "snow": 6,
+      "wetland": 7
+    }
+  },
+  "statistics": {
+    "land_fraction": 0.48243,
+    "ocean_fraction": 0.507032,
+    "inland_water_fraction": 0.010539,
+    "elevation_max_m": 4396,
+    "slope_mean_degrees": 4.717,
+    "surface_cell_counts": {
+      "ocean": 199373,
+      "inland_water": 4144,
+      "grassland": 8607,
+      "forest": 101389,
+      "dryland": 32851,
+      "mountain": 31338,
+      "snow": 1754,
+      "wetland": 13760
+    }
+  },
+  "warnings": [
+    "候选数据由视觉地图与已确认文字关系自动生成，不是世界正典。",
+    "高程主要来自规则化山脊场，不应解释为测绘结果。",
+    "河流、道路与桥梁几何必须人工审核后才能进入运行时。"
+  ]
+}

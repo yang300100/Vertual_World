@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "review_status": "candidate",
+  "nodes": [
+    {
+      "id": "forge_valley",
+      "name": "锻谷城",
+      "coordinates": [
+        -132.0,
+        31.0
+      ]
+    },
+    {
+      "id": "oathflow",
+      "name": "澜誓城",
+      "coordinates": [
+        -71.0,
+        28.0
+      ]
+    },
+    {
+      "id": "mirror_lake",
+      "name": "望镜湖庭",
+      "coordinates": [
+        -62.0,
+        50.0
+      ]
+    },
+    {
+      "id": "east_port",
+      "name": "东澜港",
+      "coordinates": [
+        -22.0,
+        30.0
+      ]
+    },
+    {
+      "id": "red_spring",
+      "name": "赭泉关",
+      "coordinates": [
+        -67.0,
+        12.0
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "forge-oath",
+      "source": "forge_valley",
+      "target": "oathflow",
+      "road_id": "forge-adde-east-road",
+      "distance_km": 5838.106,
+      "speed_multiplier": 1.45,
+      "polyline": [
+        [
+          -132,
+          31
+        ],
+        [
+          -112,
+          31
+        ],
+        [
+          -105,
+          31
+        ],
+        [
+          -91,
+          29
+        ],
+        [
+          -71,
+          28
+        ]
+      ],
+      "allowed_movement_types": [
+        "land",
+        "flight"
+      ],
+      "review_status": "candidate"
+    },
+    {
+      "id": "oath-east",
+      "source": "oathflow",
+      "target": "east_port",
+      "road_id": "forge-adde-east-road",
+      "distance_km": 4734.109,
+      "speed_multiplier": 1.45,
+      "polyline": [
+        [
+          -71,
+          28
+        ],
+        [
+          -49,
+          29
+        ],
+        [
+          -22,
+          30
+        ]
+      ],
+      "allowed_movement_types": [
+        "land",
+        "flight"
+      ],
+      "review_status": "candidate"
+    },
+    {
+      "id": "mirror-oath",
+      "source": "mirror_lake",
+      "target": "oathflow",
+      "road_id": "mirror-oath-seasonal-road",
+      "distance_km": 2562.512,
+      "speed_multiplier": 1.2,
+      "polyline": [
+        [
+          -62,
+          50
+        ],
+        [
+          -65,
+          42
+        ],
+        [
+          -68,
+          35
+        ],
+        [
+          -71,
+          28
+        ]
+      ],
+      "allowed_movement_types": [
+        "land",
+        "flight"
+      ],
+      "review_status": "candidate"
+    },
+    {
+      "id": "red-oath",
+      "source": "red_spring",
+      "target": "oathflow",
+      "road_id": "red-pass-oath-road",
+      "distance_km": 1827.118,
+      "speed_multiplier": 1.25,
+      "polyline": [
+        [
+          -67,
+          12
+        ],
+        [
+          -68,
+          19
+        ],
+        [
+          -69,
+          24
+        ],
+        [
+          -71,
+          28
+        ]
+      ],
+      "allowed_movement_types": [
+        "land",
+        "flight"
+      ],
+      "review_status": "candidate"
+    }
+  ]
+}

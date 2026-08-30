@@ -227,7 +227,7 @@ def test_provider_failure_falls_back_to_rules(database, settings) -> None:
     )
 
     assert result.current_version == 1
-    assert len(result.outcomes) == 3
+    assert len(result.outcomes) == 2
     assert tick_event["payload"]["provider"] == "rules"
 
 

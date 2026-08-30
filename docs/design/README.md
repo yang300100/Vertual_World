@@ -38,6 +38,7 @@
 | D013 | 2GB服务器第一阶段继续使用SQLite节点表和边表，不引入图数据库 | 已确认待实现 | `03-characters-and-knowledge.md` |
 | D014 | 人物使用0至100的正向饱食度，100最舒适 | 已实现 | `01-runtime-and-time.md` |
 | D015 | 调速先按旧比例结算并原子提交；相同比例为无操作 | 已实现 | `01-runtime-and-time.md` |
+| D016 | 世界长期变化通过统一注册门面、严格类型处理器和来源事件审计落库；Agent只能提交候选 | 已实现（第一阶段） | `11-world-element-registry.md` |
 
 ## 推荐阅读顺序
 
@@ -46,6 +47,7 @@
 3. `03-characters-and-knowledge.md`：人物结构、关系图和主视角认知边界。
 4. `04-items-and-inventory.md`：物品实例、小背包和所有权流转。
 5. `05-data-model-and-roadmap.md`：建议数据库结构、迁移顺序和验收标准。
+6. `11-world-element-registry.md`：玩家/NPC造成的新人物、聚落、建筑、巨构和动态知识如何登记。
 
 ## 总体原则
 

@@ -1,0 +1,7933 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "river:1",
+      "properties": {
+        "id": "river:1",
+        "name": "Croila",
+        "river_id": 1,
+        "length_km": 982.66,
+        "discharge": 435,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -79.08174,
+            15.02109
+          ],
+          [
+            -75.97312,
+            16.02029
+          ],
+          [
+            -74.05324,
+            17.75236
+          ],
+          [
+            -75.10394,
+            20.02536
+          ],
+          [
+            -77.3592,
+            22.22576
+          ],
+          [
+            -74.95944,
+            24.55304
+          ],
+          [
+            -71.30588,
+            25.03395
+          ],
+          [
+            -69.11173,
+            24.02288
+          ],
+          [
+            -68.35291,
+            28.07648
+          ],
+          [
+            -65.85681,
+            30.52524
+          ],
+          [
+            -63.2252,
+            29.69425
+          ],
+          [
+            -61.19712,
+            33.11166
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:3",
+      "properties": {
+        "id": "river:3",
+        "name": "Lastshield",
+        "river_id": 3,
+        "length_km": 288.32,
+        "discharge": 95,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            118.2644,
+            -14.87121
+          ],
+          [
+            118.7486,
+            -18.96398
+          ],
+          [
+            121.40681,
+            -21.86526
+          ],
+          [
+            120.43015,
+            -23.94848
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:5",
+      "properties": {
+        "id": "river:5",
+        "name": "Kinburak",
+        "river_id": 5,
+        "length_km": 465.09,
+        "discharge": 306,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            131.16222,
+            -0.22105
+          ],
+          [
+            131.25244,
+            -3.53027
+          ],
+          [
+            134.69644,
+            -5.1387
+          ],
+          [
+            137.91541,
+            -8.16901
+          ],
+          [
+            141.4011,
+            -7.61981
+          ],
+          [
+            142.94426,
+            -7.03754
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:6",
+      "properties": {
+        "id": "river:6",
+        "name": "Vrea",
+        "river_id": 6,
+        "length_km": 812.85,
+        "discharge": 316,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -78.81394,
+            7.10583
+          ],
+          [
+            -79.4261,
+            3.08027
+          ],
+          [
+            -79.90598,
+            -0.49313
+          ],
+          [
+            -77.26682,
+            -0.45719
+          ],
+          [
+            -76.79017,
+            -3.63954
+          ],
+          [
+            -73.63698,
+            -3.88826
+          ],
+          [
+            -73.78005,
+            -6.95631
+          ],
+          [
+            -74.35878,
+            -10.43806
+          ],
+          [
+            -74.66181,
+            -12.07093
+          ],
+          [
+            -76.12409,
+            -16.05156
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:8",
+      "properties": {
+        "id": "river:8",
+        "name": "Theoddan",
+        "river_id": 8,
+        "length_km": 353.14,
+        "discharge": 164,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            124.38566,
+            -13.39828
+          ],
+          [
+            127.74662,
+            -13.89429
+          ],
+          [
+            127.32066,
+            -15.65188
+          ],
+          [
+            129.26858,
+            -19.19617
+          ],
+          [
+            130.58852,
+            -22.37061
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:9",
+      "properties": {
+        "id": "river:9",
+        "name": "Norkizir",
+        "river_id": 9,
+        "length_km": 342.8,
+        "discharge": 129,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            132.07776,
+            15.63786
+          ],
+          [
+            131.56445,
+            16.79808
+          ],
+          [
+            128.22794,
+            20.8107
+          ],
+          [
+            128.60034,
+            22.92592
+          ],
+          [
+            126.83431,
+            26.14888
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:10",
+      "properties": {
+        "id": "river:10",
+        "name": "Thres",
+        "river_id": 10,
+        "length_km": 1282.11,
+        "discharge": 1269,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -85.16453,
+            8.92165
+          ],
+          [
+            -83.94668,
+            6.45599
+          ],
+          [
+            -84.36869,
+            2.56845
+          ],
+          [
+            -83.97831,
+            -0.56897
+          ],
+          [
+            -87.87235,
+            -2.29493
+          ],
+          [
+            -89.13082,
+            -4.8278
+          ],
+          [
+            -89.66966,
+            -8.22616
+          ],
+          [
+            -86.01861,
+            -8.0274
+          ],
+          [
+            -85.51932,
+            -7.68343
+          ],
+          [
+            -82.32767,
+            -10.03407
+          ],
+          [
+            -81.04763,
+            -12.91522
+          ],
+          [
+            -79.10798,
+            -12.98638
+          ],
+          [
+            -76.12409,
+            -16.05156
+          ],
+          [
+            -75.10538,
+            -18.77528
+          ],
+          [
+            -72.42452,
+            -20.95663
+          ],
+          [
+            -71.56361,
+            -22.47484
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:11",
+      "properties": {
+        "id": "river:11",
+        "name": "Shathugkiz",
+        "river_id": 11,
+        "length_km": 1193.39,
+        "discharge": 1244,
+        "width_factor": 1.0,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            75.89656,
+            10.8
+          ],
+          [
+            78.159,
+            11.31002
+          ],
+          [
+            80.06486,
+            12.80128
+          ],
+          [
+            84.55093,
+            13.26494
+          ],
+          [
+            87.15415,
+            13.82312
+          ],
+          [
+            89.1035,
+            14.55563
+          ],
+          [
+            90.09705,
+            13.78251
+          ],
+          [
+            90.71209,
+            12.26717
+          ],
+          [
+            94.19059,
+            9.87268
+          ],
+          [
+            92.56979,
+            6.153
+          ],
+          [
+            92.215,
+            2.95232
+          ],
+          [
+            90.5205,
+            -0.43311
+          ],
+          [
+            92.04389,
+            -2.19321
+          ],
+          [
+            93.34838,
+            -3.69812
+          ],
+          [
+            94.62446,
+            -5.60343
+          ],
+          [
+            94.08995,
+            -7.8617
+          ],
+          [
+            92.83794,
+            -9.10064
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:12",
+      "properties": {
+        "id": "river:12",
+        "name": "Kegkan",
+        "river_id": 12,
+        "length_km": 244.6,
+        "discharge": 123,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            129.09244,
+            14.60523
+          ],
+          [
+            128.49969,
+            16.5986
+          ],
+          [
+            127.07335,
+            19.32915
+          ],
+          [
+            125.78001,
+            22.71494
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:13",
+      "properties": {
+        "id": "river:13",
+        "name": "Egzo",
+        "river_id": 13,
+        "length_km": 503.23,
+        "discharge": 155,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -88.21492,
+            18.55819
+          ],
+          [
+            -89.96262,
+            21.85771
+          ],
+          [
+            -88.6646,
+            24.90312
+          ],
+          [
+            -86.27527,
+            28.68606
+          ],
+          [
+            -84.88883,
+            30.00371
+          ],
+          [
+            -81.77949,
+            33.45707
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:14",
+      "properties": {
+        "id": "river:14",
+        "name": "Berolazin",
+        "river_id": 14,
+        "length_km": 1294.02,
+        "discharge": 1339,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            123.95934,
+            -8.45763
+          ],
+          [
+            124.22247,
+            -5.97113
+          ],
+          [
+            123.99565,
+            -2.26761
+          ],
+          [
+            121.95858,
+            -1.16274
+          ],
+          [
+            121.47439,
+            1.26985
+          ],
+          [
+            122.21452,
+            4.20312
+          ],
+          [
+            123.87307,
+            5.56282
+          ],
+          [
+            124.73865,
+            7.04473
+          ],
+          [
+            123.08801,
+            9.14521
+          ],
+          [
+            123.96294,
+            12.43035
+          ],
+          [
+            122.68505,
+            15.73778
+          ],
+          [
+            123.13618,
+            18.21961
+          ],
+          [
+            124.73182,
+            18.87772
+          ],
+          [
+            125.78001,
+            22.71494
+          ],
+          [
+            126.83431,
+            26.14888
+          ],
+          [
+            125.6772,
+            28.27093
+          ],
+          [
+            127.30269,
+            30.10471
+          ],
+          [
+            128.4411,
+            32.08874
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:15",
+      "properties": {
+        "id": "river:15",
+        "name": "Nardistand",
+        "river_id": 15,
+        "length_km": 218.39,
+        "discharge": 178,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            134.94087,
+            9.65919
+          ],
+          [
+            136.0915,
+            7.72188
+          ],
+          [
+            138.5574,
+            5.79177
+          ],
+          [
+            140.92266,
+            6.46857
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:16",
+      "properties": {
+        "id": "river:16",
+        "name": "Ishzaarm",
+        "river_id": 16,
+        "length_km": 458.97,
+        "discharge": 257,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -74.30522,
+            12.05799
+          ],
+          [
+            -71.42235,
+            9.40184
+          ],
+          [
+            -69.52188,
+            12.47923
+          ],
+          [
+            -66.9618,
+            11.89553
+          ],
+          [
+            -63.84743,
+            11.76038
+          ],
+          [
+            -60.64931,
+            11.47644
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:18",
+      "properties": {
+        "id": "river:18",
+        "name": "Kharic",
+        "river_id": 18,
+        "length_km": 885.5,
+        "discharge": 324,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            65.24609,
+            -2.0135
+          ],
+          [
+            62.63209,
+            -3.36314
+          ],
+          [
+            60.40164,
+            -3.64421
+          ],
+          [
+            59.06336,
+            -6.46102
+          ],
+          [
+            55.50362,
+            -4.39649
+          ],
+          [
+            52.85943,
+            -7.63167
+          ],
+          [
+            50.34608,
+            -8.36741
+          ],
+          [
+            46.77268,
+            -10.57931
+          ],
+          [
+            45.35209,
+            -14.04561
+          ],
+          [
+            44.17414,
+            -16.97923
+          ],
+          [
+            43.05622,
+            -17.9522
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:19",
+      "properties": {
+        "id": "river:19",
+        "name": "Zaccoz",
+        "river_id": 19,
+        "length_km": 922.38,
+        "discharge": 412,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -93.88469,
+            1.96857
+          ],
+          [
+            -94.09102,
+            5.16817
+          ],
+          [
+            -94.62338,
+            7.08031
+          ],
+          [
+            -95.84375,
+            10.27057
+          ],
+          [
+            -96.68957,
+            11.65723
+          ],
+          [
+            -99.89308,
+            11.23095
+          ],
+          [
+            -103.38201,
+            12.86058
+          ],
+          [
+            -105.24186,
+            13.87919
+          ],
+          [
+            -107.10782,
+            15.42831
+          ],
+          [
+            -109.7574,
+            16.82396
+          ],
+          [
+            -111.6949,
+            19.16526
+          ],
+          [
+            -114.08567,
+            21.76677
+          ],
+          [
+            -115.78808,
+            21.67045
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:20",
+      "properties": {
+        "id": "river:20",
+        "name": "Thornhelm",
+        "river_id": 20,
+        "length_km": 1080.31,
+        "discharge": 357,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            74.16216,
+            -5.98335
+          ],
+          [
+            73.23619,
+            -9.02552
+          ],
+          [
+            73.69126,
+            -11.03255
+          ],
+          [
+            73.68839,
+            -12.82069
+          ],
+          [
+            71.53486,
+            -15.50272
+          ],
+          [
+            70.45576,
+            -19.19868
+          ],
+          [
+            68.04413,
+            -20.58355
+          ],
+          [
+            65.00921,
+            -21.39297
+          ],
+          [
+            62.73741,
+            -22.31849
+          ],
+          [
+            62.4901,
+            -26.73618
+          ],
+          [
+            61.58894,
+            -28.76478
+          ],
+          [
+            60.12953,
+            -30.04038
+          ],
+          [
+            58.18089,
+            -30.20931
+          ],
+          [
+            55.97416,
+            -33.03618
+          ],
+          [
+            54.63445,
+            -34.50839
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:22",
+      "properties": {
+        "id": "river:22",
+        "name": "Brerstuz",
+        "river_id": 22,
+        "length_km": 618.83,
+        "discharge": 165,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            117.53434,
+            -10.91717
+          ],
+          [
+            114.13096,
+            -9.94313
+          ],
+          [
+            111.40589,
+            -9.47911
+          ],
+          [
+            107.93781,
+            -9.60204
+          ],
+          [
+            106.99387,
+            -13.73219
+          ],
+          [
+            102.72491,
+            -14.15487
+          ],
+          [
+            103.2012,
+            -15.22668
+          ],
+          [
+            104.04234,
+            -17.85192
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:23",
+      "properties": {
+        "id": "river:23",
+        "name": "Shathar",
+        "river_id": 23,
+        "length_km": 499.22,
+        "discharge": 140,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            80.35315,
+            -5.85935
+          ],
+          [
+            81.92723,
+            -7.45519
+          ],
+          [
+            82.01997,
+            -10.91825
+          ],
+          [
+            84.17817,
+            -11.33267
+          ],
+          [
+            87.15559,
+            -7.94042
+          ],
+          [
+            88.97805,
+            -6.40998
+          ],
+          [
+            91.43353,
+            -8.35986
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:24",
+      "properties": {
+        "id": "river:24",
+        "name": "Gagalddam",
+        "river_id": 24,
+        "length_km": 244.19,
+        "discharge": 230,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            133.36248,
+            4.70559
+          ],
+          [
+            137.864,
+            4.54457
+          ],
+          [
+            139.03585,
+            4.03275
+          ],
+          [
+            141.77494,
+            5.22604
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:27",
+      "properties": {
+        "id": "river:27",
+        "name": "Throtreo",
+        "river_id": 27,
+        "length_km": 196.84,
+        "discharge": 93,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            119.05018,
+            8.0903
+          ],
+          [
+            122.29288,
+            9.18654
+          ],
+          [
+            123.96294,
+            12.43035
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:28",
+      "properties": {
+        "id": "river:28",
+        "name": "Ratal",
+        "river_id": 28,
+        "length_km": 815.16,
+        "discharge": 489,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            118.50524,
+            -5.08946
+          ],
+          [
+            117.27553,
+            -4.8375
+          ],
+          [
+            116.09578,
+            -3.22117
+          ],
+          [
+            113.04395,
+            -4.02736
+          ],
+          [
+            111.22508,
+            -4.9252
+          ],
+          [
+            108.12114,
+            -5.61961
+          ],
+          [
+            106.14159,
+            -6.24141
+          ],
+          [
+            103.36727,
+            -5.18291
+          ],
+          [
+            102.185,
+            -9.13407
+          ],
+          [
+            97.677,
+            -8.60463
+          ],
+          [
+            96.23161,
+            -10.42476
+          ],
+          [
+            95.09536,
+            -11.58427
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:30",
+      "properties": {
+        "id": "river:30",
+        "name": "Dugheru",
+        "river_id": 30,
+        "length_km": 169.85,
+        "discharge": 114,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            127.58307,
+            5.3522
+          ],
+          [
+            126.06902,
+            7.68594
+          ],
+          [
+            123.08801,
+            9.14521
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:31",
+      "properties": {
+        "id": "river:31",
+        "name": "Oraneliz",
+        "river_id": 31,
+        "length_km": 214.23,
+        "discharge": 136,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            137.87659,
+            18.17324
+          ],
+          [
+            139.95714,
+            20.06022
+          ],
+          [
+            141.9331,
+            19.35863
+          ],
+          [
+            144.55357,
+            18.40256
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:32",
+      "properties": {
+        "id": "river:32",
+        "name": "Sinenilran",
+        "river_id": 32,
+        "length_km": 1211.99,
+        "discharge": 423,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            67.77562,
+            22.66102
+          ],
+          [
+            68.15844,
+            24.03079
+          ],
+          [
+            68.6793,
+            26.57552
+          ],
+          [
+            68.96148,
+            29.74996
+          ],
+          [
+            68.63005,
+            31.8889
+          ],
+          [
+            67.29717,
+            34.24888
+          ],
+          [
+            64.84493,
+            34.53966
+          ],
+          [
+            62.66408,
+            34.48466
+          ],
+          [
+            60.04361,
+            34.18742
+          ],
+          [
+            57.57088,
+            33.16593
+          ],
+          [
+            54.6952,
+            35.71965
+          ],
+          [
+            54.86702,
+            38.26402
+          ],
+          [
+            53.70309,
+            40.25128
+          ],
+          [
+            52.21671,
+            43.1619
+          ],
+          [
+            53.74191,
+            46.23103
+          ],
+          [
+            52.04453,
+            48.25891
+          ],
+          [
+            49.68395,
+            50.77704
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:34",
+      "properties": {
+        "id": "river:34",
+        "name": "Timouth",
+        "river_id": 34,
+        "length_km": 439.29,
+        "discharge": 93,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            63.70544,
+            -9.40148
+          ],
+          [
+            61.34307,
+            -10.80575
+          ],
+          [
+            63.53038,
+            -13.71422
+          ],
+          [
+            63.76799,
+            -15.60695
+          ],
+          [
+            63.84923,
+            -18.35978
+          ],
+          [
+            62.11375,
+            -20.24712
+          ],
+          [
+            62.73741,
+            -22.31849
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:35",
+      "properties": {
+        "id": "river:35",
+        "name": "Tigfast",
+        "river_id": 35,
+        "length_km": 189.37,
+        "discharge": 44,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            79.98291,
+            8.348
+          ],
+          [
+            82.41897,
+            10.15879
+          ],
+          [
+            84.55093,
+            13.26494
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:36",
+      "properties": {
+        "id": "river:36",
+        "name": "Felssadi",
+        "river_id": 36,
+        "length_km": 260.93,
+        "discharge": 90,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            62.11842,
+            25.05982
+          ],
+          [
+            60.28769,
+            27.63043
+          ],
+          [
+            58.79952,
+            29.77871
+          ],
+          [
+            57.57088,
+            33.16593
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:38",
+      "properties": {
+        "id": "river:38",
+        "name": "Emelssadrin",
+        "river_id": 38,
+        "length_km": 298.06,
+        "discharge": 44,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            54.58808,
+            14.16781
+          ],
+          [
+            56.52234,
+            11.29924
+          ],
+          [
+            56.11579,
+            10.5653
+          ],
+          [
+            53.71135,
+            9.64768
+          ],
+          [
+            50.2767,
+            7.95839
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:39",
+      "properties": {
+        "id": "river:39",
+        "name": "Namunz",
+        "river_id": 39,
+        "length_km": 1351.8,
+        "discharge": 875,
+        "width_factor": 1.0,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            57.48246,
+            9.60851
+          ],
+          [
+            53.92739,
+            8.06478
+          ],
+          [
+            50.2767,
+            7.95839
+          ],
+          [
+            48.40715,
+            7.23235
+          ],
+          [
+            46.23097,
+            7.00483
+          ],
+          [
+            43.23163,
+            8.22364
+          ],
+          [
+            39.71682,
+            9.49852
+          ],
+          [
+            39.31567,
+            11.7018
+          ],
+          [
+            37.83864,
+            11.58678
+          ],
+          [
+            37.46516,
+            15.42364
+          ],
+          [
+            35.90259,
+            17.56725
+          ],
+          [
+            32.8389,
+            17.96657
+          ],
+          [
+            32.26089,
+            13.90543
+          ],
+          [
+            31.86908,
+            12.84764
+          ],
+          [
+            28.93624,
+            10.09193
+          ],
+          [
+            28.19467,
+            12.18702
+          ],
+          [
+            26.51742,
+            10.77196
+          ],
+          [
+            23.9347,
+            12.03606
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:40",
+      "properties": {
+        "id": "river:40",
+        "name": "Yozigbeorn",
+        "river_id": 40,
+        "length_km": 239.58,
+        "discharge": 98,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            83.34135,
+            -0.98159
+          ],
+          [
+            86.84286,
+            0.03199
+          ],
+          [
+            89.39862,
+            1.33239
+          ],
+          [
+            90.5205,
+            -0.43311
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:41",
+      "properties": {
+        "id": "river:41",
+        "name": "Honklig",
+        "river_id": 41,
+        "length_km": 275.45,
+        "discharge": 100,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -69.42338,
+            16.00519
+          ],
+          [
+            -66.73821,
+            14.27887
+          ],
+          [
+            -64.0383,
+            13.11865
+          ],
+          [
+            -60.64931,
+            11.47644
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:42",
+      "properties": {
+        "id": "river:42",
+        "name": "Mudhillhall",
+        "river_id": 42,
+        "length_km": 215.16,
+        "discharge": 270,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            116.86323,
+            -22.52408
+          ],
+          [
+            119.03724,
+            -21.68626
+          ],
+          [
+            120.43015,
+            -23.94848
+          ],
+          [
+            122.14119,
+            -26.09065
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:43",
+      "properties": {
+        "id": "river:43",
+        "name": "Fayhost",
+        "river_id": 43,
+        "length_km": 138.63,
+        "discharge": 64,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            114.50157,
+            -27.95966
+          ],
+          [
+            116.73849,
+            -30.09465
+          ],
+          [
+            118.62674,
+            -30.08638
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:44",
+      "properties": {
+        "id": "river:44",
+        "name": "Adgararak",
+        "river_id": 44,
+        "length_km": 226.62,
+        "discharge": 179,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            135.42111,
+            0.31342
+          ],
+          [
+            139.04339,
+            -1.29285
+          ],
+          [
+            140.90468,
+            -0.36302
+          ],
+          [
+            143.0007,
+            -0.44928
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:45",
+      "properties": {
+        "id": "river:45",
+        "name": "Sigkan",
+        "river_id": 45,
+        "length_km": 158.56,
+        "discharge": 91,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            138.7339,
+            22.52732
+          ],
+          [
+            140.92769,
+            20.94369
+          ],
+          [
+            143.734,
+            21.97883
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:46",
+      "properties": {
+        "id": "river:46",
+        "name": "Kaccidh",
+        "river_id": 46,
+        "length_km": 736.18,
+        "discharge": 167,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -94.82432,
+            11.79345
+          ],
+          [
+            -96.88332,
+            15.01318
+          ],
+          [
+            -96.56771,
+            17.76673
+          ],
+          [
+            -100.70546,
+            19.06893
+          ],
+          [
+            -102.38954,
+            21.04002
+          ],
+          [
+            -104.66852,
+            20.48542
+          ],
+          [
+            -106.5334,
+            22.4849
+          ],
+          [
+            -111.02307,
+            21.84297
+          ],
+          [
+            -112.24631,
+            22.41769
+          ],
+          [
+            -114.08567,
+            21.76677
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:47",
+      "properties": {
+        "id": "river:47",
+        "name": "Ef Selion",
+        "river_id": 47,
+        "length_km": 888.23,
+        "discharge": 243,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            116.2942,
+            15.39237
+          ],
+          [
+            113.03533,
+            15.3478
+          ],
+          [
+            113.27832,
+            16.69097
+          ],
+          [
+            112.26069,
+            17.52879
+          ],
+          [
+            111.13522,
+            18.99058
+          ],
+          [
+            111.39043,
+            23.63363
+          ],
+          [
+            111.60863,
+            25.5738
+          ],
+          [
+            113.05258,
+            28.71266
+          ],
+          [
+            116.2791,
+            29.38838
+          ],
+          [
+            115.44911,
+            31.89788
+          ],
+          [
+            118.37691,
+            34.19209
+          ],
+          [
+            117.96066,
+            36.29473
+          ],
+          [
+            117.42506,
+            38.48614
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:49",
+      "properties": {
+        "id": "river:49",
+        "name": "Eenqi",
+        "river_id": 49,
+        "length_km": 346.14,
+        "discharge": 91,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -102.73066,
+            -3.20319
+          ],
+          [
+            -104.72387,
+            -5.38526
+          ],
+          [
+            -106.76921,
+            -6.26765
+          ],
+          [
+            -109.05142,
+            -6.3877
+          ],
+          [
+            -110.68913,
+            -7.35671
+          ],
+          [
+            -112.67802,
+            -9.68147
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:50",
+      "properties": {
+        "id": "river:50",
+        "name": "Shathiz",
+        "river_id": 50,
+        "length_km": 96.29,
+        "discharge": 42,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            83.98047,
+            -18.81338
+          ],
+          [
+            84.01102,
+            -21.53746
+          ],
+          [
+            83.86976,
+            -22.24876
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:52",
+      "properties": {
+        "id": "river:52",
+        "name": "Vozigzund",
+        "river_id": 52,
+        "length_km": 137.62,
+        "discharge": 93,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            137.70944,
+            -3.79481
+          ],
+          [
+            140.56823,
+            -2.51669
+          ],
+          [
+            142.32419,
+            -2.06562
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:53",
+      "properties": {
+        "id": "river:53",
+        "name": "Brildond",
+        "river_id": 53,
+        "length_km": 128.13,
+        "discharge": 55,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            78.24923,
+            24.9351
+          ],
+          [
+            78.9322,
+            22.06941
+          ],
+          [
+            80.22015,
+            21.03283
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:54",
+      "properties": {
+        "id": "river:54",
+        "name": "Ireguard",
+        "river_id": 54,
+        "length_km": 278.02,
+        "discharge": 64,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            53.32781,
+            -19.9524
+          ],
+          [
+            52.41693,
+            -23.55132
+          ],
+          [
+            51.37917,
+            -26.69521
+          ],
+          [
+            50.35722,
+            -29.47931
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:55",
+      "properties": {
+        "id": "river:55",
+        "name": "Kellort",
+        "river_id": 55,
+        "length_km": 566.11,
+        "discharge": 239,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            49.88633,
+            24.18642
+          ],
+          [
+            48.38666,
+            22.43027
+          ],
+          [
+            46.07173,
+            22.02268
+          ],
+          [
+            42.89122,
+            22.75016
+          ],
+          [
+            40.6773,
+            23.58618
+          ],
+          [
+            37.78904,
+            23.06358
+          ],
+          [
+            35.4698,
+            20.85132
+          ],
+          [
+            32.8389,
+            17.96657
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:61",
+      "properties": {
+        "id": "river:61",
+        "name": "Chazdin",
+        "river_id": 61,
+        "length_km": 387.26,
+        "discharge": 110,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            113.50838,
+            3.86418
+          ],
+          [
+            110.98928,
+            1.70331
+          ],
+          [
+            109.52124,
+            -0.5226
+          ],
+          [
+            107.10746,
+            -1.79065
+          ],
+          [
+            104.58368,
+            -3.25747
+          ],
+          [
+            103.36727,
+            -5.18291
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:62",
+      "properties": {
+        "id": "river:62",
+        "name": "Klishashus",
+        "river_id": 62,
+        "length_km": 275.86,
+        "discharge": 70,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            46.92977,
+            38.74708
+          ],
+          [
+            44.79852,
+            41.05567
+          ],
+          [
+            44.59579,
+            43.88363
+          ],
+          [
+            43.14824,
+            44.7901
+          ],
+          [
+            41.02958,
+            45.45216
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:63",
+      "properties": {
+        "id": "river:63",
+        "name": "Velkug",
+        "river_id": 63,
+        "length_km": 363.95,
+        "discharge": 114,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            75.68915,
+            17.01338
+          ],
+          [
+            78.22514,
+            17.02272
+          ],
+          [
+            79.82151,
+            14.39569
+          ],
+          [
+            84.25114,
+            14.67604
+          ],
+          [
+            87.15415,
+            13.82312
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:64",
+      "properties": {
+        "id": "river:64",
+        "name": "Bhurk",
+        "river_id": 64,
+        "length_km": 180.59,
+        "discharge": 46,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -90.27894,
+            29.65938
+          ],
+          [
+            -89.73076,
+            33.13502
+          ],
+          [
+            -87.36947,
+            34.93395
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:68",
+      "properties": {
+        "id": "river:68",
+        "name": "Stormouth",
+        "river_id": 68,
+        "length_km": 609.9,
+        "discharge": 283,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            80.9211,
+            -19.99732
+          ],
+          [
+            83.86976,
+            -22.24876
+          ],
+          [
+            85.97799,
+            -26.05867
+          ],
+          [
+            86.15269,
+            -29.00379
+          ],
+          [
+            86.2785,
+            -31.61034
+          ],
+          [
+            88.47661,
+            -34.13962
+          ],
+          [
+            90.67039,
+            -35.26318
+          ],
+          [
+            91.69306,
+            -37.51174
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:69",
+      "properties": {
+        "id": "river:69",
+        "name": "Srurd",
+        "river_id": 69,
+        "length_km": 188.18,
+        "discharge": 134,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -115.46672,
+            -31.78934
+          ],
+          [
+            -115.27153,
+            -33.0901
+          ],
+          [
+            -116.58033,
+            -35.98203
+          ],
+          [
+            -117.31039,
+            -38.12815
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:70",
+      "properties": {
+        "id": "river:70",
+        "name": "Addudhera",
+        "river_id": 70,
+        "length_km": 560.64,
+        "discharge": 183,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            74.90804,
+            20.84413
+          ],
+          [
+            78.31896,
+            18.87017
+          ],
+          [
+            80.22015,
+            21.03283
+          ],
+          [
+            83.81368,
+            20.24641
+          ],
+          [
+            86.31301,
+            20.42899
+          ],
+          [
+            88.07868,
+            19.29896
+          ],
+          [
+            87.85905,
+            17.17584
+          ],
+          [
+            89.1035,
+            14.55563
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:71",
+      "properties": {
+        "id": "river:71",
+        "name": "Qalitha",
+        "river_id": 71,
+        "length_km": 352.22,
+        "discharge": 183,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            40.67694,
+            37.38954
+          ],
+          [
+            41.29558,
+            40.87057
+          ],
+          [
+            39.23119,
+            42.03007
+          ],
+          [
+            41.02958,
+            45.45216
+          ],
+          [
+            40.5576,
+            48.29557
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:72",
+      "properties": {
+        "id": "river:72",
+        "name": "Warhampound",
+        "river_id": 72,
+        "length_km": 866.73,
+        "discharge": 249,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            77.70608,
+            38.18387
+          ],
+          [
+            80.67271,
+            39.78187
+          ],
+          [
+            83.71375,
+            41.27312
+          ],
+          [
+            87.07003,
+            40.14992
+          ],
+          [
+            90.00899,
+            40.17939
+          ],
+          [
+            91.59493,
+            42.35068
+          ],
+          [
+            92.51874,
+            43.05335
+          ],
+          [
+            95.50047,
+            44.36921
+          ],
+          [
+            97.66478,
+            47.12204
+          ],
+          [
+            98.20793,
+            50.30691
+          ],
+          [
+            98.17953,
+            51.82188
+          ],
+          [
+            100.09186,
+            53.49321
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:73",
+      "properties": {
+        "id": "river:73",
+        "name": "Mesidor",
+        "river_id": 73,
+        "length_km": 295.73,
+        "discharge": 81,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            48.85036,
+            17.16326
+          ],
+          [
+            48.54842,
+            20.46817
+          ],
+          [
+            44.79313,
+            19.81761
+          ],
+          [
+            42.89122,
+            22.75016
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:74",
+      "properties": {
+        "id": "river:74",
+        "name": "Seamerster",
+        "river_id": 74,
+        "length_km": 327.95,
+        "discharge": 95,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            68.78678,
+            46.08151
+          ],
+          [
+            68.78534,
+            48.25962
+          ],
+          [
+            68.4,
+            51.04481
+          ],
+          [
+            70.93024,
+            51.9732
+          ],
+          [
+            70.86518,
+            56.06597
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:76",
+      "properties": {
+        "id": "river:76",
+        "name": "Galgkangar",
+        "river_id": 76,
+        "length_km": 137.78,
+        "discharge": 43,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            111.89871,
+            -13.75843
+          ],
+          [
+            110.05863,
+            -13.43638
+          ],
+          [
+            106.99387,
+            -13.73219
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:77",
+      "properties": {
+        "id": "river:77",
+        "name": "Oadefair",
+        "river_id": 77,
+        "length_km": 242.78,
+        "discharge": 108,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            58.3883,
+            -25.8847
+          ],
+          [
+            54.62259,
+            -26.1097
+          ],
+          [
+            53.87778,
+            -29.25395
+          ],
+          [
+            54.03271,
+            -30.96589
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:78",
+      "properties": {
+        "id": "river:78",
+        "name": "Imegrorest",
+        "river_id": 78,
+        "length_km": 218.72,
+        "discharge": 90,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            122.48771,
+            -18.79361
+          ],
+          [
+            123.11173,
+            -21.55363
+          ],
+          [
+            125.5345,
+            -22.0615
+          ],
+          [
+            127.8408,
+            -23.15308
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:79",
+      "properties": {
+        "id": "river:79",
+        "name": "Kindustin",
+        "river_id": 79,
+        "length_km": 141.43,
+        "discharge": 159,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            136.84925,
+            11.41282
+          ],
+          [
+            139.3759,
+            11.85779
+          ],
+          [
+            141.86624,
+            11.50196
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:80",
+      "properties": {
+        "id": "river:80",
+        "name": "Lysalin",
+        "river_id": 80,
+        "length_km": 321.25,
+        "discharge": 97,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            24.54075,
+            37.31585
+          ],
+          [
+            25.02746,
+            34.31502
+          ],
+          [
+            24.292,
+            31.8986
+          ],
+          [
+            22.49757,
+            29.61949
+          ],
+          [
+            20.88252,
+            27.00719
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:81",
+      "properties": {
+        "id": "river:81",
+        "name": "Grimegle",
+        "river_id": 81,
+        "length_km": 732.58,
+        "discharge": 277,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -95.73088,
+            24.15515
+          ],
+          [
+            -97.35816,
+            27.71346
+          ],
+          [
+            -99.69034,
+            30.40483
+          ],
+          [
+            -99.35748,
+            32.80507
+          ],
+          [
+            -101.3568,
+            31.93634
+          ],
+          [
+            -105.52979,
+            32.3486
+          ],
+          [
+            -107.44643,
+            35.83359
+          ],
+          [
+            -109.18982,
+            36.86621
+          ],
+          [
+            -110.8649,
+            36.55351
+          ],
+          [
+            -111.9893,
+            34.50371
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:82",
+      "properties": {
+        "id": "river:82",
+        "name": "Mathenasha",
+        "river_id": 82,
+        "length_km": 409.66,
+        "discharge": 102,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            36.82065,
+            30.19493
+          ],
+          [
+            34.58912,
+            27.76162
+          ],
+          [
+            33.58694,
+            23.97328
+          ],
+          [
+            34.92809,
+            23.04309
+          ],
+          [
+            33.03013,
+            21.12161
+          ],
+          [
+            32.8389,
+            17.96657
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:83",
+      "properties": {
+        "id": "river:83",
+        "name": "Cryshellde",
+        "river_id": 83,
+        "length_km": 458.48,
+        "discharge": 117,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            75.55758,
+            -26.40084
+          ],
+          [
+            75.47383,
+            -28.81042
+          ],
+          [
+            77.82902,
+            -30.73335
+          ],
+          [
+            78.8506,
+            -33.84884
+          ],
+          [
+            78.72228,
+            -37.99481
+          ],
+          [
+            78.81825,
+            -41.58618
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:86",
+      "properties": {
+        "id": "river:86",
+        "name": "Mathelnesa",
+        "river_id": 86,
+        "length_km": 148.74,
+        "discharge": 53,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            18.90081,
+            40.33682
+          ],
+          [
+            16.73542,
+            40.75016
+          ],
+          [
+            13.60631,
+            40.97085
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:87",
+      "properties": {
+        "id": "river:87",
+        "name": "Towbury",
+        "river_id": 87,
+        "length_km": 537.58,
+        "discharge": 399,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            20.02628,
+            51.12496
+          ],
+          [
+            17.02514,
+            49.81558
+          ],
+          [
+            14.68146,
+            50.47764
+          ],
+          [
+            13.24433,
+            50.15703
+          ],
+          [
+            9.15655,
+            52.88003
+          ],
+          [
+            7.84919,
+            52.69349
+          ],
+          [
+            4.63345,
+            51.53435
+          ],
+          [
+            2.41594,
+            50.43666
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:89",
+      "properties": {
+        "id": "river:89",
+        "name": "Drogmorb",
+        "river_id": 89,
+        "length_km": 167.97,
+        "discharge": 36,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -106.54131,
+            11.85707
+          ],
+          [
+            -109.27824,
+            15.10339
+          ],
+          [
+            -109.7574,
+            16.82396
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:90",
+      "properties": {
+        "id": "river:90",
+        "name": "Crowtown",
+        "river_id": 90,
+        "length_km": 413.14,
+        "discharge": 178,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            71.51509,
+            -30.41813
+          ],
+          [
+            73.39111,
+            -32.74756
+          ],
+          [
+            75.15463,
+            -33.51601
+          ],
+          [
+            75.66362,
+            -35.73259
+          ],
+          [
+            74.99862,
+            -38.16697
+          ],
+          [
+            75.97024,
+            -40.91765
+          ],
+          [
+            76.93827,
+            -42.90096
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:91",
+      "properties": {
+        "id": "river:91",
+        "name": "Moggan",
+        "river_id": 91,
+        "length_km": 166.25,
+        "discharge": 43,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -100.28381,
+            -8.01661
+          ],
+          [
+            -103.09947,
+            -9.01941
+          ],
+          [
+            -105.09592,
+            -11.2349
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:92",
+      "properties": {
+        "id": "river:92",
+        "name": "Bogkigh",
+        "river_id": 92,
+        "length_km": 312.71,
+        "discharge": 83,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -109.95367,
+            12.29772
+          ],
+          [
+            -111.50115,
+            14.25048
+          ],
+          [
+            -113.54432,
+            17.30883
+          ],
+          [
+            -115.92827,
+            21.11837
+          ],
+          [
+            -115.78808,
+            21.67045
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:93",
+      "properties": {
+        "id": "river:93",
+        "name": "Shanu",
+        "river_id": 93,
+        "length_km": 253.73,
+        "discharge": 64,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            47.1476,
+            -2.23742
+          ],
+          [
+            48.00204,
+            -4.39685
+          ],
+          [
+            48.68286,
+            -7.42033
+          ],
+          [
+            46.77268,
+            -10.57931
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:95",
+      "properties": {
+        "id": "river:95",
+        "name": "Drunartec",
+        "river_id": 95,
+        "length_km": 202.41,
+        "discharge": 61,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            112.0903,
+            -17.28978
+          ],
+          [
+            108.98816,
+            -18.48019
+          ],
+          [
+            107.67649,
+            -17.42133
+          ],
+          [
+            105.79722,
+            -18.67859
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:96",
+      "properties": {
+        "id": "river:96",
+        "name": "Bodgeso",
+        "river_id": 96,
+        "length_km": 2230.95,
+        "discharge": 1581,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            24.94694,
+            47.78087
+          ],
+          [
+            24.59179,
+            51.42472
+          ],
+          [
+            26.94015,
+            51.15156
+          ],
+          [
+            30.84785,
+            51.65044
+          ],
+          [
+            31.74003,
+            50.95459
+          ],
+          [
+            35.65923,
+            50.5222
+          ],
+          [
+            37.45042,
+            47.57995
+          ],
+          [
+            40.5576,
+            48.29557
+          ],
+          [
+            40.63848,
+            50.59625
+          ],
+          [
+            43.62632,
+            49.4238
+          ],
+          [
+            45.87547,
+            52.86565
+          ],
+          [
+            49.68395,
+            50.77704
+          ],
+          [
+            52.58948,
+            54.05284
+          ],
+          [
+            54.78111,
+            52.3488
+          ],
+          [
+            57.15463,
+            53.84293
+          ],
+          [
+            60.41422,
+            53.48782
+          ],
+          [
+            63.61809,
+            53.36633
+          ],
+          [
+            66.38127,
+            55.61957
+          ],
+          [
+            67.68431,
+            55.16921
+          ],
+          [
+            70.86518,
+            56.06597
+          ],
+          [
+            74.43714,
+            54.80907
+          ],
+          [
+            75.90554,
+            55.79209
+          ],
+          [
+            78.99906,
+            54.58694
+          ],
+          [
+            81.736,
+            54.67428
+          ],
+          [
+            83.65588,
+            57.43862
+          ],
+          [
+            86.18792,
+            59.43091
+          ],
+          [
+            87.70556,
+            60.03187
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:97",
+      "properties": {
+        "id": "river:97",
+        "name": "Nogkigh",
+        "river_id": 97,
+        "length_km": 1022.94,
+        "discharge": 678,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -93.18159,
+            33.55555
+          ],
+          [
+            -90.59023,
+            34.78155
+          ],
+          [
+            -87.36947,
+            34.93395
+          ],
+          [
+            -84.73246,
+            33.60515
+          ],
+          [
+            -81.77949,
+            33.45707
+          ],
+          [
+            -79.01667,
+            34.55871
+          ],
+          [
+            -80.23597,
+            37.97396
+          ],
+          [
+            -82.19071,
+            41.09377
+          ],
+          [
+            -78.30998,
+            42.55591
+          ],
+          [
+            -79.87471,
+            46.39349
+          ],
+          [
+            -77.49256,
+            47.96526
+          ],
+          [
+            -75.97887,
+            48.66506
+          ],
+          [
+            -74.32571,
+            48.72364
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:99",
+      "properties": {
+        "id": "river:99",
+        "name": "Khathar",
+        "river_id": 99,
+        "length_km": 304.47,
+        "discharge": 146,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            118.97937,
+            24.00958
+          ],
+          [
+            121.1063,
+            24.84345
+          ],
+          [
+            122.32056,
+            27.60419
+          ],
+          [
+            125.30372,
+            28.64724
+          ],
+          [
+            127.30269,
+            30.10471
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:103",
+      "properties": {
+        "id": "river:103",
+        "name": "Nulkug",
+        "river_id": 103,
+        "length_km": 549.66,
+        "discharge": 258,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            109.02878,
+            8.11474
+          ],
+          [
+            107.47555,
+            7.3125
+          ],
+          [
+            107.21853,
+            5.36298
+          ],
+          [
+            103.891,
+            5.78998
+          ],
+          [
+            102.2551,
+            7.65036
+          ],
+          [
+            99.12635,
+            8.30415
+          ],
+          [
+            95.80529,
+            7.82971
+          ],
+          [
+            92.56979,
+            6.153
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:104",
+      "properties": {
+        "id": "river:104",
+        "name": "Himlienathil",
+        "river_id": 104,
+        "length_km": 118.69,
+        "discharge": 43,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            40.01877,
+            26.67544
+          ],
+          [
+            38.504,
+            24.55268
+          ],
+          [
+            37.78904,
+            23.06358
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:105",
+      "properties": {
+        "id": "river:105",
+        "name": "Seabingra",
+        "river_id": 105,
+        "length_km": 210.09,
+        "discharge": 73,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            55.74914,
+            47.0383
+          ],
+          [
+            57.79734,
+            49.71781
+          ],
+          [
+            57.15463,
+            53.84293
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:106",
+      "properties": {
+        "id": "river:106",
+        "name": "Ynathe",
+        "river_id": 106,
+        "length_km": 867.33,
+        "discharge": 409,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            31.50638,
+            31.0137
+          ],
+          [
+            29.88377,
+            29.88978
+          ],
+          [
+            28.20941,
+            28.51102
+          ],
+          [
+            24.30207,
+            29.37149
+          ],
+          [
+            23.06157,
+            28.30723
+          ],
+          [
+            20.88252,
+            27.00719
+          ],
+          [
+            16.68941,
+            28.72416
+          ],
+          [
+            17.72214,
+            24.99153
+          ],
+          [
+            17.76527,
+            21.48283
+          ],
+          [
+            17.47411,
+            19.1994
+          ],
+          [
+            17.08302,
+            17.29085
+          ],
+          [
+            16.36733,
+            14.71486
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:107",
+      "properties": {
+        "id": "river:107",
+        "name": "Shenilhona",
+        "river_id": 107,
+        "length_km": 624.96,
+        "discharge": 306,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            18.12042,
+            43.40523
+          ],
+          [
+            14.18073,
+            42.16629
+          ],
+          [
+            13.60631,
+            40.97085
+          ],
+          [
+            11.35537,
+            38.40815
+          ],
+          [
+            10.42616,
+            35.76278
+          ],
+          [
+            6.6529,
+            35.02021
+          ],
+          [
+            4.42137,
+            32.17212
+          ],
+          [
+            3.08597,
+            29.13786
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:108",
+      "properties": {
+        "id": "river:108",
+        "name": "Srurd",
+        "river_id": 108,
+        "length_km": 242.42,
+        "discharge": 162,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -90.59922,
+            -13.95611
+          ],
+          [
+            -91.45258,
+            -10.87224
+          ],
+          [
+            -92.7887,
+            -9.0097
+          ],
+          [
+            -89.66966,
+            -8.22616
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:109",
+      "properties": {
+        "id": "river:109",
+        "name": "Watliaq",
+        "river_id": 109,
+        "length_km": 273.39,
+        "discharge": 108,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -87.04739,
+            -17.91625
+          ],
+          [
+            -84.11706,
+            -18.90288
+          ],
+          [
+            -82.50344,
+            -15.72412
+          ],
+          [
+            -81.04763,
+            -12.91522
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:110",
+      "properties": {
+        "id": "river:110",
+        "name": "Kalfondhyr",
+        "river_id": 110,
+        "length_km": 298.16,
+        "discharge": 250,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            129.26283,
+            -12.10004
+          ],
+          [
+            129.53062,
+            -14.67568
+          ],
+          [
+            131.10291,
+            -15.77696
+          ],
+          [
+            130.76825,
+            -18.67931
+          ],
+          [
+            132.57813,
+            -21.41238
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:112",
+      "properties": {
+        "id": "river:112",
+        "name": "Neverch",
+        "river_id": 112,
+        "length_km": 275.27,
+        "discharge": 190,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            65.44236,
+            -35.8016
+          ],
+          [
+            65.73316,
+            -37.44992
+          ],
+          [
+            66.60809,
+            -40.20347
+          ],
+          [
+            64.38662,
+            -41.04992
+          ],
+          [
+            61.47714,
+            -40.59381
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:113",
+      "properties": {
+        "id": "river:113",
+        "name": "Farmzois",
+        "river_id": 113,
+        "length_km": 230.75,
+        "discharge": 77,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -88.21564,
+            -26.43355
+          ],
+          [
+            -90.21064,
+            -29.4103
+          ],
+          [
+            -91.21318,
+            -31.252
+          ],
+          [
+            -90.66392,
+            -33.80176
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:118",
+      "properties": {
+        "id": "river:118",
+        "name": "Thynead",
+        "river_id": 118,
+        "length_km": 178.64,
+        "discharge": 62,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            86.0427,
+            35.60499
+          ],
+          [
+            88.97014,
+            37.36222
+          ],
+          [
+            90.00899,
+            40.17939
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:119",
+      "properties": {
+        "id": "river:119",
+        "name": "Thyrang",
+        "river_id": 119,
+        "length_km": 151.02,
+        "discharge": 41,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            27.53182,
+            32.42911
+          ],
+          [
+            27.96497,
+            31.15136
+          ],
+          [
+            24.30207,
+            29.37149
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:120",
+      "properties": {
+        "id": "river:120",
+        "name": "Quathamney",
+        "river_id": 120,
+        "length_km": 387.42,
+        "discharge": 56,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            78.09861,
+            47.72013
+          ],
+          [
+            79.86572,
+            48.1651
+          ],
+          [
+            84.13324,
+            50.10204
+          ],
+          [
+            83.91217,
+            54.10639
+          ],
+          [
+            84.08363,
+            55.66162
+          ],
+          [
+            83.65588,
+            57.43862
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:121",
+      "properties": {
+        "id": "river:121",
+        "name": "Watchbrid",
+        "river_id": 121,
+        "length_km": 197.65,
+        "discharge": 50,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            76.1586,
+            48.84657
+          ],
+          [
+            75.97384,
+            49.48203
+          ],
+          [
+            75.35844,
+            53.79908
+          ],
+          [
+            75.90554,
+            55.79209
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:125",
+      "properties": {
+        "id": "river:125",
+        "name": "Kilwoluch",
+        "river_id": 125,
+        "length_km": 178.63,
+        "discharge": 65,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            91.784,
+            -20.3607
+          ],
+          [
+            94.56839,
+            -17.04357
+          ],
+          [
+            95.65612,
+            -15.26118
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:132",
+      "properties": {
+        "id": "river:132",
+        "name": "Yinez",
+        "river_id": 132,
+        "length_km": 128.99,
+        "discharge": 54,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            110.73514,
+            -1.80144
+          ],
+          [
+            109.54856,
+            -3.69489
+          ],
+          [
+            108.12114,
+            -5.61961
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:133",
+      "properties": {
+        "id": "river:133",
+        "name": "Cloudwell",
+        "river_id": 133,
+        "length_km": 606.16,
+        "discharge": 181,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -93.10646,
+            36.35547
+          ],
+          [
+            -88.88208,
+            37.31478
+          ],
+          [
+            -90.74516,
+            40.84649
+          ],
+          [
+            -87.98774,
+            42.86573
+          ],
+          [
+            -87.7868,
+            44.40012
+          ],
+          [
+            -84.80363,
+            47.48111
+          ],
+          [
+            -86.17713,
+            50.08946
+          ],
+          [
+            -87.21058,
+            50.79213
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:134",
+      "properties": {
+        "id": "river:134",
+        "name": "Orkudh",
+        "river_id": 134,
+        "length_km": 343.21,
+        "discharge": 105,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -107.02478,
+            0.22895
+          ],
+          [
+            -108.93568,
+            -0.11034
+          ],
+          [
+            -109.53777,
+            -2.88367
+          ],
+          [
+            -111.48893,
+            -6.18462
+          ],
+          [
+            -112.14063,
+            -7.54864
+          ],
+          [
+            -112.67802,
+            -9.68147
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:135",
+      "properties": {
+        "id": "river:135",
+        "name": "Clearnyard",
+        "river_id": 135,
+        "length_km": 361.62,
+        "discharge": 217,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -97.9617,
+            42.01857
+          ],
+          [
+            -100.66233,
+            43.751
+          ],
+          [
+            -101.33596,
+            43.72979
+          ],
+          [
+            -101.59621,
+            44.99281
+          ],
+          [
+            -103.98338,
+            46.56206
+          ],
+          [
+            -105.8249,
+            47.83047
+          ],
+          [
+            -106.49278,
+            50.45895
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:136",
+      "properties": {
+        "id": "river:136",
+        "name": "Gob",
+        "river_id": 136,
+        "length_km": 339.06,
+        "discharge": 151,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -69.37594,
+            6.92468
+          ],
+          [
+            -67.41076,
+            8.08059
+          ],
+          [
+            -63.15475,
+            6.88011
+          ],
+          [
+            -62.41857,
+            9.90503
+          ],
+          [
+            -60.64931,
+            11.47644
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:139",
+      "properties": {
+        "id": "river:139",
+        "name": "Elrock",
+        "river_id": 139,
+        "length_km": 165.79,
+        "discharge": 69,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            108.38534,
+            -32.33351
+          ],
+          [
+            107.60459,
+            -35.75559
+          ],
+          [
+            107.38604,
+            -38.19249
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:141",
+      "properties": {
+        "id": "river:141",
+        "name": "Eszi",
+        "river_id": 141,
+        "length_km": 188.2,
+        "discharge": 54,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -128.86742,
+            -28.79784
+          ],
+          [
+            -131.86101,
+            -29.55551
+          ],
+          [
+            -135.03361,
+            -27.7016
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:142",
+      "properties": {
+        "id": "river:142",
+        "name": "Gnok",
+        "river_id": 142,
+        "length_km": 317.16,
+        "discharge": 167,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -112.64172,
+            -22.27572
+          ],
+          [
+            -110.79661,
+            -23.06897
+          ],
+          [
+            -107.85082,
+            -23.31625
+          ],
+          [
+            -104.59591,
+            -23.82268
+          ],
+          [
+            -103.29969,
+            -26.67616
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:143",
+      "properties": {
+        "id": "river:143",
+        "name": "Kyathtanase",
+        "river_id": 143,
+        "length_km": 854.56,
+        "discharge": 322,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            109.17903,
+            14.86402
+          ],
+          [
+            106.99639,
+            15.99657
+          ],
+          [
+            104.15053,
+            18.12149
+          ],
+          [
+            106.60601,
+            18.98375
+          ],
+          [
+            105.98163,
+            21.73802
+          ],
+          [
+            106.01721,
+            24.44772
+          ],
+          [
+            106.22822,
+            27.70735
+          ],
+          [
+            106.23109,
+            30.34984
+          ],
+          [
+            106.97769,
+            31.91082
+          ],
+          [
+            106.94642,
+            35.18159
+          ],
+          [
+            108.76565,
+            37.06749
+          ],
+          [
+            111.68375,
+            37.83702
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:145",
+      "properties": {
+        "id": "river:145",
+        "name": "Ryasenarius",
+        "river_id": 145,
+        "length_km": 844.28,
+        "discharge": 183,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            90.58089,
+            27.34109
+          ],
+          [
+            92.68194,
+            29.10443
+          ],
+          [
+            91.86452,
+            31.32748
+          ],
+          [
+            93.0662,
+            33.14904
+          ],
+          [
+            93.59137,
+            34.77256
+          ],
+          [
+            96.89014,
+            35.44361
+          ],
+          [
+            98.99083,
+            35.51226
+          ],
+          [
+            101.99916,
+            37.45639
+          ],
+          [
+            103.9859,
+            39.98674
+          ],
+          [
+            106.99387,
+            39.9472
+          ],
+          [
+            107.93709,
+            41.15595
+          ],
+          [
+            108.97701,
+            41.96933
+          ],
+          [
+            112.16507,
+            42.14581
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:146",
+      "properties": {
+        "id": "river:146",
+        "name": "Dhez",
+        "river_id": 146,
+        "length_km": 110.73,
+        "discharge": 72,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -77.06408,
+            31.31454
+          ],
+          [
+            -78.35527,
+            32.31374
+          ],
+          [
+            -79.01667,
+            34.55871
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:147",
+      "properties": {
+        "id": "river:147",
+        "name": "Holworthton",
+        "river_id": 147,
+        "length_km": 428.98,
+        "discharge": 59,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            84.41578,
+            47.65471
+          ],
+          [
+            86.41294,
+            49.54062
+          ],
+          [
+            86.1304,
+            53.13522
+          ],
+          [
+            88.68509,
+            55.95096
+          ],
+          [
+            89.69769,
+            58.50144
+          ],
+          [
+            87.70556,
+            60.03187
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:148",
+      "properties": {
+        "id": "river:148",
+        "name": "Fynkuc",
+        "river_id": 148,
+        "length_km": 163.54,
+        "discharge": 50,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            125.1851,
+            22.86625
+          ],
+          [
+            124.74225,
+            26.178
+          ],
+          [
+            125.30372,
+            28.64724
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:149",
+      "properties": {
+        "id": "river:149",
+        "name": "Pyreaz",
+        "river_id": 149,
+        "length_km": 234.0,
+        "discharge": 105,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -104.30618,
+            -7.14752
+          ],
+          [
+            -105.09592,
+            -11.2349
+          ],
+          [
+            -109.3185,
+            -11.66729
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:151",
+      "properties": {
+        "id": "river:151",
+        "name": "Swagielt",
+        "river_id": 151,
+        "length_km": 194.41,
+        "discharge": 78,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -91.61074,
+            -26.34153
+          ],
+          [
+            -94.66724,
+            -27.24549
+          ],
+          [
+            -95.7999,
+            -30.87101
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:152",
+      "properties": {
+        "id": "river:152",
+        "name": "Hardistoch",
+        "river_id": 152,
+        "length_km": 137.35,
+        "discharge": 98,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            140.90756,
+            -15.37224
+          ],
+          [
+            141.71347,
+            -17.5615
+          ],
+          [
+            144.31093,
+            -17.697
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:157",
+      "properties": {
+        "id": "river:157",
+        "name": "Bukex",
+        "river_id": 157,
+        "length_km": 349.69,
+        "discharge": 121,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -85.44347,
+            -21.47851
+          ],
+          [
+            -82.82229,
+            -21.5026
+          ],
+          [
+            -78.67015,
+            -20.68239
+          ],
+          [
+            -75.93106,
+            -23.52616
+          ],
+          [
+            -75.3606,
+            -25.19281
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:158",
+      "properties": {
+        "id": "river:158",
+        "name": "Gorkeldond",
+        "river_id": 158,
+        "length_km": 182.11,
+        "discharge": 85,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            101.09224,
+            24.09621
+          ],
+          [
+            104.53156,
+            25.40092
+          ],
+          [
+            106.22822,
+            27.70735
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:160",
+      "properties": {
+        "id": "river:160",
+        "name": "Hobok",
+        "river_id": 160,
+        "length_km": 110.52,
+        "discharge": 55,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -81.35101,
+            -6.21122
+          ],
+          [
+            -81.48977,
+            -7.48754
+          ],
+          [
+            -82.32767,
+            -10.03407
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:163",
+      "properties": {
+        "id": "river:163",
+        "name": "Dewgrasp",
+        "river_id": 163,
+        "length_km": 335.45,
+        "discharge": 119,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -100.06922,
+            36.83458
+          ],
+          [
+            -103.05454,
+            39.522
+          ],
+          [
+            -104.29612,
+            39.94972
+          ],
+          [
+            -107.78253,
+            39.61186
+          ],
+          [
+            -110.85987,
+            40.5478
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:164",
+      "properties": {
+        "id": "river:164",
+        "name": "Celkeh",
+        "river_id": 164,
+        "length_km": 366.8,
+        "discharge": 192,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -72.37204,
+            -3.09896
+          ],
+          [
+            -69.72749,
+            -3.80236
+          ],
+          [
+            -66.05775,
+            -6.00635
+          ],
+          [
+            -64.45024,
+            -8.44325
+          ],
+          [
+            -63.32621,
+            -11.48363
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:167",
+      "properties": {
+        "id": "river:167",
+        "name": "Qiccug",
+        "river_id": 167,
+        "length_km": 244.15,
+        "discharge": 102,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -117.37833,
+            14.36621
+          ],
+          [
+            -119.90714,
+            15.95128
+          ],
+          [
+            -118.87728,
+            19.25439
+          ],
+          [
+            -119.30073,
+            21.54249
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:168",
+      "properties": {
+        "id": "river:168",
+        "name": "Kluirdeek",
+        "river_id": 168,
+        "length_km": 99.41,
+        "discharge": 50,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -106.35403,
+            -20.80711
+          ],
+          [
+            -105.3594,
+            -21.80847
+          ],
+          [
+            -104.59591,
+            -23.82268
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:169",
+      "properties": {
+        "id": "river:169",
+        "name": "Rinarnelhe",
+        "river_id": 169,
+        "length_km": 227.8,
+        "discharge": 125,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            87.86085,
+            -15.19577
+          ],
+          [
+            91.27429,
+            -14.15056
+          ],
+          [
+            92.29875,
+            -13.3095
+          ],
+          [
+            95.09536,
+            -11.58427
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:170",
+      "properties": {
+        "id": "river:170",
+        "name": "Veekz",
+        "river_id": 170,
+        "length_km": 138.8,
+        "discharge": 52,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -47.24537,
+            45.44065
+          ],
+          [
+            -45.73707,
+            48.08243
+          ],
+          [
+            -44.90097,
+            49.83786
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:172",
+      "properties": {
+        "id": "river:172",
+        "name": "Winkneth",
+        "river_id": 172,
+        "length_km": 98.57,
+        "discharge": 97,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            40.64459,
+            -39.50188
+          ],
+          [
+            41.76216,
+            -37.43411
+          ],
+          [
+            42.64248,
+            -36.63438
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:173",
+      "properties": {
+        "id": "river:173",
+        "name": "Cielb",
+        "river_id": 173,
+        "length_km": 94.92,
+        "discharge": 64,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -50.82093,
+            49.80803
+          ],
+          [
+            -49.55131,
+            50.7109
+          ],
+          [
+            -47.80829,
+            51.32947
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:174",
+      "properties": {
+        "id": "river:174",
+        "name": "Pyreaz",
+        "river_id": 174,
+        "length_km": 134.67,
+        "discharge": 69,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -79.83265,
+            -31.03994
+          ],
+          [
+            -80.45847,
+            -32.85108
+          ],
+          [
+            -79.21294,
+            -35.49285
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:181",
+      "properties": {
+        "id": "river:181",
+        "name": "Treaq",
+        "river_id": 181,
+        "length_km": 210.61,
+        "discharge": 53,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -51.5057,
+            37.84924
+          ],
+          [
+            -54.31273,
+            38.48435
+          ],
+          [
+            -57.01408,
+            38.98323
+          ],
+          [
+            -58.91383,
+            38.58678
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:182",
+      "properties": {
+        "id": "river:182",
+        "name": "Onelion",
+        "river_id": 182,
+        "length_km": 118.96,
+        "discharge": 69,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            14.14406,
+            33.69069
+          ],
+          [
+            11.86544,
+            35.14529
+          ],
+          [
+            10.42616,
+            35.76278
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:184",
+      "properties": {
+        "id": "river:184",
+        "name": "Glerdeek",
+        "river_id": 184,
+        "length_km": 240.67,
+        "discharge": 83,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -52.56539,
+            41.09125
+          ],
+          [
+            -53.22752,
+            39.623
+          ],
+          [
+            -57.48893,
+            40.69409
+          ],
+          [
+            -58.26141,
+            40.79796
+          ],
+          [
+            -59.81068,
+            39.78115
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:185",
+      "properties": {
+        "id": "river:185",
+        "name": "Dratewell",
+        "river_id": 185,
+        "length_km": 199.19,
+        "discharge": 48,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -94.51267,
+            44.33219
+          ],
+          [
+            -91.51908,
+            46.86757
+          ],
+          [
+            -91.95007,
+            50.07149
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:186",
+      "properties": {
+        "id": "river:186",
+        "name": "Buyagh",
+        "river_id": 186,
+        "length_km": 252.27,
+        "discharge": 113,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -61.69066,
+            -1.48227
+          ],
+          [
+            -61.86896,
+            1.89956
+          ],
+          [
+            -59.73052,
+            2.21837
+          ],
+          [
+            -56.27718,
+            1.56709
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:187",
+      "properties": {
+        "id": "river:187",
+        "name": "Bosbury",
+        "river_id": 187,
+        "length_km": 165.97,
+        "discharge": 152,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            33.66566,
+            -35.6262
+          ],
+          [
+            29.36148,
+            -35.5978
+          ],
+          [
+            28.16699,
+            -34.44513
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:199",
+      "properties": {
+        "id": "river:199",
+        "name": "Gloomber",
+        "river_id": 199,
+        "length_km": 378.03,
+        "discharge": 162,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -99.43657,
+            35.15463
+          ],
+          [
+            -103.26626,
+            35.83898
+          ],
+          [
+            -105.92304,
+            36.30228
+          ],
+          [
+            -106.40148,
+            37.6397
+          ],
+          [
+            -109.28867,
+            38.5476
+          ],
+          [
+            -110.85987,
+            40.5478
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:201",
+      "properties": {
+        "id": "river:201",
+        "name": "Klilmzois",
+        "river_id": 201,
+        "length_km": 180.4,
+        "discharge": 95,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -72.10856,
+            31.93419
+          ],
+          [
+            -69.2663,
+            30.80092
+          ],
+          [
+            -65.85681,
+            30.52524
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:202",
+      "properties": {
+        "id": "river:202",
+        "name": "Fruict",
+        "river_id": 202,
+        "length_km": 147.29,
+        "discharge": 65,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -79.69713,
+            -16.50264
+          ],
+          [
+            -76.77364,
+            -18.62684
+          ],
+          [
+            -75.10538,
+            -18.77528
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:203",
+      "properties": {
+        "id": "river:203",
+        "name": "Driorvaq",
+        "river_id": 203,
+        "length_km": 279.64,
+        "discharge": 249,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -105.75373,
+            -16.66941
+          ],
+          [
+            -107.59237,
+            -13.95108
+          ],
+          [
+            -109.3185,
+            -11.66729
+          ],
+          [
+            -112.67802,
+            -9.68147
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:204",
+      "properties": {
+        "id": "river:204",
+        "name": "Dironfallse",
+        "river_id": 204,
+        "length_km": 272.02,
+        "discharge": 165,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            97.91461,
+            -28.37408
+          ],
+          [
+            98.57602,
+            -29.92212
+          ],
+          [
+            99.11629,
+            -32.73211
+          ],
+          [
+            100.38123,
+            -36.55315
+          ],
+          [
+            99.5746,
+            -37.44058
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:205",
+      "properties": {
+        "id": "river:205",
+        "name": "Agielt",
+        "river_id": 205,
+        "length_km": 282.98,
+        "discharge": 130,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -96.20933,
+            -17.58486
+          ],
+          [
+            -99.43081,
+            -20.14361
+          ],
+          [
+            -99.85246,
+            -23.0873
+          ],
+          [
+            -98.21152,
+            -25.69349
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:206",
+      "properties": {
+        "id": "river:206",
+        "name": "Curnere",
+        "river_id": 206,
+        "length_km": 212.3,
+        "discharge": 77,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -91.63555,
+            45.78427
+          ],
+          [
+            -88.60278,
+            46.52684
+          ],
+          [
+            -89.1319,
+            48.85304
+          ],
+          [
+            -88.75806,
+            50.9377
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:207",
+      "properties": {
+        "id": "river:207",
+        "name": "Gneablin",
+        "river_id": 207,
+        "length_km": 213.61,
+        "discharge": 49,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -53.18259,
+            24.35427
+          ],
+          [
+            -56.82572,
+            24.19792
+          ],
+          [
+            -58.71792,
+            20.64177
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:208",
+      "properties": {
+        "id": "river:208",
+        "name": "Scorchill",
+        "river_id": 208,
+        "length_km": 211.87,
+        "discharge": 122,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -96.88691,
+            47.35244
+          ],
+          [
+            -95.47818,
+            48.49792
+          ],
+          [
+            -91.95007,
+            50.07149
+          ],
+          [
+            -90.30374,
+            51.08147
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:210",
+      "properties": {
+        "id": "river:210",
+        "name": "Kluirm",
+        "river_id": 210,
+        "length_km": 270.7,
+        "discharge": 78,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -119.17204,
+            -18.5758
+          ],
+          [
+            -121.16741,
+            -16.43794
+          ],
+          [
+            -124.08228,
+            -15.55591
+          ],
+          [
+            -125.41875,
+            -12.04613
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:212",
+      "properties": {
+        "id": "river:212",
+        "name": "Flakenmose",
+        "river_id": 212,
+        "length_km": 158.22,
+        "discharge": 60,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            81.74858,
+            -35.88498
+          ],
+          [
+            81.92184,
+            -38.59145
+          ],
+          [
+            82.30574,
+            -41.53874
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:228",
+      "properties": {
+        "id": "river:228",
+        "name": "Nulkegfast",
+        "river_id": 228,
+        "length_km": 112.71,
+        "discharge": 52,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            101.28815,
+            -12.22548
+          ],
+          [
+            99.44375,
+            -13.63119
+          ],
+          [
+            98.71009,
+            -15.19685
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:229",
+      "properties": {
+        "id": "river:229",
+        "name": "Shavenpass",
+        "river_id": 229,
+        "length_km": 339.03,
+        "discharge": 117,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            96.42392,
+            -23.85539
+          ],
+          [
+            98.85532,
+            -23.49597
+          ],
+          [
+            100.92869,
+            -25.44046
+          ],
+          [
+            103.49919,
+            -27.2649
+          ],
+          [
+            103.72457,
+            -30.98315
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:230",
+      "properties": {
+        "id": "river:230",
+        "name": "Oxbrook",
+        "river_id": 230,
+        "length_km": 566.77,
+        "discharge": 2767,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            104.37232,
+            -21.5982
+          ],
+          [
+            105.93741,
+            -23.50783
+          ],
+          [
+            107.06325,
+            -24.74748
+          ],
+          [
+            105.98846,
+            -27.35224
+          ],
+          [
+            103.72457,
+            -30.98315
+          ],
+          [
+            100.69576,
+            -32.47296
+          ],
+          [
+            101.95746,
+            -35.79153
+          ],
+          [
+            100.96176,
+            -37.73602
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:231",
+      "properties": {
+        "id": "river:231",
+        "name": "Lostspellde",
+        "river_id": 231,
+        "length_km": 285.88,
+        "discharge": 172,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -104.11854,
+            30.25244
+          ],
+          [
+            -106.96332,
+            29.57492
+          ],
+          [
+            -109.21929,
+            30.43646
+          ],
+          [
+            -110.42996,
+            31.97768
+          ],
+          [
+            -111.9893,
+            34.50371
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:233",
+      "properties": {
+        "id": "river:233",
+        "name": "Murgubud",
+        "river_id": 233,
+        "length_km": 471.66,
+        "discharge": 132,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -116.58788,
+            3.26609
+          ],
+          [
+            -118.03507,
+            -0.24657
+          ],
+          [
+            -117.73492,
+            -3.21218
+          ],
+          [
+            -119.6131,
+            -6.38554
+          ],
+          [
+            -123.04955,
+            -5.34609
+          ],
+          [
+            -125.7473,
+            -4.3149
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:235",
+      "properties": {
+        "id": "river:235",
+        "name": "Aimyranghed",
+        "river_id": 235,
+        "length_km": 180.69,
+        "discharge": 87,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            8.51922,
+            28.38199
+          ],
+          [
+            6.92753,
+            29.75571
+          ],
+          [
+            4.68018,
+            28.39457
+          ],
+          [
+            3.08597,
+            29.13786
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:236",
+      "properties": {
+        "id": "river:236",
+        "name": "Giggalx",
+        "river_id": 236,
+        "length_km": 212.06,
+        "discharge": 112,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -95.63958,
+            -19.58974
+          ],
+          [
+            -96.39013,
+            -22.37708
+          ],
+          [
+            -98.12202,
+            -22.73363
+          ],
+          [
+            -98.21152,
+            -25.69349
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:237",
+      "properties": {
+        "id": "river:237",
+        "name": "Wrog",
+        "river_id": 237,
+        "length_km": 172.78,
+        "discharge": 87,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -125.87167,
+            -23.38958
+          ],
+          [
+            -128.01837,
+            -22.20527
+          ],
+          [
+            -130.18161,
+            -19.13506
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:239",
+      "properties": {
+        "id": "river:239",
+        "name": "Nilx",
+        "river_id": 239,
+        "length_km": 167.92,
+        "discharge": 104,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -87.53338,
+            -30.87748
+          ],
+          [
+            -86.85004,
+            -34.08606
+          ],
+          [
+            -87.92771,
+            -36.61929
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:240",
+      "properties": {
+        "id": "river:240",
+        "name": "Rangarth",
+        "river_id": 240,
+        "length_km": 155.95,
+        "discharge": 102,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            126.72359,
+            -18.0762
+          ],
+          [
+            128.27215,
+            -20.25755
+          ],
+          [
+            127.8408,
+            -23.15308
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:241",
+      "properties": {
+        "id": "river:241",
+        "name": "Brat",
+        "river_id": 241,
+        "length_km": 148.24,
+        "discharge": 72,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -44.01454,
+            43.38295
+          ],
+          [
+            -41.41707,
+            45.08303
+          ],
+          [
+            -39.29626,
+            44.42133
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:242",
+      "properties": {
+        "id": "river:242",
+        "name": "Fearmimegro",
+        "river_id": 242,
+        "length_km": 123.79,
+        "discharge": 66,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            71.61178,
+            -40.97911
+          ],
+          [
+            72.8699,
+            -42.77157
+          ],
+          [
+            74.10428,
+            -44.66034
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:243",
+      "properties": {
+        "id": "river:243",
+        "name": "Ehelmouth",
+        "river_id": 243,
+        "length_km": 150.57,
+        "discharge": 59,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            64.69216,
+            -44.01518
+          ],
+          [
+            67.0646,
+            -45.46006
+          ],
+          [
+            67.71702,
+            -48.00946
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:261",
+      "properties": {
+        "id": "river:261",
+        "name": "Ryalas",
+        "river_id": 261,
+        "length_km": 183.71,
+        "discharge": 41,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            101.60268,
+            32.80938
+          ],
+          [
+            102.13719,
+            34.35815
+          ],
+          [
+            104.81554,
+            34.37827
+          ],
+          [
+            106.94642,
+            35.18159
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:262",
+      "properties": {
+        "id": "river:262",
+        "name": "Chiaftaxi",
+        "river_id": 262,
+        "length_km": 178.27,
+        "discharge": 100,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -70.0111,
+            -8.17368
+          ],
+          [
+            -68.61711,
+            -10.4891
+          ],
+          [
+            -66.39097,
+            -11.02608
+          ],
+          [
+            -65.00777,
+            -11.29673
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:263",
+      "properties": {
+        "id": "river:263",
+        "name": "Brid",
+        "river_id": 263,
+        "length_km": 163.22,
+        "discharge": 61,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -124.5715,
+            -20.81358
+          ],
+          [
+            -127.4684,
+            -19.77915
+          ],
+          [
+            -130.18161,
+            -19.13506
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:264",
+      "properties": {
+        "id": "river:264",
+        "name": "Qosx",
+        "river_id": 264,
+        "length_km": 145.16,
+        "discharge": 78,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -55.72002,
+            32.96897
+          ],
+          [
+            -57.83005,
+            32.29433
+          ],
+          [
+            -60.25282,
+            34.0627
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:265",
+      "properties": {
+        "id": "river:265",
+        "name": "Mistval",
+        "river_id": 265,
+        "length_km": 146.91,
+        "discharge": 50,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            83.50526,
+            -36.08662
+          ],
+          [
+            83.1893,
+            -38.9861
+          ],
+          [
+            84.23353,
+            -41.10383
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:266",
+      "properties": {
+        "id": "river:266",
+        "name": "Biokvact",
+        "river_id": 266,
+        "length_km": 83.61,
+        "discharge": 101,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -141.75696,
+            -44.75559
+          ],
+          [
+            -141.94029,
+            -46.67851
+          ],
+          [
+            -142.3206,
+            -47.67808
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:278",
+      "properties": {
+        "id": "river:278",
+        "name": "Ollmlumeri",
+        "river_id": 278,
+        "length_km": 130.84,
+        "discharge": 59,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            91.29226,
+            46.15016
+          ],
+          [
+            92.58956,
+            46.1232
+          ],
+          [
+            95.50047,
+            44.36921
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:279",
+      "properties": {
+        "id": "river:279",
+        "name": "Evralin",
+        "river_id": 279,
+        "length_km": 337.74,
+        "discharge": 79,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            95.67768,
+            43.68594
+          ],
+          [
+            99.4912,
+            44.99784
+          ],
+          [
+            100.78095,
+            48.0127
+          ],
+          [
+            101.91792,
+            50.79393
+          ],
+          [
+            100.72415,
+            52.1637
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:280",
+      "properties": {
+        "id": "river:280",
+        "name": "Jornzarki",
+        "river_id": 280,
+        "length_km": 291.25,
+        "discharge": 152,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            33.4694,
+            10.84169
+          ],
+          [
+            31.12823,
+            7.38582
+          ],
+          [
+            27.66914,
+            8.325
+          ],
+          [
+            26.51742,
+            10.77196
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:283",
+      "properties": {
+        "id": "river:283",
+        "name": "Earimyran",
+        "river_id": 283,
+        "length_km": 263.56,
+        "discharge": 75,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            10.32048,
+            31.23546
+          ],
+          [
+            7.55263,
+            33.11849
+          ],
+          [
+            5.283,
+            30.24453
+          ],
+          [
+            3.08597,
+            29.13786
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:284",
+      "properties": {
+        "id": "river:284",
+        "name": "Nefose",
+        "river_id": 284,
+        "length_km": 145.06,
+        "discharge": 61,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -102.66452,
+            46.9222
+          ],
+          [
+            -104.24363,
+            47.3758
+          ],
+          [
+            -103.9992,
+            50.93411
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:285",
+      "properties": {
+        "id": "river:285",
+        "name": "Ziantietha",
+        "river_id": 285,
+        "length_km": 250.24,
+        "discharge": 169,
+        "width_factor": 1.0,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -5.5835,
+            44.47812
+          ],
+          [
+            -3.2542,
+            44.48279
+          ],
+          [
+            -1.38968,
+            45.96865
+          ],
+          [
+            0.29835,
+            45.84465
+          ],
+          [
+            1.91593,
+            47.85383
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:286",
+      "properties": {
+        "id": "river:286",
+        "name": "Raugausthyr",
+        "river_id": 286,
+        "length_km": 109.79,
+        "discharge": 56,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            6.45699,
+            40.62041
+          ],
+          [
+            5.58099,
+            40.72141
+          ],
+          [
+            2.54786,
+            40.34006
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:287",
+      "properties": {
+        "id": "river:287",
+        "name": "Sleh",
+        "river_id": 287,
+        "length_km": 102.2,
+        "discharge": 67,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -109.74914,
+            -27.41154
+          ],
+          [
+            -109.5313,
+            -28.84026
+          ],
+          [
+            -107.78073,
+            -30.21074
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:288",
+      "properties": {
+        "id": "river:288",
+        "name": "Celkeh",
+        "river_id": 288,
+        "length_km": 128.92,
+        "discharge": 57,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -82.13212,
+            -33.56669
+          ],
+          [
+            -81.35641,
+            -35.89145
+          ],
+          [
+            -79.21294,
+            -35.49285
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:289",
+      "properties": {
+        "id": "river:289",
+        "name": "Skiple",
+        "river_id": 289,
+        "length_km": 89.17,
+        "discharge": 69,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            41.28407,
+            -45.7512
+          ],
+          [
+            43.27836,
+            -45.34433
+          ],
+          [
+            44.30211,
+            -45.90288
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:290",
+      "properties": {
+        "id": "river:290",
+        "name": "Steamer",
+        "river_id": 290,
+        "length_km": 102.12,
+        "discharge": 68,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            64.81797,
+            -48.70208
+          ],
+          [
+            66.28457,
+            -49.43998
+          ],
+          [
+            67.71702,
+            -48.00946
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:311",
+      "properties": {
+        "id": "river:311",
+        "name": "Givzieqee",
+        "river_id": 311,
+        "length_km": 270.5,
+        "discharge": 142,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -42.22514,
+            35.0371
+          ],
+          [
+            -41.13022,
+            33.53974
+          ],
+          [
+            -38.28617,
+            35.72324
+          ],
+          [
+            -38.23944,
+            37.21845
+          ],
+          [
+            -35.77462,
+            38.5016
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:314",
+      "properties": {
+        "id": "river:314",
+        "name": "Yiragz",
+        "river_id": 314,
+        "length_km": 167.26,
+        "discharge": 98,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            135.8672,
+            -17.09784
+          ],
+          [
+            133.73667,
+            -17.85371
+          ],
+          [
+            133.01847,
+            -19.84026
+          ],
+          [
+            132.57813,
+            -21.41238
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:315",
+      "properties": {
+        "id": "river:315",
+        "name": "Ulbshas",
+        "river_id": 315,
+        "length_km": 92.3,
+        "discharge": 140,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -59.94656,
+            22.22468
+          ],
+          [
+            -58.71792,
+            20.64177
+          ],
+          [
+            -59.01448,
+            19.36581
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:316",
+      "properties": {
+        "id": "river:316",
+        "name": "Ghegroc",
+        "river_id": 316,
+        "length_km": 152.63,
+        "discharge": 51,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -123.71706,
+            17.86522
+          ],
+          [
+            -124.55569,
+            19.94233
+          ],
+          [
+            -123.84144,
+            23.10563
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:317",
+      "properties": {
+        "id": "river:317",
+        "name": "Bayfshear",
+        "river_id": 317,
+        "length_km": 97.98,
+        "discharge": 143,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            117.55447,
+            -26.86701
+          ],
+          [
+            118.95996,
+            -27.05751
+          ],
+          [
+            121.05669,
+            -26.96298
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:318",
+      "properties": {
+        "id": "river:318",
+        "name": "Ikhkhairgon",
+        "river_id": 318,
+        "length_km": 108.42,
+        "discharge": 63,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -26.65402,
+            -54.93091
+          ],
+          [
+            -24.80639,
+            -55.78994
+          ],
+          [
+            -23.19565,
+            -56.71186
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:319",
+      "properties": {
+        "id": "river:319",
+        "name": "Elderde",
+        "river_id": 319,
+        "length_km": 105.75,
+        "discharge": 85,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -107.95651,
+            43.6403
+          ],
+          [
+            -109.94468,
+            43.64137
+          ],
+          [
+            -110.8685,
+            42.08578
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:320",
+      "properties": {
+        "id": "river:320",
+        "name": "Cinch",
+        "river_id": 320,
+        "length_km": 130.26,
+        "discharge": 49,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -6.11802,
+            30.96805
+          ],
+          [
+            -4.69312,
+            32.06286
+          ],
+          [
+            -2.34764,
+            33.7367
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:321",
+      "properties": {
+        "id": "river:321",
+        "name": "Quatham",
+        "river_id": 321,
+        "length_km": 127.79,
+        "discharge": 96,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            38.5342,
+            -52.40056
+          ],
+          [
+            36.6686,
+            -52.0016
+          ],
+          [
+            33.98918,
+            -52.12165
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:322",
+      "properties": {
+        "id": "river:322",
+        "name": "Prean",
+        "river_id": 322,
+        "length_km": 157.27,
+        "discharge": 258,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -127.68767,
+            -36.86981
+          ],
+          [
+            -126.95437,
+            -35.9353
+          ],
+          [
+            -127.05394,
+            -33.99369
+          ],
+          [
+            -129.54896,
+            -33.70471
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:369",
+      "properties": {
+        "id": "river:369",
+        "name": "Bouldyard",
+        "river_id": 369,
+        "length_km": 86.15,
+        "discharge": 111,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            110.51551,
+            -51.45635
+          ],
+          [
+            109.78904,
+            -52.2611
+          ],
+          [
+            108.08052,
+            -53.31206
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:370",
+      "properties": {
+        "id": "river:370",
+        "name": "Kas",
+        "river_id": 370,
+        "length_km": 193.51,
+        "discharge": 104,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -56.09602,
+            7.53678
+          ],
+          [
+            -55.00218,
+            10.69828
+          ],
+          [
+            -57.15175,
+            12.42676
+          ],
+          [
+            -57.97024,
+            12.64421
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:371",
+      "properties": {
+        "id": "river:371",
+        "name": "Malton",
+        "river_id": 371,
+        "length_km": 115.73,
+        "discharge": 98,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            31.28747,
+            -40.34904
+          ],
+          [
+            29.82446,
+            -40.66174
+          ],
+          [
+            27.46281,
+            -41.88379
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:422",
+      "properties": {
+        "id": "river:422",
+        "name": "Keatha",
+        "river_id": 422,
+        "length_km": 272.8,
+        "discharge": 1419,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            25.14285,
+            14.36945
+          ],
+          [
+            22.37931,
+            14.58654
+          ],
+          [
+            18.89542,
+            15.0272
+          ],
+          [
+            16.36733,
+            14.71486
+          ],
+          [
+            15.46616,
+            14.36945
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:423",
+      "properties": {
+        "id": "river:423",
+        "name": "Orgugekh",
+        "river_id": 423,
+        "length_km": 348.23,
+        "discharge": 668,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -115.34019,
+            -11.04513
+          ],
+          [
+            -118.06059,
+            -9.40148
+          ],
+          [
+            -119.43085,
+            -6.96026
+          ],
+          [
+            -122.71633,
+            -7.17772
+          ],
+          [
+            -125.89036,
+            -6.54153
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:424",
+      "properties": {
+        "id": "river:424",
+        "name": "Khizohros",
+        "river_id": 424,
+        "length_km": 250.86,
+        "discharge": 1036,
+        "width_factor": 1.2,
+        "navigable": "yes",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            1.91593,
+            47.85383
+          ],
+          [
+            -0.36665,
+            50.17931
+          ],
+          [
+            -2.08847,
+            50.05711
+          ],
+          [
+            -3.30704,
+            49.8738
+          ],
+          [
+            -5.50406,
+            51.57999
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:425",
+      "properties": {
+        "id": "river:425",
+        "name": "Liantiet",
+        "river_id": 425,
+        "length_km": 132.8,
+        "discharge": 115,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -6.21867,
+            35.83107
+          ],
+          [
+            -8.05552,
+            34.99361
+          ],
+          [
+            -10.51027,
+            36.2365
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:426",
+      "properties": {
+        "id": "river:426",
+        "name": "Dashinch Uur",
+        "river_id": 426,
+        "length_km": 138.19,
+        "discharge": 122,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -26.89845,
+            -58.47592
+          ],
+          [
+            -23.69745,
+            -58.40188
+          ],
+          [
+            -23.19565,
+            -56.71186
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:427",
+      "properties": {
+        "id": "river:427",
+        "name": "Brazin",
+        "river_id": 427,
+        "length_km": 197.26,
+        "discharge": 83,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -112.28154,
+            26.95292
+          ],
+          [
+            -112.2136,
+            24.83267
+          ],
+          [
+            -114.19674,
+            25.08858
+          ],
+          [
+            -116.96244,
+            24.02037
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:428",
+      "properties": {
+        "id": "river:428",
+        "name": "Sirongport",
+        "river_id": 428,
+        "length_km": 116.73,
+        "discharge": 65,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -95.05618,
+            50.13115
+          ],
+          [
+            -93.31603,
+            51.53291
+          ],
+          [
+            -91.52663,
+            52.32831
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:429",
+      "properties": {
+        "id": "river:429",
+        "name": "Glam",
+        "river_id": 429,
+        "length_km": 118.45,
+        "discharge": 56,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -69.71706,
+            40.24265
+          ],
+          [
+            -68.15736,
+            42.53435
+          ],
+          [
+            -66.7224,
+            42.16054
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:431",
+      "properties": {
+        "id": "river:431",
+        "name": "Cholluq",
+        "river_id": 431,
+        "length_km": 118.25,
+        "discharge": 99,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -1.2689,
+            51.51637
+          ],
+          [
+            -2.99,
+            51.39273
+          ],
+          [
+            -5.50406,
+            51.57999
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:432",
+      "properties": {
+        "id": "river:432",
+        "name": "Shirenelen",
+        "river_id": 432,
+        "length_km": 139.86,
+        "discharge": 80,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -29.64473,
+            -50.57109
+          ],
+          [
+            -31.58942,
+            -52.22444
+          ],
+          [
+            -34.05532,
+            -52.39696
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:433",
+      "properties": {
+        "id": "river:433",
+        "name": "Rearingra",
+        "river_id": 433,
+        "length_km": 108.26,
+        "discharge": 108,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            39.58742,
+            -59.13978
+          ],
+          [
+            41.11045,
+            -60.05092
+          ],
+          [
+            43.04795,
+            -60.89341
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:434",
+      "properties": {
+        "id": "river:434",
+        "name": "Aplereton",
+        "river_id": 434,
+        "length_km": 116.65,
+        "discharge": 63,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            25.81288,
+            -27.9345
+          ],
+          [
+            26.86287,
+            -26.46769
+          ],
+          [
+            28.03255,
+            -24.38914
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:435",
+      "properties": {
+        "id": "river:435",
+        "name": "Khalh Uul",
+        "river_id": 435,
+        "length_km": 96.98,
+        "discharge": 62,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -40.11583,
+            -42.0599
+          ],
+          [
+            -39.68735,
+            -40.76058
+          ],
+          [
+            -40.40843,
+            -38.77512
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:436",
+      "properties": {
+        "id": "river:436",
+        "name": "Preshil",
+        "river_id": 436,
+        "length_km": 67.66,
+        "discharge": 76,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            38.27179,
+            -56.6885
+          ],
+          [
+            37.31563,
+            -57.127
+          ],
+          [
+            35.94249,
+            -57.15575
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:438",
+      "properties": {
+        "id": "river:438",
+        "name": "Hatfordling",
+        "river_id": 438,
+        "length_km": 127.7,
+        "discharge": 58,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -49.17424,
+            -24.67452
+          ],
+          [
+            -49.2792,
+            -26.5155
+          ],
+          [
+            -50.22746,
+            -29.08826
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:518",
+      "properties": {
+        "id": "river:518",
+        "name": "Sholererid",
+        "river_id": 518,
+        "length_km": 202.23,
+        "discharge": 91,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            99.12383,
+            -56.10946
+          ],
+          [
+            99.89632,
+            -57.9375
+          ],
+          [
+            98.77264,
+            -60.77911
+          ],
+          [
+            99.0904,
+            -62.97915
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:519",
+      "properties": {
+        "id": "river:519",
+        "name": "Bostabrid",
+        "river_id": 519,
+        "length_km": 179.41,
+        "discharge": 170,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -19.92599,
+            -9.02336
+          ],
+          [
+            -19.90263,
+            -10.01573
+          ],
+          [
+            -20.77324,
+            -12.45551
+          ],
+          [
+            -22.97673,
+            -14.27276
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:521",
+      "properties": {
+        "id": "river:521",
+        "name": "Osbury",
+        "river_id": 521,
+        "length_km": 92.51,
+        "discharge": 94,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.67589,
+            -41.13259
+          ],
+          [
+            3.61582,
+            -41.16817
+          ],
+          [
+            2.35627,
+            -41.23359
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:522",
+      "properties": {
+        "id": "river:522",
+        "name": "Kilkhamp",
+        "river_id": 522,
+        "length_km": 126.37,
+        "discharge": 88,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            5.90954,
+            -40.34545
+          ],
+          [
+            6.29164,
+            -38.73379
+          ],
+          [
+            6.73594,
+            -35.88678
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "river:523",
+      "properties": {
+        "id": "river:523",
+        "name": "Bucheapton",
+        "river_id": 523,
+        "length_km": 105.23,
+        "discharge": 47,
+        "width_factor": 1.2,
+        "navigable": "partial",
+        "kind": "waterway",
+        "review_status": "candidate"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            97.28807,
+            -60.30072
+          ],
+          [
+            95.99293,
+            -61.17879
+          ],
+          [
+            94.62267,
+            -59.44062
+          ]
+        ]
+      }
+    }
+  ]
+}

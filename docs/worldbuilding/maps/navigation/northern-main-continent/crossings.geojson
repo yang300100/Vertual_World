@@ -1,0 +1,113 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "forge-western-channel-crossing",
+      "properties": {
+        "id": "forge-western-channel-crossing",
+        "name": "锻谷西侧水道桥渡候选",
+        "crossing_type": "bridge_and_ferry",
+        "status": "candidate",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -126.0,
+          31.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "western-forge-pass",
+      "properties": {
+        "id": "western-forge-pass",
+        "name": "西部锻谷山口候选",
+        "crossing_type": "mountain_pass",
+        "status": "candidate",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -105.0,
+          31.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "oathflow-ancient-crossing",
+      "properties": {
+        "id": "oathflow-ancient-crossing",
+        "name": "澜誓古渡与桥群",
+        "crossing_type": "bridge_and_ferry",
+        "status": "confirmed_reference_candidate_geometry",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.0,
+          28.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "forge-river-west-bridge-candidate",
+      "properties": {
+        "id": "forge-river-west-bridge-candidate",
+        "name": "锻河西桥候选",
+        "crossing_type": "bridge",
+        "status": "candidate",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -96.0,
+          29.5
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mirror-river-south-bridge-candidate",
+      "properties": {
+        "id": "mirror-river-south-bridge-candidate",
+        "name": "镜河南桥候选",
+        "crossing_type": "bridge",
+        "status": "candidate",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -68.0,
+          35.0
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "east-port-transition",
+      "properties": {
+        "id": "east-port-transition",
+        "name": "东澜港陆海转换点",
+        "crossing_type": "port",
+        "status": "confirmed_reference_candidate_geometry",
+        "kind": "crossing"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -22.0,
+          30.0
+        ]
+      }
+    }
+  ]
+}

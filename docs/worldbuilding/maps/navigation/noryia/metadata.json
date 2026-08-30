@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "review_status": "candidate",
+  "generator": "scripts/generate_noryia_navigation_data.py",
+  "source": "docs/worldbuilding/maps/map_new/data/Noryia Full 2026-08-29-11-38.json",
+  "source_sha256": "9ff755530a02b5d399980ee2e67baa1428eb6347c297936f16b52f802e0c271c",
+  "azgaar_version": "1.139.2",
+  "bounds": {
+    "min_longitude": -180.0,
+    "max_longitude": 180.0,
+    "min_latitude": -90.0,
+    "max_latitude": 90.0
+  },
+  "width": 10015,
+  "height": 5008,
+  "projection": "equirectangular",
+  "encoding": {
+    "elevation_code": "pack cell h (1..78); sea-level threshold=20",
+    "elevation_m_formula": "round(((h-20)/58)**1.6*4800) for land, 0 for water",
+    "sea_level_code": 20,
+    "surface_type": {
+      "0": "marine",
+      "1": "desert",
+      "2": "desert",
+      "3": "savanna",
+      "4": "grassland",
+      "5": "forest",
+      "6": "forest",
+      "7": "rainforest",
+      "8": "rainforest",
+      "9": "taiga",
+      "10": "tundra",
+      "11": "glacier",
+      "12": "wetland"
+    },
+    "water_kind": {
+      "ocean": "border-connected sea",
+      "lake": "inland water",
+      "river": "waterway cell"
+    },
+    "slope_degrees": "max angle from neighbouring cell elevation / great-circle distance"
+  },
+  "style_assets": {
+    "elevation_is_relative": true,
+    "height_mapping_pending_review": true,
+    "terrain-base.svg": "biome & land/sea vector base (no labels)",
+    "elevation.svg": "relative-height color ramp; NOT accurate elevation metres until the height mapping is approved"
+  },
+  "statistics": {
+    "total_cells": 5862,
+    "land_cells": 2922,
+    "water_cells": 2940,
+    "ocean_cells": 2097,
+    "lake_cells": 42,
+    "river_cells": 801,
+    "elevation_max_m": 4800,
+    "slope_max_degrees": 3.94,
+    "surface_cell_counts": {
+      "marine": 2139,
+      "glacier": 379,
+      "tundra": 89,
+      "taiga": 327,
+      "wetland": 364,
+      "rainforest": 797,
+      "forest": 1542,
+      "grassland": 100,
+      "savanna": 125
+    }
+  },
+  "feature_counts": {
+    "roads": 506,
+    "rivers": 196,
+    "crossings": 265,
+    "route_graph_nodes": 704,
+    "route_graph_edges": 506
+  },
+  "warnings": [
+    "候选数据由 Noryia Full JSON 自动生成，不是世界正典。",
+    "高程为单调映射的高度码，不应解释为测绘结果。",
+    "河流、道路与桥梁几何必须人工审核后才能进入运行时。"
+  ]
+}

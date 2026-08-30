@@ -4,9 +4,12 @@ import json
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+from world_engine.activation import NPCActivationService
 from world_engine.config import Settings
 from world_engine.database import Database
 from world_engine.domain import ClockUpdateResult, HeartbeatResult
+from world_engine.movement import MovementService
+from world_engine.registration import ConstructionProjectService
 from world_engine.repository import WorldNotFoundError, from_iso, to_iso, utc_now
 
 
@@ -16,6 +19,9 @@ class WorldClockService:
     def __init__(self, database: Database, settings: Settings) -> None:
         self.database = database
         self.settings = settings
+        self.movement = MovementService()
+        self.construction = ConstructionProjectService()
+        self.activation = NPCActivationService()
 
     def reset_offline_baseline(self, real_now: datetime | None = None) -> int:
         """服务器启动时重置现实时间基准，明确不补算离线时间。"""
@@ -124,6 +130,25 @@ class WorldClockService:
                 world_delta_seconds=world_delta_seconds,
                 created_at=now,
             )
+            movements_updated = self.movement.advance(
+                connection,
+                world_id=world_id,
+                previous_time=previous_time,
+                current_time=current_time,
+                created_at=now,
+            )
+            construction_updates = self.construction.advance(
+                connection,
+                world_id=world_id,
+                world_delta_seconds=world_delta_seconds,
+                world_time=current_time,
+                created_at=now,
+            )
+            activation_updates = self.activation.refresh(
+                connection,
+                world_id=world_id,
+                world_time=current_time,
+            )
             version_increment = 1 if world_delta_seconds > 0 else 0
             connection.execute(
                 """
@@ -169,6 +194,9 @@ class WorldClockService:
             clock_revision=clock_revision,
             characters_updated=characters_updated,
             state_update_count=state_update_count,
+            movements_updated=movements_updated,
+            construction_updates=construction_updates,
+            activation_updates=activation_updates,
             adjudication_due=adjudication_due,
         )
 
@@ -228,6 +256,9 @@ class WorldClockService:
             heartbeat_id: str | None = None
             state_update_count = 0
             characters_updated = 0
+            movements_updated = 0
+            construction_updates = 0
+            activation_updates = 0
             if world_delta_seconds > 0:
                 heartbeat_id = str(uuid4())
                 connection.execute(
@@ -259,6 +290,25 @@ class WorldClockService:
                     current_time=current_time,
                     world_delta_seconds=world_delta_seconds,
                     created_at=now,
+                )
+                movements_updated = self.movement.advance(
+                    connection,
+                    world_id=world_id,
+                    previous_time=previous_time,
+                    current_time=current_time,
+                    created_at=now,
+                )
+                construction_updates = self.construction.advance(
+                    connection,
+                    world_id=world_id,
+                    world_delta_seconds=world_delta_seconds,
+                    world_time=current_time,
+                    created_at=now,
+                )
+                activation_updates = self.activation.refresh(
+                    connection,
+                    world_id=world_id,
+                    world_time=current_time,
                 )
                 connection.execute(
                     """
@@ -334,6 +384,9 @@ class WorldClockService:
             world_version=new_world_version,
             settled_world_seconds=world_delta_seconds,
             state_update_count=state_update_count,
+            movements_updated=movements_updated,
+            construction_updates=construction_updates,
+            activation_updates=activation_updates,
             adjudication_due=adjudication_due,
             event_id=event_id,
         )

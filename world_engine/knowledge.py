@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
+import sqlite3
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -13,6 +15,18 @@ _HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 _ASCII_TOKEN_PATTERN = re.compile(r"[a-z0-9_]{2,}")
 _CJK_SEQUENCE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]+")
 _VALID_AUDIENCES = {"author_hidden", "guardrail", "character_common"}
+# Noryia 已取代早期三大陆政治线；这些文件作为作者存档保留，但不能进入运行时检索。
+_RETIRED_POLITICAL_FILES = {
+    "16-northern-continent-civilization-framework.md",
+    "17-history-of-three-regions.md",
+    "18-states-cultures-and-conflicts.md",
+    "19-canonical-chronology.md",
+    "20-current-powers-and-customs.md",
+    "21-war-and-treaty-ledger.md",
+    "22-lineages-gray-elves-and-dragon-isolation.md",
+    "23-faiths-calendars-and-memory.md",
+    "24-far-north-dragon-history.md",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +89,8 @@ class WorldKnowledgeBase:
 
         chunks: list[KnowledgeChunk] = []
         for path in sorted(files, key=lambda item: str(item).casefold()):
+            if path.name in _RETIRED_POLITICAL_FILES:
+                continue
             source = _display_path(path, project_root)
             chunks.extend(_parse_markdown(path, source))
         return cls(chunks)
@@ -172,6 +188,63 @@ class WorldKnowledgeBase:
             frequencies.update(set(tokens))
         return frequencies
 
+
+def search_dynamic_knowledge(
+    connection: sqlite3.Connection,
+    *,
+    world_id: str,
+    query: str,
+    character_ids: set[str],
+    location_ids: set[str],
+    limit: int = 6,
+    max_total_chars: int = 8000,
+) -> list[KnowledgeHit]:
+    """检索已注册动态知识，并在进入BM25前执行人物与地点可见性过滤。"""
+
+    rows = connection.execute(
+        """
+        SELECT k.*, e.location_id
+        FROM knowledge_entries k
+        JOIN world_events e ON e.id = k.source_event_id
+        WHERE k.world_id = ? AND k.status = 'active'
+        ORDER BY k.created_at DESC
+        """,
+        (world_id,),
+    ).fetchall()
+    chunks: list[KnowledgeChunk] = []
+    single_character_id = next(iter(character_ids)) if len(character_ids) == 1 else None
+    for row in rows:
+        level = row["knowledge_level"]
+        visible = level == "public_lore"
+        if level == "local_claim" and row["location_id"] in location_ids:
+            visible = True
+        if level == "character_belief" and row["author_character_id"] == single_character_id:
+            visible = True
+        if not visible:
+            continue
+        try:
+            tags = tuple(str(item) for item in json.loads(row["tags_json"]))
+        except (json.JSONDecodeError, TypeError):
+            tags = ()
+        chunks.append(
+            KnowledgeChunk(
+                id=f"dynamic:{row['id']}",
+                source="sqlite:knowledge_entries",
+                section=row["title"],
+                content=row["content"],
+                audience="character_common",
+                always_include=level == "character_belief",
+                tags=tags,
+            )
+        )
+    if not chunks:
+        return []
+    return WorldKnowledgeBase(chunks).search(
+        query,
+        audiences={"character_common"},
+        limit=limit,
+        max_total_chars=max_total_chars,
+    )
 
 def _display_path(path: Path, project_root: Path | None) -> str:
     if project_root is not None:

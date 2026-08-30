@@ -1,0 +1,141 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "river-archives",
+      "properties": {
+        "id": "river-archives",
+        "name": "河务档案区",
+        "feature_type": "public_facility",
+        "status": "confirmed_name_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.08,
+          28.04
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "royal-embankment",
+      "properties": {
+        "id": "royal-embankment",
+        "name": "王室堤岸",
+        "feature_type": "landmark",
+        "status": "confirmed_name_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -70.94,
+          27.98
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "riverside-granaries",
+      "properties": {
+        "id": "riverside-granaries",
+        "name": "三座河畔大粮仓",
+        "feature_type": "public_facility",
+        "status": "confirmed_reference_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.03,
+          27.92
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "mage-family-quarter",
+      "properties": {
+        "id": "mage-family-quarter",
+        "name": "法师家族宅区",
+        "feature_type": "district",
+        "status": "confirmed_name_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.12,
+          28.1
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "foreign-caravan-quarter",
+      "properties": {
+        "id": "foreign-caravan-quarter",
+        "name": "外来商旅区",
+        "feature_type": "district",
+        "status": "confirmed_name_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -71.07,
+          27.98
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "shipworkers-quarter",
+      "properties": {
+        "id": "shipworkers-quarter",
+        "name": "船工区",
+        "feature_type": "district",
+        "status": "confirmed_name_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -70.98,
+          27.94
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "inner-river-port",
+      "properties": {
+        "id": "inner-river-port",
+        "name": "内河码头",
+        "feature_type": "port",
+        "status": "confirmed_reference_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -70.99,
+          27.97
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "royal-offices",
+      "properties": {
+        "id": "royal-offices",
+        "name": "王室官署",
+        "feature_type": "public_facility",
+        "status": "confirmed_reference_candidate_geometry"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -70.96,
+          28.02
+        ]
+      }
+    }
+  ]
+}

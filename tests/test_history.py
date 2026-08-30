@@ -46,7 +46,7 @@ def test_tick_automatically_writes_markdown_jsonl_and_per_tick_logs(
     assert "## 第 1 轮" in markdown
     assert "## 第 2 轮" in markdown
     assert "行动理由" in markdown
-    assert len(jsonl_lines) == 8
+    assert len(jsonl_lines) == 6
     assert len(tick_files) == 2
     assert json.loads(jsonl_lines[-1])["event_type"] == "world.adjudication"
     assert json.loads(tick_files[-1].read_text(encoding="utf-8"))["sequence"] == 2
@@ -64,7 +64,7 @@ def test_existing_database_history_can_be_backfilled(database, settings, tmp_pat
     result = WorldEngine(database, history_settings).sync_history(world_id)
 
     assert result.tick_count == 1
-    assert result.event_count == 4
+    assert result.event_count == 3
     assert result.tick_files == 1
 
 
@@ -103,7 +103,7 @@ def test_history_sync_api_returns_generated_log_paths(settings, tmp_path) -> Non
 
     assert response.status_code == 200
     assert response.json()["tick_count"] == 1
-    assert response.json()["event_count"] == 4
+    assert response.json()["event_count"] == 3
 
 
 def test_heartbeat_and_character_state_logs_are_separate(database, settings, tmp_path) -> None:

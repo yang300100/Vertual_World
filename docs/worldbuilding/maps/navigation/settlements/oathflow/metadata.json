@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "oathflow",
+  "name": "澜誓城详细地图",
+  "review_status": "candidate",
+  "width": 1600,
+  "height": 1600,
+  "bounds": {
+    "min_longitude": -71.21,
+    "max_longitude": -70.79,
+    "min_latitude": 27.82,
+    "max_latitude": 28.18
+  },
+  "area_radius_km": 20,
+  "asset_path": "navigation/settlements/oathflow/detail-map.svg",
+  "feature_count": 8,
+  "road_count": 12,
+  "river_count": 4,
+  "crossing_count": 1,
+  "building_count": 165,
+  "visual_source": "image_generation_plus_vector_overlay",
+  "ai_base_sha256": "3ce6d97b1ed4d655b78df31d6b36d343f92fb27c77918490069f7223291a4e79",
+  "content_sha256": "fa18cd74751c5c340ca6b2a30925f0b6d7ae0f6650f26f58da86909f3eb87202",
+  "warning": "设施名称来自已确认设定，街区和建筑几何仍为候选。"
+}

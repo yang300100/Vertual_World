@@ -38,7 +38,7 @@ class Settings:
     deepseek_model: str = "deepseek-v4-flash-vision-exp"
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
-    deepseek_max_output_tokens: int = 2400
+    deepseek_max_output_tokens: int = 8192
     knowledge_enabled: bool = True
     knowledge_paths: tuple[Path, ...] = field(default_factory=tuple)
     knowledge_top_k: int = 6
@@ -46,9 +46,15 @@ class Settings:
     history_logging_enabled: bool = False
     history_directory: Path | None = None
     default_time_scale: float = 1.0
-    adjudication_interval_minutes: int = 720
+    adjudication_interval_minutes: int = 180
     satiety_loss_per_world_hour: float = 3.0
     energy_loss_per_world_hour: float = 2.0
+    world_agent_enabled: bool = False
+    world_agent_budget_per_heartbeat: int = 100
+    world_agent_max_concurrency: int = 4
+    world_agent_timeout_seconds: float = 8.0
+    world_agent_active_npc_limit: int = 8
+    world_agent_combat_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -75,7 +81,7 @@ class Settings:
             ),
             deepseek_max_retries=max(0, int(os.getenv("DEEPSEEK_MAX_RETRIES", "2"))),
             deepseek_max_output_tokens=max(
-                256, int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "2400"))
+                256, int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "8192"))
             ),
             knowledge_enabled=os.getenv("WORLD_KNOWLEDGE_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"},
@@ -101,7 +107,7 @@ class Settings:
                 0.0, min(10080.0, float(os.getenv("WORLD_DEFAULT_TIME_SCALE", "1.0")))
             ),
             adjudication_interval_minutes=max(
-                1, int(os.getenv("WORLD_ADJUDICATION_INTERVAL_MINUTES", "720"))
+                1, int(os.getenv("WORLD_ADJUDICATION_INTERVAL_MINUTES", "180"))
             ),
             satiety_loss_per_world_hour=max(
                 0.0,
@@ -115,4 +121,22 @@ class Settings:
             energy_loss_per_world_hour=max(
                 0.0, float(os.getenv("WORLD_ENERGY_LOSS_PER_WORLD_HOUR", "2.0"))
             ),
+            world_agent_enabled=os.getenv("WORLD_AGENT_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"},
+            world_agent_budget_per_heartbeat=max(
+                1, int(os.getenv("WORLD_AGENT_BUDGET_PER_HEARTBEAT", "100"))
+            ),
+            world_agent_max_concurrency=max(
+                1, int(os.getenv("WORLD_AGENT_MAX_CONCURRENCY", "4"))
+            ),
+            world_agent_timeout_seconds=max(
+                1.0, float(os.getenv("WORLD_AGENT_TIMEOUT_SECONDS", "8"))
+            ),
+            world_agent_active_npc_limit=max(
+                1, int(os.getenv("WORLD_AGENT_ACTIVE_NPC_LIMIT", "8"))
+            ),
+            world_agent_combat_enabled=os.getenv(
+                "WORLD_AGENT_COMBAT_ENABLED", "false"
+            ).strip().lower()
+            in {"1", "true", "yes", "on"},
         )

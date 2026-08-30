@@ -14,7 +14,7 @@
 - 物品实例、所有权、小背包与库存日志。
 - 分阶段数据库迁移和2核2GB服务器约束。
 
-正式世界观从 `docs/worldbuilding/README.md` 开始阅读。目前已记录“表层剑与魔法、底层科幻”“自然魔力场与单纹低魔时代”“前文明深度隐藏”“当代人物认知边界”以及“无随机宝箱和完整财产权”原则。
+正式世界观从 `docs/worldbuilding/README.md` 开始阅读。目前已记录“表层剑与魔法、底层科幻”“自然魔力场与单纹低魔时代”“星外前文明与轨道环状巨构”“全体物种本土起源”“龙族独立科技路径”“当代人物认知边界”以及“无随机宝箱和完整财产权”原则。
 
 `docs/ARCHITECTURE.md` 只描述当前代码实际运行边界；目标设计不能视为已经实现。
 
@@ -94,6 +94,35 @@ WORLD_KNOWLEDGE_PATHS=docs/worldbuilding;docs/knowledge
 WORLD_KNOWLEDGE_TOP_K=6
 WORLD_KNOWLEDGE_MAX_CONTEXT_CHARS=8000
 ```
+
+## 世界元素注册器
+
+长期影响通过统一代码注册器进入世界，当前支持人物后代、聚落、建筑、巨构/遗迹和
+动态世界观五类严格 payload。每个请求必须引用已经结算的来源事件，并保存申请者、
+幂等键、校验状态、最终实体和副作用。人物或模型不能提交 SQL，也不能直接修改事实表。
+
+```text
+POST /api/worlds/{world_id}/registrations
+GET  /api/worlds/{world_id}/registrations
+GET  /api/worlds/{world_id}/registrations/{registration_id}
+GET  /api/worlds/{world_id}/construction-projects
+PATCH /api/worlds/{world_id}/registrations/{registration_id}/construction
+```
+
+- 聚落和建筑由玩家/NPC提交时必须从规划或施工阶段开始。
+- `character_birth.planned` 只保存家庭计划，`born` 才创建新人物和血缘关系。
+- 人物发现的巨构/遗迹来源只标记为说法，不自动成为作者层真相。
+- 人物世界观补充只能进入人物观点、地方说法或公开知识，不能直接成为作者正典。
+- 同一幂等键不会重复应用；处理器失败会回滚副作用并保留失败审计。
+- 成功玩家行动中的明确建城、建筑、遗迹、家庭计划和知识表述会自动生成严格候选。
+- 开工项目会按世界时间推进；动态观点、地方说法和公开知识按人物权限进入 Agent 检索。
+- 确定性识别未命中但行动含明确长期影响关键词时，可选 RegistrarAgent 只负责生成严格候选。
+- 家庭计划统一等待270个世界日后才能登记出生；出生必须引用原计划，不能提前或重复应用。
+- 自动识别出的长期影响会先显示为待确认候选；在“元素注册”页确认后才写入世界事实。
+- 聚落规划会保留地块；建设取消按项目未完成比例退款，并产生补偿事件。
+- 编年者导航新增“元素注册”页面，可查看注册、拒绝原因、建设进度并启动资源充足的项目。
+
+完整契约与尚未实现的自动触发边界见 `docs/design/11-world-element-registry.md`。
 
 ## 本地启动
 
