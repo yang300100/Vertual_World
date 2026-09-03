@@ -9,6 +9,7 @@ from uuid import uuid4
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
 from world_engine.geo import great_circle_distance_km
 from world_engine.movement import MovementService
+from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import to_iso, utc_now
 
 
@@ -121,7 +122,7 @@ class ActionService:
         if proposal.action is ActionType.EAT:
             return self._eat(connection, actor), None
         if proposal.action is ActionType.WORK:
-            return self._work(connection, actor), None
+            return self._work(connection, world_id, actor, occurred_at), None
         if proposal.action is ActionType.TRAVEL:
             return self._travel(
                 connection, world_id, actor, proposal, occurred_at
@@ -139,10 +140,11 @@ class ActionService:
         raise ActionRuleError("未知行动类型")
 
     def _rest(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
-        energy = _clamp(actor["energy"] + 28)
+        # 一次休息代表完整地睡上一觉，因此远快于时间自然恢复。
+        energy = _clamp(actor["energy"] + 40)
         satiety = _clamp(actor["satiety"] - 4)
         self._update_character(connection, actor["id"], energy=energy, satiety=satiety)
-        return f"{actor['name']}停下来休息，精力恢复到{energy}。"
+        return f"{actor['name']}睡了一觉，精力恢复到{energy}。"
 
     def _eat(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         if actor["money"] < 3:
@@ -165,14 +167,61 @@ class ActionService:
         self._update_character(connection, actor["id"], satiety=satiety, money=money)
         return f"{actor['name']}在{location['name']}获得食物，饱食度升到{satiety}。"
 
-    def _work(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
-        location = connection.execute(
-            "SELECT name, kind, longitude, latitude FROM locations WHERE id = ?",
-            (self._require_current_location(actor),),
+    def _work(
+        self,
+        connection: sqlite3.Connection,
+        world_id: str,
+        actor: sqlite3.Row,
+        occurred_at: datetime,
+    ) -> str:
+        """工作提案在错误地点时先发起真实移动，不瞬移也不直接发放报酬。"""
+        active_movement = connection.execute(
+            "SELECT 1 FROM character_movements WHERE character_id = ? AND status = 'moving'",
+            (actor["id"],),
         ).fetchone()
-        self._assert_near_location(actor, location)
-        if location["kind"] != "workplace":
-            raise ActionRuleError("当前位置不是可以工作的场所")
+        location = connection.execute(
+            "SELECT id, name, kind, longitude, latitude FROM locations WHERE id = ?",
+            (self._current_location_id(actor),),
+        ).fetchone()
+        at_workplace = (
+            location is not None
+            and location["kind"] == "workplace"
+            and great_circle_distance_km(
+                actor["longitude"], actor["latitude"], location["longitude"], location["latitude"]
+            ) <= 5.0
+        )
+        if not at_workplace:
+            if active_movement is not None:
+                return f"{actor['name']}仍在前往工作地点的路上，抵达后再开始工作。"
+            workplaces = connection.execute(
+                "SELECT id, name, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1 AND kind = 'workplace'",
+                (world_id,),
+            ).fetchall()
+            if not workplaces:
+                raise ActionRuleError("当前世界没有可前往的工作地点")
+            destination = min(
+                workplaces,
+                key=lambda row: great_circle_distance_km(
+                    actor["longitude"], actor["latitude"], row["longitude"], row["latitude"]
+                ),
+            )
+            self.movement.start(
+                connection,
+                world_id=world_id,
+                character_id=actor["id"],
+                destination_longitude=destination["longitude"],
+                destination_latitude=destination["latitude"],
+                world_time=occurred_at,
+                record_log=False,
+            )
+            self._update_character(
+                connection,
+                actor["id"],
+                energy=_clamp(actor["energy"] - 1),
+                satiety=_clamp(actor["satiety"] - 1),
+            )
+            return f"{actor['name']}当前不在可工作地点，已动身前往{destination['name']}；抵达后才会结算工作。"
+        assert location is not None
         if actor["energy"] < 20:
             raise ActionRuleError("精力不足以完成工作")
         energy = _clamp(actor["energy"] - 16)
@@ -194,7 +243,7 @@ class ActionService:
         destination = connection.execute(
             """
             SELECT id, name, longitude, latitude
-            FROM locations WHERE id = ? AND world_id = ?
+            FROM locations WHERE id = ? AND world_id = ? AND is_active = 1
             """,
             (proposal.destination_id, world_id),
         ).fetchone()
@@ -204,6 +253,12 @@ class ActionService:
             raise ActionRuleError("人物已经在目的地")
         if actor["energy"] < 8:
             raise ActionRuleError("精力不足以旅行")
+        active_movement = connection.execute(
+            "SELECT 1 FROM character_movements WHERE character_id = ? AND status = 'moving'",
+            (actor["id"],),
+        ).fetchone()
+        if active_movement is not None:
+            raise ActionRuleError("人物已经在移动中，请先取消当前行程")
         energy = _clamp(actor["energy"] - 1)
         satiety = _clamp(actor["satiety"] - 1)
         movement = self.movement.start(
@@ -245,14 +300,14 @@ class ActionService:
             actor["latitude"],
             target["longitude"],
             target["latitude"],
-        ) > 5.0:
-            raise ActionRuleError("双方距离过远，无法交流")
+        ) > VISIBLE_PERSON_RADIUS_KM:
+            raise ActionRuleError("双方距离超过100米，无法交流")
         self._change_relationship(connection, world_id, actor["id"], target["id"], 3, 2)
         self._change_relationship(connection, world_id, target["id"], actor["id"], 2, 1)
         self._update_character(
             connection,
             actor["id"],
-            energy=_clamp(actor["energy"] - 4),
+            energy=_clamp(actor["energy"] - 2),
             satiety=_clamp(actor["satiety"] - 2),
         )
         dialogue = (

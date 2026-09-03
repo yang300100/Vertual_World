@@ -445,18 +445,18 @@ class WorldClockService:
                 self.settings.satiety_loss_per_world_hour * world_hours
             )
             energy_total = float(row["energy_residual"]) + (
-                self.settings.energy_loss_per_world_hour * world_hours
+                self.settings.energy_recovery_per_world_hour * world_hours
             )
             satiety_step = int(satiety_total)
             energy_step = int(energy_total)
             satiety_before = int(row["satiety"])
             energy_before = int(row["energy"])
             satiety_after = max(0, satiety_before - satiety_step)
-            energy_after = max(0, energy_before - energy_step)
+            energy_after = min(100, energy_before + energy_step)
             satiety_residual = (
                 0.0 if satiety_after <= 0 else satiety_total - satiety_step
             )
-            energy_residual = 0.0 if energy_after <= 0 else energy_total - energy_step
+            energy_residual = 0.0 if energy_after >= 100 else energy_total - energy_step
             connection.execute(
                 """
                 UPDATE character_state_accumulators
@@ -501,7 +501,7 @@ class WorldClockService:
                     id, world_id, heartbeat_id, character_id,
                     world_time_before, world_time_after,
                     changes_json, cause, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'natural_decay', ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'natural_time_passage', ?)
                 """,
                 (
                     str(uuid4()),

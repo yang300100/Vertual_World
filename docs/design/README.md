@@ -39,6 +39,7 @@
 | D014 | 人物使用0至100的正向饱食度，100最舒适 | 已实现 | `01-runtime-and-time.md` |
 | D015 | 调速先按旧比例结算并原子提交；相同比例为无操作 | 已实现 | `01-runtime-and-time.md` |
 | D016 | 世界长期变化通过统一注册门面、严格类型处理器和来源事件审计落库；Agent只能提交候选 | 已实现（第一阶段） | `11-world-element-registry.md` |
+| D017 | 全部世界对象共享元素目录与生命周期；专有字段和规则继续保留在专用事实表 | 已实现（混合模型） | `12-world-element-lifecycle-and-capture.md` |
 
 ## 推荐阅读顺序
 
@@ -48,6 +49,7 @@
 4. `04-items-and-inventory.md`：物品实例、小背包和所有权流转。
 5. `05-data-model-and-roadmap.md`：建议数据库结构、迁移顺序和验收标准。
 6. `11-world-element-registry.md`：玩家/NPC造成的新人物、聚落、建筑、巨构和动态知识如何登记。
+7. `12-world-element-lifecycle-and-capture.md`：元素如何退出活跃世界，以及拍照如何读取当前世界事实。
 
 ## 总体原则
 

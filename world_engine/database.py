@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from world_engine.demographics import stable_npc_demographics
 from world_engine.time_utils import is_time_only, next_adjudication_boundary, parse_datetime
 
 SCHEMA = """
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS locations (
     area_radius_km REAL NOT NULL DEFAULT 1 CHECK (area_radius_km >= 0),
     area_priority INTEGER NOT NULL DEFAULT 0,
     parent_location_id TEXT REFERENCES locations(id) ON DELETE SET NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
     UNIQUE(world_id, name)
 );
 
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS characters (
     name TEXT NOT NULL,
     species TEXT NOT NULL DEFAULT 'human',
     birth_world_time TEXT,
+    gender TEXT,
     location_id TEXT NOT NULL REFERENCES locations(id),
     energy INTEGER NOT NULL CHECK (energy BETWEEN 0 AND 100),
     satiety INTEGER NOT NULL CHECK (satiety BETWEEN 0 AND 100),
@@ -295,6 +298,129 @@ CREATE TABLE IF NOT EXISTS character_memories (
 CREATE INDEX IF NOT EXISTS idx_character_memories_character_time
 ON character_memories(character_id, created_at DESC);
 
+CREATE TABLE IF NOT EXISTS character_skill_proficiencies (
+    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    skill_name TEXT NOT NULL,
+    proficiency INTEGER NOT NULL DEFAULT 0 CHECK(proficiency BETWEEN 0 AND 100),
+    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(character_id, skill_name)
+);
+
+CREATE TABLE IF NOT EXISTS action_effects (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
+    effect_type TEXT NOT NULL,
+    actor_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
+    target_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
+    status TEXT NOT NULL CHECK(status IN ('applied','rejected')),
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS character_contacts (
+    id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    requester_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    recipient_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('pending','accepted','rejected')),
+    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    response_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    UNIQUE(world_id, requester_id, recipient_id), CHECK(requester_id <> recipient_id)
+);
+CREATE TABLE IF NOT EXISTS character_messages (
+    id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    contact_id TEXT NOT NULL REFERENCES character_contacts(id) ON DELETE CASCADE,
+    sender_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    recipient_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    content TEXT NOT NULL, world_time TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS npc_todos (
+    id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    title TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','doing','done','cancelled')),
+    due_world_time TEXT, source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS long_term_operation_requests (
+    id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    requester_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    recipient_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    operation_type TEXT NOT NULL, terms_json TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL CHECK(status IN ('submitted','npc_accepted','npc_rejected','npc_countered','player_confirmed','applied','cancelled')),
+    npc_response TEXT, system_notice TEXT, counter_terms_json TEXT,
+    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
+-- NPC 的可读取对话属性：会话按 NPC 与对话对象分组，原话按世界时间保存。
+CREATE TABLE IF NOT EXISTS npc_conversation_sessions (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    npc_character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    counterpart_character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','closed')),
+    last_world_time TEXT NOT NULL,
+    last_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(world_id, npc_character_id, counterpart_character_id),
+    CHECK(npc_character_id <> counterpart_character_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_npc_conversation_sessions_recent
+ON npc_conversation_sessions(world_id, counterpart_character_id, last_world_time DESC);
+
+CREATE TABLE IF NOT EXISTS npc_conversation_turns (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES npc_conversation_sessions(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
+    turn_index INTEGER NOT NULL CHECK(turn_index > 0),
+    speaker_character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    listener_character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    content TEXT NOT NULL CHECK(length(content) BETWEEN 1 AND 1000),
+    world_time TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(session_id, turn_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_npc_conversation_turns_window
+ON npc_conversation_turns(session_id, world_time, turn_index);
+
+-- 长对话的可追溯分段摘要。原始回合始终保留，摘要只引用固定回合区间。
+CREATE TABLE IF NOT EXISTS npc_conversation_episodes (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES npc_conversation_sessions(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    first_turn_index INTEGER NOT NULL CHECK(first_turn_index > 0),
+    last_turn_index INTEGER NOT NULL CHECK(last_turn_index >= first_turn_index),
+    summary TEXT NOT NULL,
+    topic_terms_json TEXT NOT NULL DEFAULT '[]',
+    open_questions_json TEXT NOT NULL DEFAULT '[]',
+    open_commitments_json TEXT NOT NULL DEFAULT '[]',
+    source_event_ids_json TEXT NOT NULL DEFAULT '[]',
+    source_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(session_id, first_turn_index, last_turn_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_npc_conversation_episodes_session
+ON npc_conversation_episodes(session_id, last_turn_index DESC);
+
+-- 角色卡不是世界设定百科，而是 NPC 在对话中可持续使用的主观底色。
+-- 它与角色一对一绑定，避免把职业模板误当成性格。
+CREATE TABLE IF NOT EXISTS npc_character_cards (
+    character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    card_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_npc_character_cards_world
+ON npc_character_cards(world_id, character_id);
+
 CREATE TABLE IF NOT EXISTS world_clock (
     world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
     time_scale REAL NOT NULL DEFAULT 1.0 CHECK (time_scale BETWEEN 0 AND 10080),
@@ -447,7 +573,7 @@ CREATE TABLE IF NOT EXISTS element_registration_requests (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     element_type TEXT NOT NULL CHECK(element_type IN (
-        'character_birth','settlement','building','structure','lore'
+        'character_birth','character_arrival','settlement','building','structure','lore'
     )),
     requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
     source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
@@ -669,6 +795,100 @@ CREATE TABLE IF NOT EXISTS knowledge_entries (
 
 CREATE INDEX IF NOT EXISTS idx_knowledge_entries_world_level
 ON knowledge_entries(world_id, knowledge_level, status, created_at DESC);
+
+-- 统一元素目录只管理身份、生命周期和来源；各类元素的专有属性仍放在专用事实表中。
+CREATE TABLE IF NOT EXISTS world_element_catalog (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL DEFAULT 'active'
+        CHECK(lifecycle_state IN ('active','destroyed','retired')),
+    source_kind TEXT NOT NULL DEFAULT 'system'
+        CHECK(source_kind IN ('seed','system','registration')),
+    source_registration_id TEXT
+        REFERENCES element_registration_requests(id) ON DELETE SET NULL,
+    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    destroyed_at TEXT,
+    destroyed_by_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    UNIQUE(world_id, entity_type, entity_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_world_element_catalog_world_state
+ON world_element_catalog(world_id, lifecycle_state, entity_type, name);
+
+-- 删除器使用墓碑而不是物理 DELETE，确保事件、谱系和历史引用永远可复核。
+CREATE TABLE IF NOT EXISTS element_removal_requests (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    target_element_type TEXT NOT NULL,
+    target_entity_id TEXT NOT NULL,
+    requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
+    source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
+    idempotency_key TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK(reason IN ('destroyed','retired','removed')),
+    details TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('validating','applied','rejected','failed')),
+    rejection_reason TEXT,
+    input_world_version INTEGER NOT NULL,
+    applied_world_version INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(world_id, idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_element_removals_world_status
+ON element_removal_requests(world_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS element_removal_effects (
+    id TEXT PRIMARY KEY,
+    removal_id TEXT NOT NULL REFERENCES element_removal_requests(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    effect_type TEXT NOT NULL,
+    entity_type TEXT,
+    entity_id TEXT,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_element_removal_effects_request
+ON element_removal_effects(removal_id, created_at);
+
+CREATE TABLE IF NOT EXISTS character_portraits (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    media_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_character_portraits_active
+ON character_portraits(world_id, character_id, is_active, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS photo_captures (
+    id TEXT PRIMARY KEY,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    photographer_character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE RESTRICT,
+    direction TEXT NOT NULL,
+    include_self INTEGER NOT NULL,
+    included_character_ids_json TEXT NOT NULL DEFAULT '[]',
+    prompt TEXT NOT NULL,
+    context_json TEXT NOT NULL,
+    media_path TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_photo_captures_world_time
+ON photo_captures(world_id, created_at DESC);
 """
 
 
@@ -703,8 +923,13 @@ class Database:
             self._migrate_event_importance(connection)
             self._migrate_navigation_columns(connection)
             self._migrate_registration_columns(connection)
+            self._migrate_registration_element_types(connection)
+            self._migrate_element_lifecycle_columns(connection)
             self._migrate_character_species_columns(connection)
+            self._migrate_social_operation_columns(connection)
+            self._remove_legacy_player_controlled_social_records(connection)
             self._ensure_default_species_profiles(connection)
+            self._ensure_npc_demographics(connection)
             self._ensure_known_map_features(connection)
             self._ensure_default_world_maps(connection)
             self._ensure_noryia_city_detail_maps(connection)
@@ -712,6 +937,88 @@ class Database:
             self._ensure_detail_world_maps(connection)
             self._ensure_clock_and_accumulator_rows(connection)
             self._repair_time_only_timestamps(connection)
+            self._synchronize_world_element_catalog(connection)
+
+    @staticmethod
+    def _migrate_social_operation_columns(connection: sqlite3.Connection) -> None:
+        """为已有世界补长期事务的反提案字段；不改写任何既有事务。"""
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "long_term_operation_requests" not in tables:
+            return
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(long_term_operation_requests)"
+            ).fetchall()
+        }
+        if "counter_terms_json" not in columns:
+            connection.execute(
+                "ALTER TABLE long_term_operation_requests ADD COLUMN counter_terms_json TEXT"
+            )
+        if "system_notice" not in columns:
+            connection.execute(
+                "ALTER TABLE long_term_operation_requests ADD COLUMN system_notice TEXT"
+            )
+
+    @staticmethod
+    def _remove_legacy_player_controlled_social_records(connection: sqlite3.Connection) -> None:
+        """清理旧版取消事务和玩家代写的 NPC 待办，避免它们在升级后继续生效。"""
+        tables = {
+            row["name"]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        required_tables = {"long_term_operation_requests", "npc_todos", "world_events"}
+        if not required_tables.issubset(tables):
+            return
+
+        cancelled_request_ids = {
+            str(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM long_term_operation_requests WHERE status = 'cancelled'"
+            ).fetchall()
+        }
+        player_todo_event_ids = {
+            str(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM world_events WHERE event_type = 'social.todo_created'"
+            ).fetchall()
+        }
+        request_event_ids: set[str] = set()
+        if cancelled_request_ids:
+            for event in connection.execute(
+                "SELECT id, payload_json FROM world_events"
+            ).fetchall():
+                try:
+                    payload = json.loads(event["payload_json"])
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(payload, dict) and payload.get("request_id") in cancelled_request_ids:
+                    request_event_ids.add(str(event["id"]))
+
+        event_ids = request_event_ids | player_todo_event_ids
+        if event_ids:
+            placeholders = ", ".join("?" for _ in event_ids)
+            connection.execute(
+                f"DELETE FROM npc_todos WHERE source_event_id IN ({placeholders})",
+                tuple(event_ids),
+            )
+            # 关联记忆随 world_events 的外键级联删除。
+            connection.execute(
+                f"DELETE FROM world_events WHERE id IN ({placeholders})", tuple(event_ids)
+            )
+        if cancelled_request_ids:
+            placeholders = ", ".join("?" for _ in cancelled_request_ids)
+            connection.execute(
+                f"DELETE FROM long_term_operation_requests WHERE id IN ({placeholders})",
+                tuple(cancelled_request_ids),
+            )
 
     @staticmethod
     def _migrate_registration_columns(connection: sqlite3.Connection) -> None:
@@ -735,6 +1042,88 @@ class Database:
             )
 
     @staticmethod
+    def _migrate_registration_element_types(connection: sqlite3.Connection) -> None:
+        """为旧存档扩展登记类型约束，保留全部申请与外键引用。"""
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'element_registration_requests'"
+        ).fetchone()
+        if row is None or "character_arrival" in str(row["sql"] or ""):
+            return
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = OFF")
+        try:
+            connection.execute(
+                """
+                CREATE TABLE element_registration_requests_next (
+                    id TEXT PRIMARY KEY,
+                    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+                    element_type TEXT NOT NULL CHECK(element_type IN (
+                        'character_birth','character_arrival','settlement','building','structure','lore'
+                    )),
+                    requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
+                    source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
+                    idempotency_key TEXT NOT NULL,
+                    schema_version INTEGER NOT NULL DEFAULT 1,
+                    status TEXT NOT NULL CHECK(status IN (
+                        'proposed','validating','approved','rejected','applying','applied','failed'
+                    )),
+                    payload_json TEXT NOT NULL,
+                    result_entity_id TEXT,
+                    rejection_reason TEXT,
+                    input_world_version INTEGER NOT NULL,
+                    applied_world_version INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(world_id, idempotency_key)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO element_registration_requests_next
+                SELECT * FROM element_registration_requests
+                """
+            )
+            connection.execute("DROP TABLE element_registration_requests")
+            connection.execute(
+                "ALTER TABLE element_registration_requests_next "
+                "RENAME TO element_registration_requests"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_element_registrations_world_status "
+                "ON element_registration_requests(world_id, status, created_at DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_element_registrations_source_event "
+                "ON element_registration_requests(source_event_id)"
+            )
+            connection.commit()
+        finally:
+            connection.execute("PRAGMA foreign_keys = ON")
+
+    @staticmethod
+    def _migrate_element_lifecycle_columns(connection: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(locations)")
+        }
+        if "is_active" not in columns:
+            connection.execute(
+                "ALTER TABLE locations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
+
+    @staticmethod
+    def _synchronize_world_element_catalog(connection: sqlite3.Connection) -> None:
+        """为旧存档补全目录；目录不复制领域字段，也不改变既有事实。"""
+        # 延迟导入避免数据库初始化阶段产生循环依赖。
+        from world_engine.elements import WorldElementCatalog
+
+        catalog = WorldElementCatalog()
+        world_ids = connection.execute("SELECT id FROM worlds").fetchall()
+        for world in world_ids:
+            catalog.synchronize_world(connection, world_id=world["id"])
+
+    @staticmethod
     def _migrate_character_species_columns(connection: sqlite3.Connection) -> None:
         columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(characters)")
@@ -745,6 +1134,34 @@ class Database:
             )
         if "birth_world_time" not in columns:
             connection.execute("ALTER TABLE characters ADD COLUMN birth_world_time TEXT")
+        if "gender" not in columns:
+            connection.execute("ALTER TABLE characters ADD COLUMN gender TEXT")
+
+    @staticmethod
+    def _ensure_npc_demographics(connection: sqlite3.Connection) -> None:
+        """仅补全缺失的 NPC 性别/生日，绝不覆盖已经写入的角色属性。"""
+        rows = connection.execute(
+            """
+            SELECT c.id, c.name, c.species, c.gender, c.birth_world_time,
+                   w.current_time, COALESCE(s.adult_age_world_years, 16) AS adult_age
+            FROM characters c
+            JOIN worlds w ON w.id = c.world_id
+            LEFT JOIN species_profiles s ON s.id = c.species
+            WHERE c.is_player = 0 AND (c.gender IS NULL OR c.gender = '' OR c.birth_world_time IS NULL OR c.birth_world_time = '')
+            """
+        ).fetchall()
+        for row in rows:
+            demographic = stable_npc_demographics(
+                identity_key=f"{row['id']}|{row['name']}|{row['species']}",
+                world_time=parse_datetime(row["current_time"]),
+                adult_age_world_years=int(row["adult_age"]),
+            )
+            gender = row["gender"] or demographic.gender
+            birth = row["birth_world_time"] or demographic.birth_world_time.isoformat()
+            connection.execute(
+                "UPDATE characters SET gender = ?, birth_world_time = ? WHERE id = ?",
+                (gender, birth, row["id"]),
+            )
 
     @staticmethod
     def _ensure_default_species_profiles(connection: sqlite3.Connection) -> None:

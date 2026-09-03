@@ -90,3 +90,45 @@ def test_invalid_audience_fails_fast(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="audience无效"):
         WorldKnowledgeBase.from_paths((tmp_path,))
+
+
+def test_world_region_and_time_scopes_filter_static_lore(tmp_path: Path) -> None:
+    _write_document(
+        tmp_path / "iserra.md",
+        """<!-- rag: audience=character_common; world=伊瑟拉; tags=河税 -->
+# 伊瑟拉河税
+
+伊瑟拉旧河税只适用于澜誓城。
+""",
+    )
+    _write_document(
+        tmp_path / "noryia.md",
+        (
+            "<!-- rag: audience=character_common; world=Noryia; regions=北门区,loc-north; "
+            "valid_from=2040-01-01T00:00:00+00:00; "
+            "valid_until=2041-01-01T00:00:00+00:00; tags=河税 -->\n"
+            "# Noryia河税\n\n北门区现行河税需要公开登记。\n"
+        ),
+    )
+    knowledge_base = WorldKnowledgeBase.from_paths((tmp_path,))
+
+    hits = knowledge_base.search(
+        "河税登记",
+        audiences={"character_common"},
+        world_scope="Noryia",
+        region_scopes={"loc-north", "北门区"},
+        at_time="2040-06-01T00:00:00+00:00",
+        limit=5,
+    )
+    expected_source = str((tmp_path / "noryia.md").resolve()).replace("\\", "/")
+    assert [hit.chunk.source for hit in hits] == [expected_source]
+
+    expired = knowledge_base.search(
+        "河税登记",
+        audiences={"character_common"},
+        world_scope="Noryia",
+        region_scopes={"北门区"},
+        at_time="2042-01-01T00:00:00+00:00",
+        limit=5,
+    )
+    assert expired == []

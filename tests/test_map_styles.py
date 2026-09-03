@@ -58,6 +58,19 @@ def test_map_styles_defaults_to_political_and_persists(settings) -> None:
         assert missing.status_code == 404
 
 
+def test_world_map_layers_only_expose_navigation_noryia_images(settings) -> None:
+    """图层下拉框只暴露指定导航目录中的可显示图片。"""
+    app = create_app(settings)
+    with TestClient(app) as client:
+        payload = client.get("/api/world-map-layers").json()
+
+    layers = payload["layers"]
+    by_path = {item["asset_path"]: item for item in layers}
+    assert by_path["navigation/noryia/Noryia卫星图.png"]["format"] == "png"
+    assert by_path["navigation/noryia/Noryia高程图.svg"]["format"] == "svg"
+    assert all(item["asset_path"].startswith("navigation/noryia/") for item in layers)
+
+
 def test_map_styles_reflects_approved_dataset(settings) -> None:
     world_id, _location_id = _style_world(settings)
     app = create_app(settings)

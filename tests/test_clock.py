@@ -60,6 +60,24 @@ def test_fractional_state_changes_accumulate_without_rounding_loss(
     assert len(updates) == 3
 
 
+def test_energy_recovers_gradually_with_world_time(database, settings) -> None:
+    world_id = _create_world(database)
+    repository = WorldRepository()
+    with database.read() as connection:
+        before = repository.get_snapshot(connection, world_id)
+
+    WorldEngine(database, settings).heartbeat(world_id, elapsed_seconds=60 * 60)
+
+    with database.read() as connection:
+        after = repository.get_snapshot(connection, world_id)
+        updates = repository.list_state_updates_ascending(connection, world_id)
+    assert all(
+        after.character_by_id(item.id).energy == min(100, item.energy + 2)
+        for item in before.characters
+    )
+    assert all(item["cause"] == "natural_time_passage" for item in updates)
+
+
 def test_time_scale_can_accelerate_and_pause_world(database, settings) -> None:
     world_id = _create_world(database)
     engine = WorldEngine(database, settings)

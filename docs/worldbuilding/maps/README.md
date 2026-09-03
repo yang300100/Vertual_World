@@ -21,11 +21,16 @@
 | 文件 | 范围 | 用途 |
 |---|---|---|
 | `map_new/Noryia.svg` | 整个星球(等距圆柱，单块连通大陆) | **当前**世界地形权威；国家/城市/河流坐标基于此图 |
+| `noryia-world-satellite-v1.png` | 整个星球(等距圆柱卫星视图) | 初版卫星视觉候选稿；山脉位置未严格贴合高程图，仅保留作生成过程对照 |
+| `noryia-world-satellite-v2.png` | 整个星球(等距圆柱卫星视图) | 高程修订对照稿；已校正主要山地/高原，但大陆连续性仍有误读 |
+| `noryia-world-satellite-v3.png` | 整个星球(等距圆柱卫星视图) | 高程与北极山脉修订对照稿；仍存在内部陆地裂缝误读 |
+| `noryia-world-satellite-v4.png` | 整个星球(等距圆柱卫星视图) | 当前卫星视觉候选稿；高程约束山地、北极交界山脉和主大陆连续性均已校正，不替代坐标/地形权威 |
 | `planet-master.png` | 整个星球(旧线) | 旧线"四大区域"相对位置；仅作背景 |
 | `northern-main-continent.png` | 北方主大陆(旧线) | 旧线初始舞台地形；仅作背景 |
 | `southern-continent.png` | 南方大陆(旧线) | 旧线赤道以南地形；仅作背景 |
 | `eastern-fractured-sea.png` | 东方裂海群岛(旧线) | 旧线航海地形；仅作背景 |
 | `far-northern-enclave.png` | 极北封闭区 | 冰原、山环、冰海与龙族外部地貌(与旧线一致，仍适用) |
+| `northern-main-continent-satellite-v1.png` | 北方主大陆 | 卫星视图候选稿；由高程、地表/生物群系、坡度与宏观造山参考生成，不替代当前 Noryia 物理地图权威 |
 
 ## 政治地图
 

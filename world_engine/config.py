@@ -43,18 +43,32 @@ class Settings:
     knowledge_paths: tuple[Path, ...] = field(default_factory=tuple)
     knowledge_top_k: int = 6
     knowledge_max_context_chars: int = 8000
+    dialogue_context_max_chars: int = 12000
+    dialogue_context_max_tokens: int = 3600
+    dialogue_memory_top_k: int = 6
+    dialogue_knowledge_top_k: int = 4
+    dialogue_episode_turn_threshold: int = 6
+    dialogue_episode_top_k: int = 4
     history_logging_enabled: bool = False
     history_directory: Path | None = None
     default_time_scale: float = 1.0
     adjudication_interval_minutes: int = 180
     satiety_loss_per_world_hour: float = 3.0
-    energy_loss_per_world_hour: float = 2.0
+    energy_recovery_per_world_hour: float = 2.0
     world_agent_enabled: bool = False
     world_agent_budget_per_heartbeat: int = 100
     world_agent_max_concurrency: int = 4
     world_agent_timeout_seconds: float = 8.0
     world_agent_active_npc_limit: int = 8
     world_agent_combat_enabled: bool = False
+    image_generation_provider: str = "seedream"
+    image_api_key: str | None = field(default=None, repr=False)
+    image_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    image_model: str = "seedream5.0lite"
+    image_timeout_seconds: float = 120.0
+    image_size: str = "2048x2048"
+    image_response_format: str = "url"
+    media_directory: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -96,6 +110,30 @@ class Settings:
                 1000,
                 int(os.getenv("WORLD_KNOWLEDGE_MAX_CONTEXT_CHARS", "8000")),
             ),
+            dialogue_context_max_chars=max(
+                1000,
+                int(os.getenv("WORLD_DIALOGUE_CONTEXT_MAX_CHARS", "12000")),
+            ),
+            dialogue_context_max_tokens=max(
+                800,
+                int(os.getenv("WORLD_DIALOGUE_CONTEXT_MAX_TOKENS", "3600")),
+            ),
+            dialogue_memory_top_k=max(
+                1,
+                int(os.getenv("WORLD_DIALOGUE_MEMORY_TOP_K", "6")),
+            ),
+            dialogue_knowledge_top_k=max(
+                1,
+                int(os.getenv("WORLD_DIALOGUE_KNOWLEDGE_TOP_K", "4")),
+            ),
+            dialogue_episode_turn_threshold=max(
+                4,
+                int(os.getenv("WORLD_DIALOGUE_EPISODE_TURN_THRESHOLD", "6")),
+            ),
+            dialogue_episode_top_k=max(
+                1,
+                int(os.getenv("WORLD_DIALOGUE_EPISODE_TOP_K", "4")),
+            ),
             history_logging_enabled=os.getenv(
                 "WORLD_HISTORY_LOG_ENABLED", "true"
             ).strip().lower()
@@ -118,8 +156,9 @@ class Settings:
                     )
                 ),
             ),
-            energy_loss_per_world_hour=max(
-                0.0, float(os.getenv("WORLD_ENERGY_LOSS_PER_WORLD_HOUR", "2.0"))
+            energy_recovery_per_world_hour=max(
+                0.0,
+                float(os.getenv("WORLD_ENERGY_RECOVERY_PER_WORLD_HOUR", "2.0")),
             ),
             world_agent_enabled=os.getenv("WORLD_AGENT_ENABLED", "false").strip().lower()
             in {"1", "true", "yes", "on"},
@@ -139,4 +178,20 @@ class Settings:
                 "WORLD_AGENT_COMBAT_ENABLED", "false"
             ).strip().lower()
             in {"1", "true", "yes", "on"},
+            image_generation_provider=os.getenv(
+                "IMAGE_GENERATION_PROVIDER", "seedream"
+            ).strip().lower(),
+            image_api_key=os.getenv("IMAGE_API_KEY") or None,
+            image_base_url=os.getenv(
+                "IMAGE_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"
+            ).rstrip("/"),
+            image_model=os.getenv("IMAGE_MODEL", "seedream5.0lite").strip(),
+            image_timeout_seconds=max(
+                5.0, float(os.getenv("IMAGE_TIMEOUT_SECONDS", "120"))
+            ),
+            image_size=os.getenv("IMAGE_SIZE", "2048x2048").strip(),
+            image_response_format=os.getenv("IMAGE_RESPONSE_FORMAT", "url").strip(),
+            media_directory=_resolve_path(
+                os.getenv("WORLD_MEDIA_DIR", "data/world-media")
+            ),
         )

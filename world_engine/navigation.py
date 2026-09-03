@@ -21,6 +21,19 @@ from uuid import uuid4
 from world_engine.geo import great_circle_distance_km
 from world_engine.repository import to_iso
 
+_BIOME_LABELS = {
+    "marine": "海洋",
+    "desert": "沙漠",
+    "savanna": "稀树草原",
+    "grassland": "温带草原",
+    "forest": "森林",
+    "rainforest": "雨林",
+    "taiga": "针叶林",
+    "tundra": "苔原",
+    "glacier": "冰原",
+    "wetland": "湿地",
+}
+
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -126,7 +139,7 @@ class TerrainService:
             prior = self._crossing_by_cell.setdefault(cell_id, crossing)
             # 同类门户去重：优先桥/渡口/港口。
             order = {"ferry": 3, "port": 2, "bridge": 1, "ford": 1, "mountain_pass": 1}
-            if order.get(crossing["properties"]["crossing_type"], 0) < order.get(
+            if order.get(crossing["properties"]["crossing_type"], 0) > order.get(
                 prior["properties"]["crossing_type"], 0
             ):
                 self._crossing_by_cell[cell_id] = crossing
@@ -220,6 +233,7 @@ class TerrainService:
             "elevation_m": cell["elevation_m"],
             "elevation_code": cell["elevation_code"],
             "surface_type": cell["surface_type"],
+            "biome": _BIOME_LABELS.get(cell["surface_type"], cell["surface_type"]),
             "slope_degrees": cell["slope_degrees"],
             "water_kind": cell["water_kind"],
             "state_id": cell["state_id"],

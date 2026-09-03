@@ -70,13 +70,14 @@ def _snapshot_with_two_at_same_place(tick_count: int = 3) -> WorldSnapshot:
     return WorldSnapshot(world=world, locations=[loc], characters=[char1, char2])
 
 
-def test_rule_socialize_generates_dialogue() -> None:
-    """规则决策器在 SOCIALIZE 时给出一句台词(dialogue)。"""
+def test_rule_socialize_never_generates_dialogue() -> None:
+    """规则决策器可以安排社交，但不可生成任何预设台词。"""
     snapshot = _snapshot_with_two_at_same_place(tick_count=3)
     provider = RuleDecisionProvider()
     proposals = provider.propose(snapshot, [snapshot.characters[0]])
     assert proposals and proposals[0].action is ActionType.SOCIALIZE
-    assert proposals[0].dialogue and "林二" in proposals[0].dialogue
+    assert proposals[0].dialogue is None
+    assert proposals[0].reply is None
 
 
 def test_non_socialize_actions_have_no_dialogue() -> None:

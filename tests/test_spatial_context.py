@@ -6,7 +6,10 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from world_engine.activation import NPCActivationService
+from world_engine.decisions import DecisionProviderError
 from world_engine.engine import WorldEngine
 from world_engine.repository import WorldRepository
 from world_engine.seeder import create_iserra_world
@@ -186,9 +189,11 @@ def test_background_npc_can_be_distance_and_interaction_activated(
             """,
             (player.longitude, player.latitude, square.id, background.id),
         )
-    WorldEngine(database, settings).submit_player_intent(
-        world_id, f"与{background.name}交谈"
-    )
+    # 交互激活发生在回复生成前；纯规则模式没有 NPC 台词模型，因此请求随后会明确失败。
+    with pytest.raises(DecisionProviderError, match="NPC 对话模型暂时不可用"):
+        WorldEngine(database, settings).submit_player_intent(
+            world_id, f"与{background.name}交谈"
+        )
     with database.read() as connection:
         after_dialogue = repository.get_snapshot(connection, world_id).character_by_id(
             background.id

@@ -1,6 +1,6 @@
 # 世界元素注册器
 
-状态：第四阶段已实现（候选确认、种族生命周期、土地权、建设资源托管与取消退款）。
+状态：第五阶段已实现（候选确认、种族生命周期、土地权、建设资源托管、删除器与统一元素目录）。
 
 ## 目标
 
@@ -26,6 +26,10 @@
 7. 人物提交的世界观不能直接成为 `author_canon`。
 8. Agent 以后只能生成 `ElementRegistrationSubmit` 候选，不能持有写连接。
 
+删除请求同样必须引用已结算的来源事件、要求申请者是事件参与者，并使用世界内唯一幂等键。
+删除使用“墓碑”而不是物理 `DELETE`：历史、血缘、旧事件、照片和来源关系始终可审计。已结算
+战斗导致 NPC 生命归零时，会自动创建人物删除审计；玩家的败北/复苏仍由专用流程处理。
+
 ## 存储
 
 统一审计与实体索引：
@@ -49,6 +53,11 @@ knowledge_entries
 `world_entities` 只提供跨类型身份和来源索引；人物、地点、建筑、巨构和知识的专有字段
 继续保存在各自表中，不使用一张任意 JSON/EAV 表替代领域模型。
 
+第五阶段新增 `world_element_catalog`：它覆盖种子数据、系统数据和注册数据，统一记录
+`entity_type + entity_id`、名称、来源与 `active/destroyed/retired` 生命周期。它不是替代
+专用表的“万能 JSON”；删除器仍会分别把建筑标为 `ruined`、知识标为 `retired`、地点标为
+不可用，并保留历史引用。
+
 ## API
 
 ```text
@@ -57,6 +66,8 @@ GET  /api/worlds/{world_id}/registrations
 GET  /api/worlds/{world_id}/registrations/{registration_id}
 POST /api/worlds/{world_id}/registrations/{registration_id}/confirm
 POST /api/worlds/{world_id}/registrations/{registration_id}/reject
+POST /api/worlds/{world_id}/removals
+GET  /api/worlds/{world_id}/removals
 GET  /api/worlds/{world_id}/construction-projects
 PATCH /api/worlds/{world_id}/registrations/{registration_id}/construction
 ```

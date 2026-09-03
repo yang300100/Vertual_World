@@ -1,4 +1,4 @@
-<!-- rag: audience=guardrail; always_include=true; tags=叙事一致性,认知边界,防穿帮 -->
+<!-- rag: audience=guardrail; always_include=true; world=*; tags=叙事一致性,认知边界,防穿帮 -->
 
 # 人物决策叙事硬约束
 

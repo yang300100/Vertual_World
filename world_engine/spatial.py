@@ -20,7 +20,7 @@ class SpatialContextService:
         locations = connection.execute(
             """
             SELECT * FROM locations
-            WHERE world_id = ? AND area_radius_km > 0
+            WHERE world_id = ? AND is_active = 1 AND area_radius_km > 0
             """,
             (world_id,),
         ).fetchall()

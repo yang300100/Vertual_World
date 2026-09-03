@@ -9,7 +9,19 @@ htmlcov/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/world-media/
 logs/
 backups/
 run/
 .env
+
+# IDE 配置（PyCharm）
+.idea/
+world_engine/.idea/
+
+# 运行日志与测试输出
+*.log
+run_pytest_err.txt
+
+# 临时工作目录
+wwtmp/

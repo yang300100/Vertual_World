@@ -36,10 +36,10 @@ class ModelCompletion:
 
 
 class AgentModelBackend:
-    """DeepSeek 兼容接口的 Agent 结构化输出后端。
+    """DeepSeek 兼容接口的结构化输出后端。
 
-    每个 Agent 调用有独立 timeout；构建带重试与退避；只返回受 Pydantic 校验的
-    结构化类型，绝不直接改数据库。未配置密钥或禁用时由调用方走规则回退。
+    每个调用有独立 timeout；构建带重试与退避；只返回受 Pydantic 校验的
+    结构化类型，绝不直接改数据库。未配置密钥时，由调用方明确告知功能不可用。
     """
 
     def __init__(
@@ -141,8 +141,8 @@ class AgentModelBackend:
 
 
 def build_agent_model_backend(settings: Settings) -> AgentModelBackend | None:
-    """仅当 Agent 编排开启且配置了密钥时才构建模型后端，否则返回 None 走规则。"""
-    if settings.world_agent_enabled and settings.deepseek_api_key:
+    """只要配置了模型密钥就构建后端，供 NPC 对话和可选世界编排共用。"""
+    if settings.deepseek_api_key:
         try:
             return AgentModelBackend(settings)
         except Exception:

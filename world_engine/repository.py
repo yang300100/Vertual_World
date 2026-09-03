@@ -16,6 +16,8 @@ from world_engine.domain import (
     WorldSnapshot,
     WorldState,
 )
+from world_engine.demographics import age_years_at
+from world_engine.elements import WorldElementCatalog
 from world_engine.time_utils import next_adjudication_boundary, parse_datetime
 
 
@@ -116,6 +118,7 @@ class WorldRepository:
             """,
             (world_id,),
         )
+        WorldElementCatalog().synchronize_world(connection, world_id=world_id)
         return world_id
 
     def _seed_demo(
@@ -292,7 +295,7 @@ class WorldRepository:
         location = connection.execute(
             """
             SELECT id, longitude, latitude FROM locations
-            WHERE id = ? AND world_id = ?
+            WHERE id = ? AND world_id = ? AND is_active = 1
             """,
             (location_id, world_id),
         ).fetchone()
@@ -388,6 +391,14 @@ class WorldRepository:
             "SELECT * FROM characters WHERE id = ?",
             (character_id,),
         ).fetchone()
+        WorldElementCatalog().upsert(
+            connection,
+            world_id=world_id,
+            entity_type="character",
+            entity_id=character_id,
+            name=clean_name,
+            source_kind="system",
+        )
         return self._character_from_row(row)
 
     def list_worlds(self, connection: sqlite3.Connection) -> list[WorldState]:
@@ -425,14 +436,24 @@ class WorldRepository:
             raise WorldNotFoundError(world_id)
 
         location_rows = connection.execute(
-            "SELECT * FROM locations WHERE world_id = ? ORDER BY name",
+            "SELECT * FROM locations WHERE world_id = ? AND is_active = 1 ORDER BY name",
             (world_id,),
         ).fetchall()
         character_rows = connection.execute(
-            "SELECT * FROM characters WHERE world_id = ? ORDER BY is_core DESC, name",
+            """
+            SELECT c.*, (
+                SELECT media_path FROM character_portraits p
+                WHERE p.world_id = c.world_id AND p.character_id = c.id AND p.is_active = 1
+                ORDER BY p.created_at DESC LIMIT 1
+            ) AS portrait_media_path
+            FROM characters c
+            WHERE c.world_id = ? AND (c.health > 0 OR c.is_player = 1)
+            ORDER BY c.is_core DESC, c.name
+            """,
             (world_id,),
         ).fetchall()
-        characters = [self._character_from_row(row) for row in character_rows]
+        world = self._world_from_row(world_row)
+        characters = [self._character_from_row(row, world.current_time) for row in character_rows]
         item_rows = connection.execute(
             """
             SELECT ii.container_id, ii.container_type, it.name, ii.quantity,
@@ -508,7 +529,7 @@ class WorldRepository:
             (world_id,),
         ).fetchall()
         return WorldSnapshot(
-            world=self._world_from_row(world_row),
+            world=world,
             locations=[self._location_from_row(row) for row in location_rows],
             maps=[self._map_from_row(row) for row in map_rows],
             map_features=[self._map_feature_from_row(row) for row in feature_rows],
@@ -524,24 +545,28 @@ class WorldRepository:
         world_id: str,
         limit: int = 100,
         scope: str = "all",
+        participant_id: str | None = None,
     ) -> list[dict[str, object]]:
         self._ensure_world(connection, world_id)
         if scope not in {"all", "chronicle", "log"}:
             raise ValueError("事件范围必须是 all、chronicle 或 log")
         importance = {"chronicle": "major", "log": "routine"}.get(scope)
-        where_clause = "world_id = ?" if importance is None else "world_id = ? AND importance = ?"
-        parameters: tuple[object, ...] = (
-            (world_id, max(1, min(limit, 500)))
-            if importance is None
-            else (world_id, importance, max(1, min(limit, 500)))
-        )
+        clauses = ["world_id = ?"]
+        parameters: list[object] = [world_id]
+        if importance is not None:
+            clauses.append("importance = ?")
+            parameters.append(importance)
+        if participant_id:
+            clauses.append("(actor_id = ? OR target_id = ?)")
+            parameters.extend((participant_id, participant_id))
+        parameters.append(max(1, min(limit, 500)))
         rows = connection.execute(
             f"""
             SELECT * FROM world_events
-            WHERE {where_clause}
+            WHERE {' AND '.join(clauses)}
             ORDER BY occurred_at DESC, created_at DESC
             LIMIT ?
-            """,  # noqa: S608 - where_clause 只来自上方固定白名单
+            """,  # noqa: S608 - 查询片段只来自上方固定白名单
             parameters,
         ).fetchall()
         return [self._event_dict(row) for row in rows]
@@ -829,7 +854,12 @@ class WorldRepository:
         )
 
     @staticmethod
-    def _character_from_row(row: sqlite3.Row) -> CharacterState:
+    def _character_from_row(row: sqlite3.Row, world_time: datetime | None = None) -> CharacterState:
+        birth_world_time = (
+            from_iso(row["birth_world_time"])
+            if "birth_world_time" in row.keys() and row["birth_world_time"]
+            else None
+        )
         return CharacterState(
             id=row["id"],
             world_id=row["world_id"],
@@ -888,6 +918,14 @@ class WorldRepository:
             traits=json.loads(row["traits_json"]),
             goals=json.loads(row["goals_json"]),
             identity=row["identity"] if "identity" in row.keys() else None,
+            gender=row["gender"] if "gender" in row.keys() else None,
+            birth_world_time=birth_world_time,
+            age_years=age_years_at(birth_world_time, world_time) if world_time else None,
+            portrait_url=(
+                f"/world-media/{row['portrait_media_path']}"
+                if "portrait_media_path" in row.keys() and row["portrait_media_path"]
+                else None
+            ),
             is_player=(bool(row["is_player"]) if "is_player" in row.keys() else False),
             is_pov=bool(row["is_pov"]) if "is_pov" in row.keys() else False,
             is_core=bool(row["is_core"]),

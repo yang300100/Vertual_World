@@ -1,4 +1,4 @@
-<!-- rag: audience=character_common; always_include=true; tags=当代常识,魔法,社会,财产权 -->
+<!-- rag: audience=character_common; always_include=true; world=*; tags=当代常识,魔法,社会,财产权 -->
 
 # 当代居民通用世界知识
 

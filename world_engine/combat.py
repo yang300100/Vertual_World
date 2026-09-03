@@ -57,6 +57,8 @@ class CombatResolver:
         if proposal.action is not ActionType.ATTACK:
             raise ValueError("CombatResolver只负责attack动作")
         actor = self._get_character(connection, world_id, proposal.actor_id)
+        if actor is None:
+            return self._reject(proposal, "攻击者不存在于当前世界")
         if not proposal.target_id:
             return self._reject(proposal, "攻击需要指定目标")
         target = self._get_character(connection, world_id, proposal.target_id)
@@ -244,7 +246,7 @@ class CombatResolver:
         )
         if withdrawn:
             loser = target if target_health <= 0 else actor
-            event_type = "world.major_death" if self._is_important(actor) else "action.target_down"
+            event_type = "world.major_death" if self._is_important(loser) else "action.target_down"
             self._record_event(
                 connection,
                 world_id=world_id,

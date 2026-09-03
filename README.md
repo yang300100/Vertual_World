@@ -93,7 +93,68 @@ WORLD_KNOWLEDGE_ENABLED=true
 WORLD_KNOWLEDGE_PATHS=docs/worldbuilding;docs/knowledge
 WORLD_KNOWLEDGE_TOP_K=6
 WORLD_KNOWLEDGE_MAX_CONTEXT_CHARS=8000
+WORLD_DIALOGUE_CONTEXT_MAX_CHARS=12000
+WORLD_DIALOGUE_CONTEXT_MAX_TOKENS=3600
+WORLD_DIALOGUE_MEMORY_TOP_K=6
+WORLD_DIALOGUE_KNOWLEDGE_TOP_K=4
+WORLD_DIALOGUE_EPISODE_TURN_THRESHOLD=6
+WORLD_DIALOGUE_EPISODE_TOP_K=4
 ```
+
+## NPC 对话管线
+
+NPC 对话采用“本地上下文导演 + 一次模型回复”的方式。明确选择人物、在文本中点名人物，
+或承接最近会话时，本地规则直接确定 `SOCIALIZE`，不会先额外调用一次玩家行动规划模型。
+模型只负责提出目标 NPC 的一句结构化回应。
+
+每次回复按以下顺序组装只读上下文：
+
+```text
+角色身份与角色卡
+  -> 当前地点、附近人物和个人近期事件
+  -> 双向关系、NPC待办和规则已经裁定的事务结果
+  -> 最近一小时原话
+  -> 按本轮话题召回的个人记忆
+  -> 角色可见的动态知识与始终生效的通用知识/护栏
+  -> 一小时以前与本轮话题相关的旧对话
+  -> 玩家本轮原话
+```
+
+角色卡除职责、当前牵挂、私人张力、社交边界和表达提示外，还支持 `speech_style`、
+`initiative_notes`、`preferred_address` 与最多四条 `dialogue_examples`。示例只用于学习语气，
+不能作为世界事实引用。旧角色卡读取时只补齐缺失字段，不覆盖已有内容。
+
+上下文使用保守的中英文 token 估算，并在 `budget_trace` 中记录各段占用。人物身份、渠道边界、
+当前场景和规则结论优先保留；最近对话、相关记忆、知识、待办与旧对话按优先级装入，达到
+`WORLD_DIALOGUE_CONTEXT_MAX_TOKENS` 后停止。模型输出额度仍由模型配置单独保留。
+
+当面交流、交换联络信笺、远程信件和长期事务审阅共用同一上下文管线。`channel` 会限制人物
+感知能力，例如远程信件不能声称看见玩家、立即到场或已经执行尚未确认的事务。成功的当面
+交流会在同一事务中保存双方原话，并为 NPC 自己写入引用同一事件的亲历记忆，因此一小时
+短期窗口过后仍可按话题召回。
+
+每累计 `WORLD_DIALOGUE_EPISODE_TURN_THRESHOLD` 个未摘要原始回合，系统会在同一事务中生成一个
+固定区间的本地提取式摘要，保存主题、未完成问题、承诺、来源事件和 SHA-256。摘要不调用模型、
+不覆盖原话，也不会把上一版摘要再次压缩，因此可以在长对话中稳定召回而不产生滚动漂移。
+
+静态知识库目前可能同时保存多个创作阶段的资料。对话只自动加入 `always_include=true` 的
+`guardrail`/`character_common`，以及已经按人物、地点权限过滤的动态知识；地区性公开资料应先
+登记到动态知识或完成明确的世界范围标注，避免旧世界资料串入当前 NPC。
+
+静态知识元数据还支持：
+
+```markdown
+<!-- rag: audience=character_common; world=Noryia; regions=北门区,location-id; valid_from=2040-01-01T00:00:00+00:00; valid_until=2041-01-01T00:00:00+00:00; tags=水权,河税 -->
+```
+
+`world/worlds`、`region/regions`、有效时间都在 BM25 排序前执行硬过滤；相关度不能让其他世界、
+其他地区或过期条目进入人物上下文。`world=*` 表示所有世界共享的短小通用常识或护栏。
+
+当100米内至少有两名 NPC 时，场景建议会出现“向在场众人说话”。本地调度器按玩家指定、
+明确点名、职责/目标相关性、关系和刚刚发言冷却选择最多两名发言者。后一位能看到本轮前一位
+已经说过的话；所有回复生成成功后才在一个事务中写入各自事件、原话和亲历记忆。
+
+完整实现与验收标准见 `docs/design/13-npc-dialogue-pipeline.md`。
 
 ## 世界元素注册器
 
@@ -121,6 +182,18 @@ PATCH /api/worlds/{world_id}/registrations/{registration_id}/construction
 - 自动识别出的长期影响会先显示为待确认候选；在“元素注册”页确认后才写入世界事实。
 - 聚落规划会保留地块；建设取消按项目未完成比例退款，并产生补偿事件。
 - 编年者导航新增“元素注册”页面，可查看注册、拒绝原因、建设进度并启动资源充足的项目。
+
+## 元素删除器与拍照
+
+- `WorldElementRemover` 以事件来源、参与者和幂等键为边界处理毁灭/退役；它写入墓碑与审计，
+  不物理删除历史事实。战斗中死亡的 NPC 会自动进入该流程。
+- 前端“拍照”可选择镜头朝向、自拍、视野内 NPC、指定人物，并可为玩家或 NPC 上传 PNG/JPEG/WebP
+  人设图。照片提示词会包含当前位置、朝向、伊瑟拉季节/昼夜光照、已审核地貌/生物群系/高程地形、
+  同向建筑/遗迹/奇观和在场人物。
+- 生图服务通过 Git 忽略的 `.env` 配置；当前默认模型为 `seedream5.0lite`。请填写
+  `IMAGE_API_KEY`，必要时按所使用网关调整 `IMAGE_BASE_URL`、`IMAGE_MODEL` 与
+  `IMAGE_RESPONSE_FORMAT`。生成图片位于 `WORLD_MEDIA_DIR/<world_id>/photos/`，人设图位于
+  `WORLD_MEDIA_DIR/<world_id>/portraits/`，两者均不会被 Git 跟踪。
 
 完整契约与尚未实现的自动触发边界见 `docs/design/11-world-element-registry.md`。
 

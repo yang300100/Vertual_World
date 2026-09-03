@@ -22,12 +22,28 @@ function Get-ProjectProcesses {
 function Stop-ProjectProcesses {
     param([string]$CommandNeedle, [string]$Label)
     $processes = @(Get-ProjectProcesses $CommandNeedle)
+    # Start-Process 在部分 Windows 会留下同命令的父进程；只结束监听子进程会
+    # 让父进程再次拉起它。沿父链找到同一项目的根进程后按树停止。
+    $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $roots = @{}
     foreach ($processInfo in $processes) {
-        $processId = [int]$processInfo.ProcessId
-        Write-Host "Stopping $Label process $processId..."
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+        $root = $processInfo
+        while ($root.ParentProcessId) {
+            $parent = @($allProcesses | Where-Object {
+                $_.ProcessId -eq $root.ParentProcessId -and
+                $_.CommandLine -and $_.CommandLine.Contains($CommandNeedle)
+            }) | Select-Object -First 1
+            if (-not $parent) { break }
+            $root = $parent
+        }
+        $roots[[int]$root.ProcessId] = $root
     }
-    return $processes.Count
+    foreach ($processInfo in $roots.Values) {
+        $processId = [int]$processInfo.ProcessId
+        Write-Host "Stopping $Label process tree $processId..."
+        & taskkill.exe /PID $processId /T /F 2>$null | Out-Null
+    }
+    return $roots.Count
 }
 
 $workerCount = Stop-ProjectProcesses "world_engine.worker" "worker"

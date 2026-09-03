@@ -1,4 +1,4 @@
-<!-- rag: audience=character_common; always_include=false; tags=阿德伦,诺赫兰,河流议约,水权,河务,澜誓城,法师家族 -->
+<!-- rag: audience=character_common; always_include=false; world=伊瑟拉; tags=阿德伦,诺赫兰,河流议约,水权,河务,澜誓城,法师家族 -->
 
 # 诺赫兰·阿德伦议约王国当代常识
 

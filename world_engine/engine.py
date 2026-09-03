@@ -12,8 +12,18 @@ from world_engine.agent_llm import build_agent_model_backend
 from world_engine.clock import WorldClockService
 from world_engine.combat import CombatResolver
 from world_engine.config import PROJECT_ROOT, Settings
+from world_engine.conversations import (
+    ConversationService,
+    DialogueContextAssembler,
+    DialogueSpeakerScheduler,
+)
 from world_engine.database import Database
-from world_engine.decisions import DecisionProvider, RuleDecisionProvider, build_decision_provider
+from world_engine.decisions import (
+    DecisionProvider,
+    DecisionProviderError,
+    RuleDecisionProvider,
+    build_decision_provider,
+)
 from world_engine.domain import (
     ActionOutcome,
     ActionProposal,
@@ -29,8 +39,9 @@ from world_engine.domain import (
     TickResult,
     WorldSnapshot,
 )
-from world_engine.geo import great_circle_distance_km
 from world_engine.history import HistoryExportResult, WorldHistoryLogger
+from world_engine.intent_effects import IntentEffectService
+from world_engine.intent_parser import IntentParserAgent, IntentPreview
 from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.movement import MovementService
 from world_engine.orchestration import (
@@ -48,6 +59,7 @@ from world_engine.registration import (
     RegistrationIntentDetector,
     WorldElementRegistry,
 )
+from world_engine.removal import ElementRemovalSubmit, WorldElementRemover
 from world_engine.repository import WorldNotFoundError, WorldRepository, from_iso, to_iso, utc_now
 from world_engine.spatial import SpatialContextService
 from world_engine.time_utils import next_adjudication_boundary
@@ -81,9 +93,23 @@ class WorldEngine:
         self.clock = WorldClockService(database, settings)
         self.combat = CombatResolver()
         self.element_registry = WorldElementRegistry()
+        self.element_remover = WorldElementRemover()
         self.registration_detector = RegistrationIntentDetector()
         self.knowledge_base = self._build_knowledge_base()
+        self.conversations = ConversationService(
+            settings.dialogue_context_max_chars,
+            max_context_tokens=settings.dialogue_context_max_tokens,
+            memory_top_k=settings.dialogue_memory_top_k,
+            knowledge_top_k=settings.dialogue_knowledge_top_k,
+            episode_turn_threshold=settings.dialogue_episode_turn_threshold,
+            episode_top_k=settings.dialogue_episode_top_k,
+            knowledge_base=self.knowledge_base,
+        )
+        self.dialogue_context = DialogueContextAssembler(self.conversations)
+        self.dialogue_speakers = DialogueSpeakerScheduler(max_speakers=2)
+        self.intent_effects = IntentEffectService()
         self.agent_model_backend = build_agent_model_backend(settings)
+        self.intent_parser = IntentParserAgent(self.agent_model_backend)
         self.registrar_agent = RegistrarAgent(
             self.agent_model_backend if settings.world_agent_enabled else None
         )
@@ -306,7 +332,13 @@ class WorldEngine:
 
         return self.adjudicate(world_id, trigger="manual")
 
-    def submit_player_intent(self, world_id: str, intent: str) -> PlayerActionResult:
+    def submit_player_intent(
+        self,
+        world_id: str,
+        intent: str,
+        *,
+        target_character_id: str | None = None,
+    ) -> PlayerActionResult:
         """把玩家一条自然语言意图结算为一次行动，与心跳/裁判解耦。
 
         找到唯一的玩家角色(is_player)，用决策器(DeepSeek，失败降级规则)把
@@ -318,22 +350,14 @@ class WorldEngine:
         player = next((item for item in snapshot.characters if item.is_player), None)
         if player is None:
             raise ValueError("当前世界还没有玩家角色，无法提交行动")
-        hinted_target = next(
-            (
-                item
-                for item in sorted(snapshot.characters, key=lambda value: -len(value.name))
-                if not item.is_player
-                and item.name in intent
-                and great_circle_distance_km(
-                    player.longitude,
-                    player.latitude,
-                    item.longitude,
-                    item.latitude,
-                )
-                <= 5.0
-            ),
-            None,
-        )
+        with self.database.read() as connection:
+            hinted_target = self.conversations.resolve_target(
+                connection,
+                snapshot=snapshot,
+                player=player,
+                intent=intent,
+                target_character_id=target_character_id,
+            )
         if hinted_target is not None:
             with self.database.write() as connection:
                 self.activation.activate_for_interaction(
@@ -345,16 +369,46 @@ class WorldEngine:
                 snapshot = self.repository.get_snapshot(connection, world_id)
                 player = next(item for item in snapshot.characters if item.is_player)
 
+        conversation = None
+        if hinted_target is not None:
+            with self.database.read() as connection:
+                conversation = self.conversations.load_context(
+                    connection,
+                    snapshot=snapshot,
+                    player_id=player.id,
+                    npc=hinted_target,
+                )
+        planning_intent = conversation.planning_intent(intent) if conversation else intent
+
+        lock_dialogue_target = (
+            hinted_target is not None
+            and not self.conversations.is_non_dialogue_intent(intent)
+        )
         proposal: ActionProposal
         provider_name = self.decision_provider.name
         fallback_used = False
-        try:
-            proposal = self.decision_provider.plan_player_action(snapshot, player, intent)
-        except Exception:
-            provider_name = self.fallback_provider.name
-            fallback_used = True
-            proposal = self.fallback_provider.plan_player_action(snapshot, player, intent)
-        # 兜底：玩家发起的社交若缺"自己台词/对方回应"，用规则补齐，保证双方内容都可见。
+        if lock_dialogue_target:
+            # 已明确人物且属于对话时，本地规则已经足够确定动作；跳过一次无意义的
+            # 玩家规划模型调用，只让目标 NPC 生成一次回应。
+            proposal = ActionProposal(
+                actor_id=player.id,
+                action=ActionType.SOCIALIZE,
+                target_id=hinted_target.id,
+                reason=f"我继续与{hinted_target.name}交谈。",
+                dialogue=intent,
+            )
+        else:
+            try:
+                proposal = self.decision_provider.plan_player_action(
+                    snapshot, player, planning_intent
+                )
+            except Exception:
+                provider_name = self.fallback_provider.name
+                fallback_used = True
+                proposal = self.fallback_provider.plan_player_action(
+                    snapshot, player, planning_intent
+                )
+        # 玩家自己的发言来自输入；NPC 可见回应只允许由模型生成，绝不使用规则台词。
         if proposal.action is ActionType.SOCIALIZE and proposal.target_id:
             target = next(
                 (item for item in snapshot.characters if item.id == proposal.target_id),
@@ -362,14 +416,35 @@ class WorldEngine:
             )
             if target is not None:
                 if not proposal.dialogue:
-                    proposal.dialogue = self.fallback_provider._socialize_dialogue(
-                        snapshot, player, target
-                    )
-                if not proposal.reply:
-                    proposal.reply = self.fallback_provider._socialize_reply(
-                        snapshot, target, player
-                    )
+                    proposal.dialogue = intent
+                # 目标 NPC 单独决定如何回应；没有模型就拒绝本次对话，不能写入预设回答。
+                responder = getattr(self.decision_provider, "respond_to_player", None)
+                if not callable(responder):
+                    raise DecisionProviderError("当前决策器不支持 NPC 模型对话")
+                reply_context: dict[str, object] = {"player_text": intent}
+                try:
+                    with self.database.read() as connection:
+                        reply_context = self.dialogue_context.build(
+                            connection,
+                            snapshot=snapshot,
+                            npc=target,
+                            player=player,
+                            player_text=intent,
+                            conversation=conversation,
+                            channel="in_person",
+                            interaction="当面交谈；双方必须在100米可见范围内",
+                            decision_details={"action": "socialize"},
+                        )
+                    npc_reply = responder(npc=target, player=player, context=reply_context)
+                except Exception as exc:
+                    LOGGER.info("NPC 独立回应失败，本次对话不写入预设台词", exc_info=True)
+                    raise DecisionProviderError("NPC 对话模型暂时不可用，请稍后重试") from exc
+                proposal.reply = npc_reply.reply
+                proposal.metadata["npc_social_move"] = npc_reply.social_move
         proposal.metadata.setdefault("player_intent", intent)
+        if conversation is not None:
+            proposal.metadata["conversation_target_id"] = conversation.npc_id
+            proposal.metadata["conversation_turn_count"] = len(conversation.turns)
 
         action_id = str(uuid4())
         completed_at = utc_now()
@@ -388,6 +463,14 @@ class WorldEngine:
                     character_id=proposal.target_id,
                     world_time=snapshot.world.current_time,
                 )
+                target = current_snapshot.character_by_id(proposal.target_id)
+                if target is not None:
+                    self.conversations.get_card(
+                        connection,
+                        world_id=world_id,
+                        npc=target,
+                        persist_default=True,
+                    )
             outcome = self.actions.execute(
                 connection,
                 world_id=world_id,
@@ -395,6 +478,35 @@ class WorldEngine:
                 occurred_at=snapshot.world.current_time,
                 proposal=proposal,
             )
+            if (
+                outcome.accepted
+                and outcome.event_id is not None
+                and proposal.action is ActionType.SOCIALIZE
+                and proposal.target_id is not None
+                and proposal.reply
+            ):
+                self.conversations.record_exchange(
+                    connection,
+                    world_id=world_id,
+                    npc_id=proposal.target_id,
+                    counterpart_id=player.id,
+                    event_id=outcome.event_id,
+                    world_time=snapshot.world.current_time,
+                    player_text=intent,
+                    npc_text=proposal.reply,
+                )
+            if outcome.accepted and outcome.event_id is not None:
+                effects = self.intent_effects.apply(
+                    connection,
+                    world_id=world_id,
+                    source_event_id=outcome.event_id,
+                    actor_id=player.id,
+                    target_id=proposal.target_id,
+                    intent=intent,
+                )
+                applied_summaries = [effect.summary for effect in effects if effect.applied]
+                if applied_summaries:
+                    outcome.summary = f"{outcome.summary} {'；'.join(applied_summaries)}。"
             # 玩家败北：玩家被打倒则原地苏醒并记败北事件(真实失败但可继续)。
             player_health = connection.execute(
                 "SELECT health FROM characters WHERE id = ?", (player.id,)
@@ -429,6 +541,13 @@ class WorldEngine:
                 (new_version, to_iso(completed_at), world_id),
             )
         registration_ids: list[str] = []
+        if self._tombstone_destroyed_targets(world_id, [(outcome, proposal)]):
+            with self.database.read() as connection:
+                new_version = int(
+                    connection.execute(
+                        "SELECT version FROM worlds WHERE id = ?", (world_id,)
+                    ).fetchone()["version"]
+                )
         if outcome.accepted and outcome.event_id is not None:
             try:
                 requests = self.registration_detector.detect(
@@ -479,6 +598,194 @@ class WorldEngine:
             registration_ids=registration_ids,
         )
 
+    def submit_group_dialogue(
+        self,
+        world_id: str,
+        intent: str,
+        *,
+        participant_ids: list[str] | None = None,
+        max_speakers: int = 2,
+    ) -> dict[str, object]:
+        """让本地调度器选中在场发言者，再逐人生成并原子记录多人回应。"""
+        with self.database.read() as connection:
+            snapshot = self.repository.get_snapshot(connection, world_id)
+            player = next((item for item in snapshot.characters if item.is_player), None)
+            if player is None:
+                raise ValueError("当前世界还没有玩家角色，无法发起多人对话")
+            scheduler = DialogueSpeakerScheduler(max_speakers=max_speakers)
+            selected = scheduler.select(
+                connection,
+                snapshot=snapshot,
+                player=player,
+                intent=intent,
+                participant_ids=participant_ids,
+            )
+        if not selected:
+            raise ValueError("100米内没有可以参与多人对话的 NPC")
+        responder = getattr(self.decision_provider, "respond_to_player", None)
+        if not callable(responder):
+            raise DecisionProviderError("当前决策器不支持 NPC 模型对话")
+
+        drafted: list[dict[str, object]] = []
+        prior_replies: list[dict[str, str]] = []
+        participant_view = [
+            {
+                "id": choice.character.id,
+                "name": choice.character.name,
+                "score": choice.score,
+                "reasons": list(choice.reasons),
+            }
+            for choice in selected
+        ]
+        for turn_order, choice in enumerate(selected, start=1):
+            npc = choice.character
+            try:
+                with self.database.read() as connection:
+                    conversation = self.conversations.load_context(
+                        connection,
+                        snapshot=snapshot,
+                        player_id=player.id,
+                        npc=npc,
+                    )
+                    context = self.dialogue_context.build(
+                        connection,
+                        snapshot=snapshot,
+                        npc=npc,
+                        player=player,
+                        player_text=intent,
+                        conversation=conversation,
+                        channel="group_scene",
+                        interaction="在场多人交谈；只回应自己知道和感知到的内容",
+                        decision_details={
+                            "turn_order": turn_order,
+                            "selected_speakers": participant_view,
+                            "prior_group_replies": [dict(item) for item in prior_replies],
+                        },
+                    )
+                reply = responder(npc=npc, player=player, context=context)
+            except Exception as exc:
+                LOGGER.info("多人对话的 NPC 回应生成失败，本轮不写入世界", exc_info=True)
+                raise DecisionProviderError("多人对话模型暂时不可用，请稍后重试") from exc
+            drafted.append(
+                {
+                    "choice": choice,
+                    "reply": reply,
+                    "context_budget": context.get("budget_trace", {}),
+                }
+            )
+            prior_replies.append({"speaker": npc.name, "reply": reply.reply})
+
+        group_dialogue_id = str(uuid4())
+        previous_version = snapshot.world.version
+        replies: list[dict[str, object]] = []
+        with self.database.write() as connection:
+            current = self.repository.get_snapshot(connection, world_id)
+            if current.world.version != previous_version:
+                raise ConcurrentWorldUpdateError("多人对话生成期间世界状态已经变化，请重新提交")
+            for turn_order, item in enumerate(drafted, start=1):
+                choice = item["choice"]
+                reply = item["reply"]
+                npc = choice.character
+                self.activation.activate_for_interaction(
+                    connection,
+                    world_id=world_id,
+                    character_id=npc.id,
+                    world_time=snapshot.world.current_time,
+                )
+                proposal = ActionProposal(
+                    actor_id=player.id,
+                    action=ActionType.SOCIALIZE,
+                    target_id=npc.id,
+                    reason=f"我向在场众人发言，{npc.name}作出回应。",
+                    dialogue=intent,
+                    reply=reply.reply,
+                    metadata={
+                        "group_dialogue_id": group_dialogue_id,
+                        "group_turn_order": turn_order,
+                        "npc_social_move": reply.social_move,
+                    },
+                )
+                outcome = self.actions.execute(
+                    connection,
+                    world_id=world_id,
+                    tick_id=f"group-dialogue:{group_dialogue_id}",
+                    occurred_at=snapshot.world.current_time,
+                    proposal=proposal,
+                )
+                if not outcome.accepted or outcome.event_id is None:
+                    raise ValueError(outcome.rejection_reason or "多人对话未通过世界规则校验")
+                self.conversations.get_card(
+                    connection,
+                    world_id=world_id,
+                    npc=npc,
+                    persist_default=True,
+                )
+                self.conversations.record_exchange(
+                    connection,
+                    world_id=world_id,
+                    npc_id=npc.id,
+                    counterpart_id=player.id,
+                    event_id=outcome.event_id,
+                    world_time=snapshot.world.current_time,
+                    player_text=intent,
+                    npc_text=reply.reply,
+                )
+                replies.append(
+                    {
+                        "character_id": npc.id,
+                        "name": npc.name,
+                        "reply": reply.reply,
+                        "social_move": reply.social_move,
+                        "event_id": outcome.event_id,
+                        "turn_order": turn_order,
+                        "selection_score": choice.score,
+                        "selection_reasons": list(choice.reasons),
+                        "context_budget": item["context_budget"],
+                    }
+                )
+            now = to_iso(utc_now())
+            connection.execute(
+                "UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?",
+                (now, world_id),
+            )
+        self._sync_history_safely(world_id)
+        return {
+            "group_dialogue_id": group_dialogue_id,
+            "provider": self.decision_provider.name,
+            "player_text": intent,
+            "previous_version": previous_version,
+            "current_version": previous_version + 1,
+            "replies": replies,
+        }
+
+    def preview_player_intent(
+        self,
+        world_id: str,
+        intent: str,
+        *,
+        target_character_id: str | None = None,
+    ) -> IntentPreview:
+        """解析为待确认表单草案；本方法不写入事件、物品或人物状态。"""
+
+        with self.database.read() as connection:
+            snapshot = self.repository.get_snapshot(connection, world_id)
+            player = next((item for item in snapshot.characters if item.is_player), None)
+            if player is None:
+                raise ValueError("当前世界还没有玩家角色，无法解析行动")
+            hinted_target = self.conversations.resolve_target(
+                connection,
+                snapshot=snapshot,
+                player=player,
+                intent=intent,
+                target_character_id=target_character_id,
+            )
+        return self.intent_parser.preview(
+            intent=intent,
+            player=player,
+            snapshot=snapshot,
+            preferred_target_id=hinted_target.id if hinted_target else None,
+        )
+
     def adjudicate(
         self,
         world_id: str,
@@ -507,11 +814,33 @@ class WorldEngine:
         for attempt in range(2):
             with self.database.read() as connection:
                 snapshot = self.repository.get_snapshot(connection, world_id)
+                # 待办是 NPC 自己的长期计划属性；仅作为只读决策上下文注入，
+                # Agent 仍只能提出动作，不能直接改写待办状态或世界事实。
+                open_todos = connection.execute(
+                    """
+                    SELECT character_id, title, details FROM npc_todos
+                    WHERE world_id = ? AND status IN ('open', 'doing')
+                    ORDER BY CASE status WHEN 'doing' THEN 0 ELSE 1 END, updated_at
+                    """,
+                    (world_id,),
+                ).fetchall()
                 recent_events = (
                     self.repository.list_events(connection, world_id, limit=40)
                     if self.settings.world_agent_enabled
                     else []
                 )
+
+            if open_todos:
+                snapshot = snapshot.model_copy(deep=True)
+                todo_by_character: dict[str, list[str]] = {}
+                for todo in open_todos:
+                    detail = str(todo["details"] or "").strip()
+                    text = f"待办：{todo['title']}" + (f"（{detail[:120]}）" if detail else "")
+                    todo_by_character.setdefault(str(todo["character_id"]), []).append(text)
+                for character in snapshot.characters:
+                    additions = todo_by_character.get(character.id, [])[:3]
+                    if additions:
+                        character.goals = list(dict.fromkeys([*character.goals, *additions]))[:8]
 
             active_characters = self._select_active_characters(snapshot, character_ids)
 
@@ -568,6 +897,9 @@ class WorldEngine:
                         (to_iso(started_at), world_id),
                     )
                     outcomes = []
+                    self._create_npc_owned_plans(
+                        connection, world_id=world_id, characters=active_characters
+                    )
                     for character in active_characters:
                         proposal = proposal_by_actor[character.id]
                         if (
@@ -584,15 +916,23 @@ class WorldEngine:
                             )
                             outcomes.append(outcome)
                         else:
-                            outcomes.append(
-                                self.actions.execute(
+                            outcome = self.actions.execute(
+                                connection,
+                                world_id=world_id,
+                                tick_id=adjudication_id,
+                                occurred_at=snapshot.world.current_time,
+                                proposal=proposal,
+                            )
+                            if outcome.accepted and outcome.event_id is not None:
+                                self.intent_effects.apply(
                                     connection,
                                     world_id=world_id,
-                                    tick_id=adjudication_id,
-                                    occurred_at=snapshot.world.current_time,
-                                    proposal=proposal,
+                                    source_event_id=outcome.event_id,
+                                    actor_id=proposal.actor_id,
+                                    target_id=proposal.target_id,
+                                    intent=proposal.dialogue or proposal.reason,
                                 )
-                            )
+                            outcomes.append(outcome)
                     if agent_run_records:
                         self._write_agent_audit(
                             connection, world_id, agent_run_records, agent_proposal_records
@@ -745,6 +1085,19 @@ class WorldEngine:
                     director_seeds=director_seeds,
                     agent_runs=self._run_records_to_views(agent_run_records),
                 )
+                proposal_outcomes = [
+                    (outcome, proposal_by_actor[outcome.actor_id])
+                    for outcome in outcomes
+                    if outcome.actor_id in proposal_by_actor
+                ]
+                if self._tombstone_destroyed_targets(world_id, proposal_outcomes):
+                    with self.database.read() as connection:
+                        new_version = int(
+                            connection.execute(
+                                "SELECT version FROM worlds WHERE id = ?", (world_id,)
+                            ).fetchone()["version"]
+                        )
+                    result.current_version = new_version
                 self._sync_history_safely(world_id)
                 if self.settings.world_agent_enabled:
                     self._sync_memory_candidates_safely(world_id)
@@ -763,10 +1116,103 @@ class WorldEngine:
                 raise
         raise ConcurrentWorldUpdateError("状态修订号在重试后仍不一致，已交由规则引擎降级")
 
+    def _tombstone_destroyed_targets(
+        self,
+        world_id: str,
+        proposal_outcomes: list[tuple[ActionOutcome, ActionProposal]],
+    ) -> bool:
+        """将已结算战斗中死亡的 NPC 交给删除器，避免只剩 health=0 的孤立状态。"""
+
+        applied = False
+        for outcome, proposal in proposal_outcomes:
+            if (
+                not outcome.accepted
+                or proposal.action is not ActionType.ATTACK
+                or not proposal.target_id
+                or not outcome.event_id
+            ):
+                continue
+            try:
+                with self.database.read() as connection:
+                    target = connection.execute(
+                        """
+                        SELECT health, is_player FROM characters
+                        WHERE world_id = ? AND id = ?
+                        """,
+                        (world_id, proposal.target_id),
+                    ).fetchone()
+                if target is None or int(target["health"]) > 0 or bool(target["is_player"]):
+                    continue
+                with self.database.write() as connection:
+                    removal = self.element_remover.submit(
+                        connection,
+                        world_id=world_id,
+                        request=ElementRemovalSubmit(
+                            requested_by_character_id=outcome.actor_id,
+                            source_event_id=outcome.event_id,
+                            idempotency_key=f"combat-death:{outcome.event_id}:{proposal.target_id}",
+                            target_element_type="character",
+                            target_entity_id=proposal.target_id,
+                            reason="destroyed",
+                            details="该人物在已结算的战斗中死亡，已退出活跃世界。",
+                        ),
+                    )
+                applied = applied or removal.status.value == "applied"
+            except Exception:
+                # 行动事件已经结算，删除审计失败不得回滚行动；保留日志以便重试/诊断。
+                LOGGER.exception("已结算战斗的死亡元素删除未完成")
+        return applied
+
     def close(self) -> None:
         close = getattr(self.decision_provider, "close", None)
         if close is not None:
             close()
+
+    @staticmethod
+    def _create_npc_owned_plans(
+        connection: sqlite3.Connection,
+        *,
+        world_id: str,
+        characters: list[CharacterState],
+    ) -> None:
+        """把 NPC 已有的角色目标转为其自行维护的可见计划。"""
+        now = to_iso(utc_now())
+        for character in characters:
+            if character.is_player:
+                continue
+            existing_titles = {
+                str(row["title"])
+                for row in connection.execute(
+                    """
+                    SELECT title FROM npc_todos
+                    WHERE world_id = ? AND character_id = ? AND status IN ('open', 'doing')
+                    """,
+                    (world_id, character.id),
+                ).fetchall()
+            }
+            for goal in character.goals[:3]:
+                normalized_goal = str(goal).strip()
+                if not normalized_goal:
+                    continue
+                title = f"推进：{normalized_goal}"[:160]
+                if title in existing_titles:
+                    continue
+                connection.execute(
+                    """
+                    INSERT INTO npc_todos(id, world_id, character_id, title, details, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid4()),
+                        world_id,
+                        character.id,
+                        title,
+                        f"{character.name}根据自身目标自行安排。",
+                        now,
+                        now,
+                    ),
+                )
+                existing_titles.add(title)
 
     def sync_history(self, world_id: str) -> HistoryExportResult:
         if self.history_logger is None:

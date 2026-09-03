@@ -8,6 +8,7 @@ import sqlite3
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _RAG_METADATA_PATTERN = re.compile(r"<!--\s*rag:\s*(.*?)\s*-->", re.IGNORECASE)
@@ -40,6 +41,10 @@ class KnowledgeChunk:
     audience: str
     always_include: bool
     tags: tuple[str, ...]
+    world_scopes: tuple[str, ...] = ()
+    region_scopes: tuple[str, ...] = ()
+    valid_from: str | None = None
+    valid_until: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +60,10 @@ class KnowledgeHit:
             "audience": self.chunk.audience,
             "score": round(self.score, 6),
             "content": self.chunk.content,
+            "world_scopes": list(self.chunk.world_scopes),
+            "region_scopes": list(self.chunk.region_scopes),
+            "valid_from": self.chunk.valid_from,
+            "valid_until": self.chunk.valid_until,
         }
 
 
@@ -106,6 +115,9 @@ class WorldKnowledgeBase:
         audiences: set[str] | None = None,
         limit: int = 6,
         max_total_chars: int | None = None,
+        world_scope: str | None = None,
+        region_scopes: set[str] | None = None,
+        at_time: datetime | str | None = None,
     ) -> list[KnowledgeHit]:
         if limit <= 0 or not self.chunks:
             return []
@@ -118,6 +130,13 @@ class WorldKnowledgeBase:
         candidates: list[tuple[int, KnowledgeHit]] = []
         for index, chunk in enumerate(self.chunks):
             if chunk.audience not in allowed:
+                continue
+            if not _matches_scope(
+                chunk,
+                world_scope=world_scope,
+                region_scopes=region_scopes,
+                at_time=at_time,
+            ):
                 continue
             score = self._bm25_score(index, query_tokens)
             if score > 0 or chunk.always_include:
@@ -273,6 +292,16 @@ def _parse_markdown(path: Path, source: str) -> list[KnowledgeChunk]:
         for item in re.split(r"[,，]", metadata.get("tags", ""))
         if item.strip()
     )
+    world_scopes = _metadata_list(metadata, "worlds", fallback_key="world")
+    region_scopes = _metadata_list(metadata, "regions", fallback_key="region")
+    valid_from = metadata.get("valid_from") or None
+    valid_until = metadata.get("valid_until") or None
+    for label, raw_time in (("valid_from", valid_from), ("valid_until", valid_until)):
+        if raw_time:
+            try:
+                datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(f"{source} 的RAG {label}不是ISO时间：{raw_time}") from exc
     if metadata_match:
         text = text[: metadata_match.start()] + text[metadata_match.end() :]
 
@@ -290,6 +319,10 @@ def _parse_markdown(path: Path, source: str) -> list[KnowledgeChunk]:
                     audience=audience,
                     always_include=always_include,
                     tags=tags,
+                    world_scopes=world_scopes,
+                    region_scopes=region_scopes,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
                 )
             )
     return chunks
@@ -302,6 +335,64 @@ def _parse_metadata(raw_metadata: str) -> dict[str, str]:
         if separator and key.strip():
             result[key.strip().lower()] = value.strip()
     return result
+
+
+def _metadata_list(
+    metadata: dict[str, str], key: str, *, fallback_key: str
+) -> tuple[str, ...]:
+    raw = metadata.get(key, metadata.get(fallback_key, ""))
+    return tuple(
+        item.strip()
+        for item in re.split(r"[,，]", raw)
+        if item.strip()
+    )
+
+
+def _matches_scope(
+    chunk: KnowledgeChunk,
+    *,
+    world_scope: str | None,
+    region_scopes: set[str] | None,
+    at_time: datetime | str | None,
+) -> bool:
+    if world_scope is not None and chunk.world_scopes:
+        normalized_world = world_scope.casefold()
+        allowed_worlds = {item.casefold() for item in chunk.world_scopes}
+        if "*" not in allowed_worlds and normalized_world not in allowed_worlds:
+            return False
+    if region_scopes is not None and chunk.region_scopes:
+        normalized_regions = {item.casefold() for item in region_scopes}
+        allowed_regions = {item.casefold() for item in chunk.region_scopes}
+        if "*" not in allowed_regions and not normalized_regions.intersection(allowed_regions):
+            return False
+    if at_time is None:
+        return True
+    current = (
+        at_time
+        if isinstance(at_time, datetime)
+        else datetime.fromisoformat(at_time.replace("Z", "+00:00"))
+    )
+    if chunk.valid_from:
+        start = datetime.fromisoformat(chunk.valid_from.replace("Z", "+00:00"))
+        current, start = _align_datetime_awareness(current, start)
+        if current < start:
+            return False
+    if chunk.valid_until:
+        end = datetime.fromisoformat(chunk.valid_until.replace("Z", "+00:00"))
+        current, end = _align_datetime_awareness(current, end)
+        if current > end:
+            return False
+    return True
+
+
+def _align_datetime_awareness(
+    left: datetime, right: datetime
+) -> tuple[datetime, datetime]:
+    if left.tzinfo is None and right.tzinfo is not None:
+        left = left.replace(tzinfo=right.tzinfo)
+    elif right.tzinfo is None and left.tzinfo is not None:
+        right = right.replace(tzinfo=left.tzinfo)
+    return left, right
 
 
 def _split_sections(text: str, fallback_title: str) -> list[tuple[str, str]]:

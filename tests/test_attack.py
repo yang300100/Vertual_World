@@ -48,8 +48,17 @@ def test_attack_important_death_is_major_event(database, settings) -> None:
             "SELECT health FROM characters WHERE world_id=? AND name=?",
             (world_id, "北潭·漱泉"),
         ).fetchone()["health"]
+        removal = connection.execute(
+            """
+            SELECT status FROM element_removal_requests
+            WHERE world_id = ? AND target_element_type = 'character'
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (world_id,),
+        ).fetchone()
     assert health <= 0
     assert any(e["event_type"] == "world.major_death" for e in events)
+    assert removal["status"] == "applied"
 
 
 def test_attack_in_public_triggers_warden(database, settings) -> None:

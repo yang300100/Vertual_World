@@ -195,6 +195,28 @@ class MovementService:
             ),
         )
         if record_log:
+            route_distance = route.distance_km if route is not None else total_distance
+            route_hours = route.estimated_hours if route is not None else total_distance / speed_kmh
+            self._record_log(
+                connection,
+                world_id=world_id,
+                world_time=world_time,
+                event_type="action.route_planned",
+                actor_id=character_id,
+                location_id=actor["current_location_id"] or actor["location_id"],
+                summary=(
+                    f"已为{actor['name']}规划{'地形' if route is not None else '直线'}路径："
+                    f"{route_distance:.1f}公里，预计{route_hours:.1f}小时。"
+                ),
+                payload={
+                    "movement_id": movement_id,
+                    "navigation_dataset_id": route.dataset_id if route is not None else None,
+                    "distance_km": route_distance,
+                    "estimated_hours": route_hours,
+                    "requirements": route.requirements if route is not None else [],
+                    "route_available": route is not None,
+                },
+            )
             self._record_log(
                 connection,
                 world_id=world_id,
@@ -393,6 +415,12 @@ class MovementService:
             travelled, longitude, latitude, arrived, route_index = self._advance_one(
                 row, elapsed_hours
             )
+            # 心跳延迟或浮点累计误差不能让进度已满的行程继续停在 moving。
+            if current_time >= from_iso(row["estimated_arrival_world"]):
+                travelled = float(row["total_distance_km"])
+                longitude = float(row["destination_longitude"])
+                latitude = float(row["destination_latitude"])
+                arrived = True
             resolved_location = self.spatial.resolve_location(
                 connection,
                 world_id=world_id,
@@ -492,7 +520,7 @@ class MovementService:
         latitude: float,
     ) -> sqlite3.Row | None:
         locations = connection.execute(
-            "SELECT id, longitude, latitude FROM locations WHERE world_id = ?",
+            "SELECT id, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1",
             (world_id,),
         ).fetchall()
         if not locations:

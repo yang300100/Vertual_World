@@ -77,6 +77,7 @@ def test_map_movement_advances_and_can_be_cancelled(database, settings) -> None:
     assert player_stopped.longitude == player_progressed.longitude
     assert stopped.movements == []
     assert {item["event_type"] for item in logs} >= {
+        "action.route_planned",
         "action.movement_started",
         "action.movement_cancelled",
     }
@@ -163,6 +164,9 @@ def test_movement_api_starts_and_cancels_without_teleporting(settings) -> None:
     assert player_during["longitude"] == player_before["longitude"]
     assert len(during["movements"]) == 1
     assert logs.status_code == 200
+    assert any(
+        item["event_type"] == "action.route_planned" for item in logs.json()
+    )
     assert any(
         item["event_type"] == "action.movement_started" for item in logs.json()
     )

@@ -149,6 +149,10 @@ class CharacterState(BaseModel):
     activation_probability: float = Field(default=0.85, ge=0, le=1)
     last_activation_check_world_time: datetime | None = None
     identity: str | None = None
+    gender: str | None = None
+    birth_world_time: datetime | None = None
+    age_years: int | None = Field(default=None, ge=0)
+    portrait_url: str | None = None
     is_player: bool = False
     is_pov: bool = False
     energy: int = Field(ge=0, le=100)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from world_engine.api import create_app
@@ -194,6 +195,64 @@ def test_character_birth_creates_lineage_and_state(database: Database) -> None:
     assert child["is_player"] == 0
     assert {row["parent_character_id"] for row in lineages} == {actor_id, target_id}
     assert accumulator is not None
+
+
+def test_character_arrival_creates_auditable_background_npc(database: Database) -> None:
+    world_id, event_id, actor_id, _target_id = _world_and_source(database)
+    registry = WorldElementRegistry()
+    with database.read() as connection:
+        location = connection.execute(
+            """
+            SELECT l.id, l.longitude, l.latitude FROM locations l
+            JOIN characters c ON c.location_id = l.id
+            WHERE c.id = ?
+            """,
+            (actor_id,),
+        ).fetchone()
+        location_id = location["id"]
+        longitude = float(location["longitude"]) + 0.001
+        latitude = float(location["latitude"]) + 0.001
+    request = ElementRegistrationSubmit.model_validate(
+        {
+            "requested_by_character_id": actor_id,
+            "source_event_id": event_id,
+            "idempotency_key": "character-arrival:map-surveyor:v1",
+            "payload": {
+                "element_type": "character_arrival",
+                "name": "星图测绘员",
+                "identity": "旅行测绘员",
+                "location_id": location_id,
+                "traits": ["谨慎", "好奇"],
+                "goals": ["记录河谷地貌"],
+                "species": "human",
+                "longitude": longitude,
+                "latitude": latitude,
+            },
+        }
+    )
+    with database.write() as connection:
+        first = registry.submit(connection, world_id=world_id, request=request)
+        second = registry.submit(connection, world_id=world_id, request=request)
+        character = connection.execute(
+            "SELECT * FROM characters WHERE id = ?", (first.result_entity_id,)
+        ).fetchone()
+        catalog = connection.execute(
+            """
+            SELECT source_kind, source_registration_id FROM world_element_catalog
+            WHERE world_id = ? AND entity_type = 'character' AND entity_id = ?
+            """,
+            (world_id, first.result_entity_id),
+        ).fetchone()
+
+    assert first.status == "applied"
+    assert first.id == second.id
+    assert character["name"] == "星图测绘员"
+    assert character["is_player"] == 0
+    assert character["activation_state"] == "background"
+    assert character["longitude"] == pytest.approx(longitude)
+    assert character["latitude"] == pytest.approx(latitude)
+    assert catalog["source_kind"] == "registration"
+    assert catalog["source_registration_id"] == first.id
 
 
 def test_player_cannot_instantly_create_city_or_author_canon(database: Database) -> None:
