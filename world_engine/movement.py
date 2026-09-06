@@ -5,6 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from uuid import uuid4
 
+from world_engine.contracts import ContractService
 from world_engine.domain import MovementState
 from world_engine.geo import great_circle_distance_km
 from world_engine.repository import from_iso, to_iso, utc_now
@@ -103,14 +104,7 @@ class MovementService:
         speed_kmh = float(actor["movement_speed_kmh"])
         vehicle_name = "徒步"
         if selected_vehicle_id:
-            vehicle = connection.execute(
-                """
-                SELECT * FROM vehicles
-                WHERE id = ? AND world_id = ? AND owner_character_id = ?
-                  AND is_available = 1
-                """,
-                (selected_vehicle_id, world_id, character_id),
-            ).fetchone()
+            vehicle = ContractService.vehicle_for(connection, world_id, character_id, selected_vehicle_id)
             if vehicle is None:
                 raise ValueError("所选交通工具不可用或不属于当前人物")
             movement_type = vehicle["movement_type"]
@@ -361,14 +355,7 @@ class MovementService:
                 (to_iso(utc_now()), character_id, world_id),
             )
             return
-        vehicle = connection.execute(
-            """
-            SELECT * FROM vehicles
-            WHERE id = ? AND world_id = ? AND owner_character_id = ?
-              AND is_available = 1
-            """,
-            (vehicle_id, world_id, character_id),
-        ).fetchone()
+        vehicle = ContractService.vehicle_for(connection, world_id, character_id, vehicle_id)
         if vehicle is None:
             raise ValueError("交通工具不可用或不属于当前人物")
         connection.execute(
@@ -412,11 +399,20 @@ class MovementService:
         ).fetchall()
         updated = 0
         for row in rows:
+            effective_time = current_time
+            if row["vehicle_id"]:
+                lease = connection.execute(
+                    "SELECT due_world_time FROM contract_fulfillments WHERE asset_id=? AND status='active'",
+                    (row["vehicle_id"],),
+                ).fetchone()
+                if lease:
+                    effective_time = min(current_time, from_iso(lease["due_world_time"]))
+            allowed_hours = max(0.0, (effective_time - previous_time).total_seconds() / 3600)
             travelled, longitude, latitude, arrived, route_index = self._advance_one(
-                row, elapsed_hours
+                row, min(elapsed_hours, allowed_hours)
             )
             # 心跳延迟或浮点累计误差不能让进度已满的行程继续停在 moving。
-            if current_time >= from_iso(row["estimated_arrival_world"]):
+            if effective_time >= from_iso(row["estimated_arrival_world"]):
                 travelled = float(row["total_distance_km"])
                 longitude = float(row["destination_longitude"])
                 latitude = float(row["destination_latitude"])

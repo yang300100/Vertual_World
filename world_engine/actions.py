@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
 from world_engine.geo import great_circle_distance_km
+from world_engine.inventory import InventoryError, InventoryService
 from world_engine.movement import MovementService
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import to_iso, utc_now
@@ -38,9 +39,16 @@ class ActionService:
     ) -> ActionOutcome:
         try:
             actor = self._get_actor(connection, world_id, proposal.actor_id)
+            inventory_before = (
+                InventoryService.snapshot(connection, world_id)
+                if proposal.action in {ActionType.USE, ActionType.GATHER} else None
+            )
             summary, target_id = self._apply(
                 connection, world_id, actor, proposal, occurred_at
             )
+            work_completed = proposal.action is ActionType.WORK and connection.execute(
+                "SELECT money FROM characters WHERE id=?", (actor["id"],)
+            ).fetchone()["money"] > actor["money"]
             event_id = self._record_event(
                 connection,
                 world_id=world_id,
@@ -56,6 +64,9 @@ class ActionService:
                     "metadata": proposal.metadata,
                     "dialogue": proposal.dialogue,
                     "reply": proposal.reply,
+                    "work_completed": work_completed,
+                    "input_kind": proposal.metadata.get("input_kind"),
+                    "player_action_text": proposal.metadata.get("player_action_text"),
                 },
             )
             self._record_memory(
@@ -67,6 +78,8 @@ class ActionService:
                 summary=summary,
                 importance=self._importance(proposal.action),
             )
+            if inventory_before is not None:
+                InventoryService.audit(connection, world_id, event_id, inventory_before)
             if target_id:
                 self._record_memory(
                     connection,
@@ -84,7 +97,7 @@ class ActionService:
                 summary=summary,
                 event_id=event_id,
             )
-        except ActionRuleError as exc:
+        except (ActionRuleError, InventoryError) as exc:
             summary = f"{proposal.actor_id}的{proposal.action.value}行动未能成立：{exc}"
             event_id = self._record_event(
                 connection,
@@ -480,29 +493,34 @@ class ActionService:
         item_name = (proposal.metadata or {}).get("item")
         if not item_name:
             raise ActionRuleError("使用需要指定物品")
-        instance = connection.execute(
-            """
-            SELECT ii.id, it.* FROM item_instances ii
-            JOIN item_types it ON it.id = ii.item_type_id
-            WHERE ii.container_id = ? AND ii.container_type = 'character_inventory' AND it.name = ?
-            """,
-            (actor["id"], item_name),
-        ).fetchone()
+        operation = proposal.metadata.get("operation", "use")
+        container = "character_equipment" if operation == "unequip" else "character_inventory"
+        instance = InventoryService.find(connection, world_id, actor["id"], item_name, container)
         if instance is None:
             raise ActionRuleError("背包中没有该物品")
+        if not InventoryService.owned(instance, actor["id"]):
+            raise ActionRuleError("没有使用该物品的所有权")
+        if operation == "unequip":
+            InventoryService.transfer(connection, instance, actor["id"], instance["quantity"])
+            return f"{actor['name']}卸下了{instance['name']}。", None
+        if operation == "drop":
+            location_id = self._require_current_location(actor)
+            location = connection.execute("SELECT * FROM locations WHERE id=?", (location_id,)).fetchone()
+            self._assert_near_location(actor, location)
+            connection.execute(
+                "UPDATE item_instances SET container_type='location_ground', container_id=? WHERE id=?",
+                (location_id, instance["id"]),
+            )
+            return f"{actor['name']}放下了{instance['name']}，所有权保留。", None
         if instance["category"] == "consumable" and instance["heal"] > 0:
             health = min(100, int(actor["health"]) + instance["heal"])
             self._update_character(connection, actor["id"], health=health)
-            connection.execute("DELETE FROM item_instances WHERE id = ?", (instance["id"],))
+            InventoryService.consume(connection, instance)
             return f"{actor['name']}使用了{instance['name']}，生命恢复到{health}。", None
         if instance["category"] in ("weapon", "charm"):
-            connection.execute(
-                "UPDATE item_instances SET container_type = 'character_equipment', "
-                "container_id = ? WHERE id = ?",
-                (actor["id"], instance["id"]),
-            )
+            InventoryService.equip(connection, actor["id"], instance)
             return f"{actor['name']}装备了{instance['name']}。", None
-        return f"{actor['name']}使用了{instance['name']}。", None
+        raise ActionRuleError("该物品尚无可执行的使用效果")
 
     def _gather(
         self,
@@ -519,28 +537,14 @@ class ActionService:
             (self._require_current_location(actor),),
         ).fetchone()
         self._assert_near_location(actor, location)
-        ground = connection.execute(
-            """
-            SELECT ii.id, it.name FROM item_instances ii
-            JOIN item_types it ON it.id = ii.item_type_id
-            WHERE ii.container_id = ? AND ii.container_type = 'location_ground' AND it.name = ?
-            """,
-            (self._require_current_location(actor), item_name),
-        ).fetchone()
+        ground = InventoryService.find(
+            connection, world_id, self._require_current_location(actor), item_name, "location_ground"
+        )
         if ground is None:
             raise ActionRuleError("此处地上没有这件物品")
-        count = connection.execute(
-            "SELECT COUNT(*) n FROM item_instances "
-            "WHERE container_id = ? AND container_type = 'character_inventory'",
-            (actor["id"],),
-        ).fetchone()["n"]
-        if count >= 2:
-            raise ActionRuleError("背包已满，无法拾取")
-        connection.execute(
-            "UPDATE item_instances SET container_type = 'character_inventory', "
-            "container_id = ? WHERE id = ?",
-            (actor["id"], ground["id"]),
-        )
+        if ground["owner_character_id"] not in {None, actor["id"]}:
+            raise ActionRuleError("该物品属于他人，不能直接拾取")
+        InventoryService.transfer(connection, ground, actor["id"], ground["quantity"])
         return f"{actor['name']}拾起了{ground['name']}。", None
 
     @staticmethod

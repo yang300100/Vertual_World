@@ -142,6 +142,12 @@ def test_npc_purchase_uses_the_same_audited_effect_pipeline(database, settings) 
             VALUES ('test-herb', '试验草药', 'consumable', 10, 1)
             """
         )
+        # 商人必须具有真实库存，购买只能转移这一份现有草药。
+        connection.execute(
+            """INSERT INTO item_instances(id,world_id,item_type_id,container_id,container_type)
+               VALUES ('merchant-herb',?,'test-herb',?,'character_inventory')""",
+            (world_id, seller.id),
+        )
 
     class NpcBuyerProvider:
         name = "npc-buyer"

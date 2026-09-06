@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from uuid import uuid4
 
+from world_engine.inventory import InventoryError, InventoryService
 from world_engine.repository import to_iso, utc_now
 
 
@@ -62,7 +63,8 @@ class IntentEffectService:
         return results
 
     def _owned_item(self, connection, world_id, owner_id, name):  # type: ignore[no-untyped-def]
-        return connection.execute("SELECT i.*, t.name FROM item_instances i JOIN item_types t ON t.id=i.item_type_id WHERE i.world_id=? AND i.container_id=? AND t.name=? ORDER BY i.condition DESC LIMIT 1", (world_id, owner_id, name)).fetchone()
+        item = InventoryService.find(connection, world_id, owner_id, name)
+        return item if InventoryService.owned(item, owner_id) else None
 
     def _sell(self, connection, world_id, event_id, actor_id, buyer_id, match):  # type: ignore[no-untyped-def]
         item_name, price = match["item"].strip(), int(match["price"])
@@ -70,13 +72,23 @@ class IntentEffectService:
         item = self._owned_item(connection, world_id, actor_id, item_name)
         if item is None or price <= 0 or int(buyer["money"]) < price or not any(x in (buyer["identity"] or "") for x in ("商", "贩", "店")):
             return self._record(connection, world_id, event_id, "sell", actor_id, buyer_id, "rejected", {"item":item_name,"price":price}, "出售条件不成立")
-        connection.execute("UPDATE characters SET money=money+? WHERE id=?", (price, actor_id)); connection.execute("UPDATE characters SET money=money-? WHERE id=?", (price, buyer_id)); connection.execute("UPDATE item_instances SET container_id=?, container_type='character_inventory' WHERE id=?", (buyer_id,item["id"]))
+        try:
+            self._move_item(connection, world_id, event_id, item, buyer_id)
+        except InventoryError as exc:
+            return self._record(connection, world_id, event_id, "sell", actor_id, buyer_id,
+                                "rejected", {}, str(exc))
+        connection.execute("UPDATE characters SET money=money+? WHERE id=?", (price, actor_id))
+        connection.execute("UPDATE characters SET money=money-? WHERE id=?", (price, buyer_id))
         return self._record(connection, world_id, event_id, "sell", actor_id, buyer_id, "applied", {"item":item_name,"price":price}, f"出售{item_name}，获得{price}铜币")
 
     def _transfer(self, connection, world_id, event_id, actor_id, target_id, match):  # type: ignore[no-untyped-def]
         item_name=match["item"].strip(); self._participants(connection,world_id,actor_id,target_id); item=self._owned_item(connection,world_id,actor_id,item_name)
         if item is None: return self._record(connection,world_id,event_id,"transfer",actor_id,target_id,"rejected",{"item":item_name},"没有可转交的物品")
-        connection.execute("UPDATE item_instances SET container_id=?, container_type='character_inventory' WHERE id=?",(target_id,item["id"]))
+        try:
+            self._move_item(connection, world_id, event_id, item, target_id)
+        except InventoryError as exc:
+            return self._record(connection, world_id, event_id, "transfer", actor_id, target_id,
+                                "rejected", {}, str(exc))
         return self._record(connection,world_id,event_id,"transfer",actor_id,target_id,"applied",{"item":item_name},f"转交了{item_name}")
 
     def _practice(self, connection, world_id, event_id, actor_id, target_id, match):  # type: ignore[no-untyped-def]
@@ -100,15 +112,25 @@ class IntentEffectService:
     def _purchase(self, connection, world_id, event_id, actor_id, seller_id, match):  # type: ignore[no-untyped-def]
         price, item_name = int(match["price"]), match["item"].strip()
         player, seller = self._participants(connection, world_id, actor_id, seller_id)
-        item = connection.execute("SELECT * FROM item_types WHERE name = ?", (item_name,)).fetchone()
+        item = self._owned_item(connection, world_id, seller_id, item_name)
         if price <= 0 or item is None or not any(word in (seller["identity"] or "") for word in ("商", "贩", "店")):
             return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id, "rejected", {"item": item_name, "price": price}, "交易条件不成立")
         if int(player["money"]) < price:
             return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id, "rejected", {"item": item_name, "price": price}, "铜币不足")
+        try:
+            self._move_item(connection, world_id, event_id, item, actor_id)
+        except InventoryError as exc:
+            return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id,
+                                "rejected", {}, str(exc))
         connection.execute("UPDATE characters SET money = money - ? WHERE id = ?", (price, actor_id))
         connection.execute("UPDATE characters SET money = money + ? WHERE id = ?", (price, seller_id))
-        connection.execute("INSERT INTO item_instances(id, world_id, item_type_id, container_id, container_type, quantity) VALUES (?, ?, ?, ?, 'character_inventory', 1)", (str(uuid4()), world_id, item["id"], actor_id))
         return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id, "applied", {"item": item_name, "price": price}, f"支付{price}铜币，获得{item_name}")
+
+    @staticmethod
+    def _move_item(connection, world_id, event_id, item, recipient_id):
+        before = InventoryService.snapshot(connection, world_id)
+        InventoryService.transfer(connection, item, recipient_id)
+        InventoryService.audit(connection, world_id, event_id, before)
 
     def _learn(self, connection, world_id, event_id, actor_id, teacher_id, match):  # type: ignore[no-untyped-def]
         skill, fee = match["skill"].strip(), int(match["fee"] or 0)

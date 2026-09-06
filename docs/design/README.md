@@ -34,7 +34,7 @@
 | D009 | 世界事件、人物状态变化和人物主观记忆分开记录 | 已实现 | `02-events-and-history.md` |
 | D010 | 人物长期特质与当前状态分开存储 | 已确认待实现 | `03-characters-and-knowledge.md` |
 | D011 | 客观世界关系图与每个观察者的主观知识图分离 | 已确认待实现 | `03-characters-and-knowledge.md` |
-| D012 | 普通人物拥有1至2格小背包，物品来源和所有权可追溯 | 已确认待实现 | `04-items-and-inventory.md` |
+| D012 | 普通人物拥有小背包，物品来源和所有权可追溯 | 基础实现；默认2格，完整容器与经济待扩展 | `04-items-and-inventory.md`、`14-core-completion.md` |
 | D013 | 2GB服务器第一阶段继续使用SQLite节点表和边表，不引入图数据库 | 已确认待实现 | `03-characters-and-knowledge.md` |
 | D014 | 人物使用0至100的正向饱食度，100最舒适 | 已实现 | `01-runtime-and-time.md` |
 | D015 | 调速先按旧比例结算并原子提交；相同比例为无操作 | 已实现 | `01-runtime-and-time.md` |

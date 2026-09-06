@@ -6,6 +6,7 @@ import signal
 import threading
 from collections.abc import Sequence
 
+from world_engine.bounded_calls import submit_call
 from world_engine.config import Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
@@ -24,6 +25,7 @@ class WorldWorker:
         self.repository = WorldRepository()
         self.engine = WorldEngine(self.database, settings)
         self.stop_event = threading.Event()
+        self._memory_future = None
 
     def run_once(self, *, elapsed_seconds: float | None = None) -> int:
         with self.database.read() as connection:
@@ -54,6 +56,16 @@ class WorldWorker:
                 LOGGER.info("世界 %s 正由另一进程推进，本轮跳过", world.name)
             except Exception:
                 LOGGER.exception("推进世界 %s 时发生错误", world.name)
+        if self._memory_future is None or self._memory_future.done():
+            world_ids = [world.id for world in worlds]
+
+            def process_memories():
+                for world_id in world_ids:
+                    if self.stop_event.is_set():
+                        break
+                    self.engine.process_memory_jobs(world_id)
+
+            self._memory_future = submit_call(process_memories)
         return completed
 
     def run_forever(self) -> None:

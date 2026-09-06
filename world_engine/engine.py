@@ -12,6 +12,7 @@ from world_engine.agent_llm import build_agent_model_backend
 from world_engine.clock import WorldClockService
 from world_engine.combat import CombatResolver
 from world_engine.config import PROJECT_ROOT, Settings
+from world_engine.contracts import ContractService
 from world_engine.conversations import (
     ConversationService,
     DialogueContextAssembler,
@@ -50,10 +51,10 @@ from world_engine.orchestration import (
     AgentProposalRecord,
     AgentRunRecord,
     CombatTacticalAgent,
-    MemoryCuratorAgent,
     ProposalCoordinator,
     build_assembler,
 )
+from world_engine.player_inputs import parse_player_input
 from world_engine.registration import (
     RegistrarAgent,
     RegistrationIntentDetector,
@@ -122,6 +123,8 @@ class WorldEngine:
             narrative_enabled=settings.world_agent_enabled,
             active_npc_limit=settings.world_agent_active_npc_limit,
             token_budget=settings.world_agent_budget_per_heartbeat * 40,
+            max_concurrency=settings.world_agent_max_concurrency,
+            timeout_seconds=settings.world_agent_timeout_seconds,
         )
         self.history_logger = (
             WorldHistoryLogger(database, settings.history_directory)
@@ -344,6 +347,14 @@ class WorldEngine:
         找到唯一的玩家角色(is_player)，用决策器(DeepSeek，失败降级规则)把
         意图转成一次 ActionProposal，执行并写事件；只增加版本号，不推进轮次。
         """
+        message = parse_player_input(intent)
+        if message.kind == "action":
+            from world_engine.player_action_flow import execute_explicit_action
+
+            return execute_explicit_action(self, world_id, message.text, target_character_id)
+        explicit_speech = message.kind == "speech"
+        if explicit_speech and not message.text:
+            raise ValueError("请在“说话：”后填写台词")
         started_at = utc_now()
         with self.database.read() as connection:
             snapshot = self.repository.get_snapshot(connection, world_id)
@@ -378,11 +389,15 @@ class WorldEngine:
                     player_id=player.id,
                     npc=hinted_target,
                 )
+        if explicit_speech:
+            if hinted_target is None:
+                raise ValueError("请先选择要说话的 NPC")
+            intent = message.text
         planning_intent = conversation.planning_intent(intent) if conversation else intent
 
         lock_dialogue_target = (
             hinted_target is not None
-            and not self.conversations.is_non_dialogue_intent(intent)
+            and (explicit_speech or not self.conversations.is_non_dialogue_intent(intent))
         )
         proposal: ActionProposal
         provider_name = self.decision_provider.name
@@ -772,6 +787,10 @@ class WorldEngine:
             player = next((item for item in snapshot.characters if item.is_player), None)
             if player is None:
                 raise ValueError("当前世界还没有玩家角色，无法解析行动")
+            if parse_player_input(intent).kind in {"action", "speech"}:
+                if not parse_player_input(intent).text:
+                    raise ValueError("输入前缀后不能为空")
+                return IntentPreview(requires_form=False, operation="none")
             hinted_target = self.conversations.resolve_target(
                 connection,
                 snapshot=snapshot,
@@ -873,6 +892,15 @@ class WorldEngine:
                 proposal_by_actor = self._normalize_proposals(
                     snapshot, active_characters, proposals
                 )
+            # 战术偏好先在事务外生成，提交时仍使用当前事实校验战斗。
+            combat_preferences = {}
+            if self.settings.world_agent_combat_enabled:
+                for candidate in proposal_by_actor.values():
+                    if candidate.action is ActionType.ATTACK:
+                        encounter = {"participants_json": json.dumps([
+                            candidate.actor_id, candidate.target_id
+                        ]), "location_id": snapshot.character_by_id(candidate.actor_id).location_id}
+                        combat_preferences[candidate.actor_id] = self._combat_intents(snapshot, encounter)
             resolved_window_start = window_start or snapshot.world.current_time
             resolved_window_end = window_end or snapshot.world.current_time
 
@@ -913,6 +941,7 @@ class WorldEngine:
                                 occurred_at=snapshot.world.current_time,
                                 proposal=proposal,
                                 snapshot=snapshot,
+                                prepared_intents=combat_preferences.get(proposal.actor_id, []),
                             )
                             outcomes.append(outcome)
                         else:
@@ -938,6 +967,7 @@ class WorldEngine:
                             connection, world_id, agent_run_records, agent_proposal_records
                         )
 
+                    ContractService.advance(connection, world_id, to_iso(snapshot.world.current_time))
                     new_version = snapshot.world.version + 1
                     completed_at = utc_now()
                     connection.execute(
@@ -1399,6 +1429,7 @@ class WorldEngine:
         occurred_at: datetime,
         proposal: ActionProposal,
         snapshot: WorldSnapshot,
+        prepared_intents: list[object] | None = None,
     ) -> ActionOutcome:
         encounter = self.combat.ensure_encounter(
             connection,
@@ -1409,7 +1440,7 @@ class WorldEngine:
         )
         intents: list[object] = []
         if encounter:
-            intents = self._combat_intents(snapshot, encounter)
+            intents = prepared_intents or []
             self.combat.apply_combat_intent_preference(
                 connection,
                 world_id=world_id,
@@ -1452,7 +1483,10 @@ class WorldEngine:
             model_backend=self.agent_model_backend,
         )
         agent = CombatTacticalAgent()
-        return agent.run(ctx, participants=participants, encounter_location=location)
+        intents, status, _ = self.coordinator._run_single(
+            lambda: agent.run(ctx, participants=participants, encounter_location=location)
+        )
+        return intents if status == "ok" else agent._run_rules(ctx, participants)
 
     def _build_terrain_context(
         self, world_id: str, snapshot: WorldSnapshot
@@ -1512,57 +1546,9 @@ class WorldEngine:
         ]
 
     def _sync_memory_candidates_safely(self, world_id: str) -> None:
-        try:
-            with self.database.read() as connection:
-                snapshot = self.repository.get_snapshot(connection, world_id)
-                events = self.repository.list_events(connection, world_id, limit=30)
-            ctx = AgentContext(
-                name=AgentName.MEMORY_CURATOR,
-                scene=self.assembler.assemble(snapshot, trigger="event_followup"),
-                snapshot=snapshot,
-                model_backend=self.agent_model_backend,
-            )
-            curator = MemoryCuratorAgent()
-            raw_candidates = curator.run(ctx, events=events)
-        except Exception:
-            LOGGER.exception("世界%s记忆整理失败，保留原始事件待后续重试", world_id)
-            return
-        try:
-            with self.database.write() as connection:
-                for candidate in raw_candidates:
-                    connection.execute(
-                        """
-                        INSERT OR IGNORE INTO character_memories(
-                            id, world_id, character_id, event_id, memory_type,
-                            summary, importance, confidence, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            str(uuid4()),
-                            world_id,
-                            candidate.character_id,
-                            candidate.event_id,
-                            candidate.memory_type,
-                            candidate.summary,
-                            candidate.importance,
-                            candidate.confidence,
-                            to_iso(utc_now()),
-                        ),
-                    )
-                    connection.execute(
-                        """
-                        INSERT OR IGNORE INTO memory_jobs(
-                            id, world_id, event_id, status, attempt_count,
-                            created_at, updated_at
-                        ) VALUES (?, ?, ?, 'done', 1, ?, ?)
-                        """,
-                        (
-                            "memjob:" + candidate.event_id,
-                            world_id,
-                            candidate.event_id,
-                            to_iso(utc_now()),
-                            to_iso(utc_now()),
-                        ),
-                    )
-        except Exception:
-            LOGGER.exception("世界%s记忆候选写入失败", world_id)
+        """事件插入触发器已在原事务中入队；这里不再同步调用模型。"""
+
+    def process_memory_jobs(self, world_id: str, *, limit: int = 10) -> int:
+        from world_engine.memory_queue import process_memory_batch
+
+        return process_memory_batch(self, world_id, limit=limit)

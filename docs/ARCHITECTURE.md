@@ -43,6 +43,10 @@ SQLite 是世界事实的唯一来源。第三方模型、未来表现层和人�
 
 ## 决策器边界
 
+外部推理不占用世界写事务；社会交互提交前重新核对快照版本。
+记忆整理通过持久化 `memory_jobs` 交给 worker 低优先级处理，保留重试与领取租约。
+物品规则及长期事务履约的当前边界见 `docs/design/14-core-completion.md`。
+
 `DecisionProvider` 只接收世界快照和允许详细决策的人物，只返回 `ActionProposal`。当前实现包括 `RuleDecisionProvider` 与 `DeepSeekDecisionProvider`；切换供应商不改变世界引擎和数据库。
 
 DeepSeek适配器把多个活跃人物合并为一次请求，响应必须通过Pydantic结构化校验。网络错误、限流、服务端错误、空响应或无效JSON都会触发有限重试，最终由规则引擎接管当前轮次。世界事件会记录本轮实际使用的是 `deepseek` 还是 `rules`。

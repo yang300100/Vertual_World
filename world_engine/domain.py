@@ -19,6 +19,7 @@ class ActionType(StrEnum):
     ATTACK = "attack"
     USE = "use"
     GATHER = "gather"
+    ACTIVITY = "activity"
 
 
 class LocationState(BaseModel):
@@ -277,6 +278,9 @@ class PlayerActionResult(BaseModel):
     provider: str = "rules"
     fallback_used: bool = False
     registration_ids: list[str] = Field(default_factory=list)
+    npc_reply: str | None = None
+    npc_reply_error: str | None = None
+    activity_progress: list[dict[str, object]] = Field(default_factory=list)
 
 
 class HeartbeatResult(BaseModel):

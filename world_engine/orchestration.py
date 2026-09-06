@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from time import monotonic
 from uuid import uuid4
 
 from pydantic import TypeAdapter, ValidationError
 
 from world_engine.agent_llm import AgentLLMError, AgentModelBackend, ModelCompletion
+from world_engine.bounded_calls import submit_call
 from world_engine.database import Database
 from world_engine.decisions import DecisionProvider, RuleDecisionProvider
 from world_engine.domain import (
@@ -711,12 +712,14 @@ class MemoryCuratorAgent:
             system_prompt=system, user_payload=payload, schema=schema, label=self.name
         )
         ctx.model_metrics = completion
-        valid_event_ids = {str(e.get("id") or "") for e in events}
+        event_by_id = {str(e.get("id") or ""): e for e in events[:12]}
         return self._consolidate(
             [
                 candidate
                 for candidate in completion.data.candidates
-                if candidate.event_id in valid_event_ids
+                if candidate.event_id in event_by_id
+                and self._visible_to(ctx, candidate.character_id, event_by_id[candidate.event_id])
+                and not forbid_agent_term(candidate.summary)
             ]
         )
 
@@ -776,10 +779,10 @@ class MemoryCuratorAgent:
         for candidate in (actor_id, target_id):
             if isinstance(candidate, str) and candidate:
                 ids.append(candidate)
-        # 场景可见角色也在事件范围内可被记忆。
-        for visible in ctx.scene.visible_characters:
-            if visible.id not in ids:
-                ids.append(visible.id)
+        # 只接受事件保存的目击证据；今天同处一地不能证明过去也在场。
+        for witness in MemoryCuratorAgent._witnesses(event):
+            if witness not in ids:
+                ids.append(witness)
         return ids
 
     @staticmethod
@@ -788,12 +791,21 @@ class MemoryCuratorAgent:
         actor = ctx.snapshot.character_by_id(character_id)
         if actor is None:
             return False
-        if actor.id == character_id:
-            return True
-        location_id = event.get("location_id")
-        if location_id and actor.location_id == location_id:
-            return True
-        return actor.id in {c.id for c in ctx.scene.visible_characters}
+        return character_id in {
+            event.get("actor_id"), event.get("target_id"),
+            *MemoryCuratorAgent._witnesses(event),
+        }
+
+    @staticmethod
+    def _witnesses(event: dict[str, object]) -> list[str]:
+        payload = event.get("payload", event.get("payload_json", {}))
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (ValueError, TypeError):
+                return []
+        witnesses = payload.get("witness_character_ids", []) if isinstance(payload, dict) else []
+        return [item for item in witnesses if isinstance(item, str)] if isinstance(witnesses, list) else []
 
     @staticmethod
     def _importance(event_type: str) -> int:
@@ -1160,13 +1172,15 @@ class ProposalCoordinator:
         )
 
     def _run_parallel(self, count: int, fn):
-        """并行运行 count 个任务，每个有独立超时，返回 (result, status, error)。"""
+        """分批限制并发，共享本批截止时间，不因退出执行器再次等待。"""
         results = []
-        with ThreadPoolExecutor(max_workers=max(1, self.max_concurrency)) as pool:
-            futures = [pool.submit(fn, index) for index in range(count)]
+        width = max(1, self.max_concurrency)
+        for start in range(0, count, width):
+            deadline = monotonic() + self.timeout_seconds
+            futures = [submit_call(fn, index) for index in range(start, min(count, start + width))]
             for future in futures:
                 try:
-                    results.append((future.result(timeout=self.timeout_seconds), "ok", None))
+                    results.append((future.result(timeout=max(0, deadline - monotonic())), "ok", None))
                 except FutureTimeoutError:
                     future.cancel()
                     results.append((None, "timed_out", "Agent调用超时"))
@@ -1176,15 +1190,14 @@ class ProposalCoordinator:
 
     def _run_single(self, fn):
         """单次调用带独立超时，返回 (result, status, error)。"""
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(fn)
-            try:
-                return future.result(timeout=self.timeout_seconds), "ok", None
-            except FutureTimeoutError:
-                future.cancel()
-                return None, "timed_out", "Agent调用超时"
-            except Exception as exc:
-                return None, "failed", str(exc)
+        future = submit_call(fn)
+        try:
+            return future.result(timeout=self.timeout_seconds), "ok", None
+        except FutureTimeoutError:
+            future.cancel()
+            return None, "timed_out", "Agent调用超时"
+        except Exception as exc:
+            return None, "failed", str(exc)
 
     def _relay_metrics(self, run: AgentRunRecord, ctx: AgentContext) -> None:
         """把一次成功的模型调用指标回填到 agent_runs 审计行。"""

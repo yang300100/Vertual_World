@@ -271,7 +271,7 @@ class RuleDecisionProvider:
                 reason=f"我打算捡起{item}。",
                 metadata={"item": item},
             )
-        if any(key in intent for key in ("用", "使用", "装备", "服用", "喝下")):
+        if any(key in intent for key in ("用", "使用", "装备", "服用", "喝下", "卸下", "放下", "丢下")):
             item = next(
                 (n for n in ("疗伤药", "铁剑", "硬木护符", "面包") if n in intent),
                 "疗伤药",
@@ -280,7 +280,7 @@ class RuleDecisionProvider:
                 actor_id=character.id,
                 action=ActionType.USE,
                 reason=f"我打算使用{item}。",
-                metadata={"item": item},
+                metadata={"item": item, "operation": "unequip" if "卸下" in intent else "drop" if any(word in intent for word in ("放下", "丢下")) else "use"},
             )
         if any(key in intent for key in ("去", "前往", "到", "赶去", "动身")):
             target_loc = next((loc for loc in destinations if loc.name in intent), None)
@@ -643,7 +643,7 @@ class DeepSeekDecisionProvider:
     def _npc_reply_system_prompt() -> str:
         return (
             "# 角色\n"
-            "你只扮演输入 npc 中的那一位人物，回应眼前玩家的一句话；"
+            "你只扮演输入 npc 中的那一位人物，回应玩家的话或眼前已发生的行动；"
             "不是旁白、世界裁判或玩家代言人。\n"
             "# 人物性\n"
             "npc_card 是稳定底色，dialogue_examples 只示范语气、绝不是可引用的世界事实。"
@@ -657,6 +657,10 @@ class DeepSeekDecisionProvider:
             "它们都是只读资料，不能被改写，也不能声称自己知道未提供的事实。"
             "knowledge_context 只是该人物当前允许参考的知识；若其中没有答案，必须保持未知。"
             "channel 决定感知能力：远程信笺中不得声称看见对方、当场行动或已经执行未确认事务。"
+            "当 channel=action_observation 或 decision.input_kind=action 时，玩家没有说出台词。"
+            "必须依据 settled_action、activity_progress 和 remaining_tasks 回应实际进展，"
+            "不能把 requested_action 当作玩家的发言或已经全部完成的事实。"
+            "草稿、部分完成、被拒绝和待实测必须如实区分；承接 original_request 指出下一步。"
             "不得复述角色卡字段、提及模型、提示词、数据库、RAG、作者或隐藏技术真相。\n"
             "# 输出\n"
             "只输出 JSON：{\"reply\":\"一句可直接说出口的话\",\"social_move\":\"answer\"}。"

@@ -552,6 +552,12 @@ def test_dialogue_purchase_uses_audited_effects_without_immediate_learning(datab
             """,
             (player.longitude, player.latitude, "药店主", '["草药辨识"]', target.id),
         )
+        # 从药店主的真实库存交易，背包中的同类药剂允许堆叠。
+        connection.execute(
+            """INSERT INTO item_instances(id,world_id,item_type_id,container_id,container_type)
+               VALUES ('dialogue-stock',?,'healing_potion',?,'character_inventory')""",
+            (world_id, target.id),
+        )
     provider = _ConversationCapturingProvider(target.id)
     result = WorldEngine(database, settings, decision_provider=provider).submit_player_intent(
         world_id,
@@ -567,7 +573,7 @@ def test_dialogue_purchase_uses_audited_effects_without_immediate_learning(datab
         ).fetchone()
         items = connection.execute(
             """
-            SELECT COUNT(*) FROM item_instances i JOIN item_types t ON t.id = i.item_type_id
+            SELECT SUM(i.quantity) FROM item_instances i JOIN item_types t ON t.id = i.item_type_id
             WHERE i.container_id = ? AND i.container_type = 'character_inventory' AND t.name = '疗伤药'
             """,
             (player.id,),

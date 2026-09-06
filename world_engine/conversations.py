@@ -15,6 +15,7 @@ from uuid import uuid4
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import WorldKnowledgeBase, search_dynamic_knowledge
+from world_engine.player_inputs import parse_player_input
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import from_iso, to_iso, utc_now
 
@@ -313,6 +314,11 @@ class ConversationService:
             player_id=player.id,
             query=player_text,
         )
+        from world_engine.player_activities import PlayerActivityService
+
+        activities = PlayerActivityService.recent_records(
+            connection, snapshot.world.id, player.id, npc.id
+        )
         base: dict[str, object] = {
             "channel": channel,
             "interaction": interaction,
@@ -345,6 +351,11 @@ class ConversationService:
             "knowledge_context": knowledge,
             "decision": decision_details or {},
             "player_text": player_text,
+            "player_activity_records": [
+                {"title": row["title"], "status": row["status"],
+                 "source_event_id": row["source_event_id"], "result": row["content"]["result"]}
+                for row in activities[:6]
+            ],
             "world_time": snapshot.world.current_time.isoformat(),
         }
         return self._apply_context_budget(base)
@@ -361,6 +372,7 @@ class ConversationService:
         """保留人物与规则必需段，再按优先级逐项装入可裁剪上下文。"""
         optional_keys = (
             "recent_conversation",
+            "player_activity_records",
             "conversation_episodes",
             "recent_private_memories",
             "knowledge_context",
@@ -532,7 +544,8 @@ class ConversationService:
         cutoff = to_iso(snapshot.world.current_time - timedelta(hours=1))
         rows = connection.execute(
             """
-            SELECT t.event_id, t.turn_index, t.speaker_character_id, t.content, t.world_time
+            SELECT t.event_id, t.turn_index, t.speaker_character_id, t.content, t.world_time,
+                   t.message_kind
             FROM npc_conversation_turns t
             JOIN npc_conversation_sessions s ON s.id = t.session_id
             WHERE s.world_id = ? AND s.npc_character_id = ?
@@ -556,7 +569,7 @@ class ConversationService:
         for _, _, turns in ranked[:3]:
             recalled.extend(
                 f"[{from_iso(turn['world_time']).isoformat()}] "
-                f"{'玩家' if turn['speaker_character_id'] == player_id else 'NPC'}："
+                f"{'玩家行动' if turn['message_kind'] == 'action' else '玩家' if turn['speaker_character_id'] == player_id else 'NPC'}："
                 f"{turn['content']}"
                 for turn in turns
             )
@@ -618,6 +631,9 @@ class ConversationService:
 
     @staticmethod
     def is_non_dialogue_intent(intent: str) -> bool:
+        message = parse_player_input(intent)
+        if message.kind != "auto":
+            return message.kind == "action"
         return any(
             marker in intent
             for marker in (
@@ -629,6 +645,8 @@ class ConversationService:
 
     @staticmethod
     def looks_like_follow_up(intent: str) -> bool:
+        if parse_player_input(intent).kind == "speech":
+            return True
         if ConversationService.is_non_dialogue_intent(intent):
             return False
         markers = ("是", "对", "嗯", "好", "那", "所以", "需要", "吗", "？", "?")
@@ -734,7 +752,7 @@ class ConversationService:
             return None
         rows = connection.execute(
             """
-            SELECT speaker_character_id, content, world_time
+            SELECT speaker_character_id, content, world_time, message_kind
             FROM npc_conversation_turns
             WHERE session_id = ? AND world_time >= ?
             ORDER BY world_time, turn_index
@@ -743,7 +761,7 @@ class ConversationService:
         ).fetchall()
         turns = [
             f"[{from_iso(row['world_time']).isoformat()}] "
-            f"{'玩家' if row['speaker_character_id'] == player_id else 'NPC'}：{row['content']}"
+            f"{'玩家行动' if row['message_kind'] == 'action' else '玩家' if row['speaker_character_id'] == player_id else 'NPC'}：{row['content']}"
             for row in rows
         ]
         while turns and sum(len(item) + 1 for item in turns) > self.max_context_chars:
@@ -767,6 +785,7 @@ class ConversationService:
         world_time: object,
         player_text: str,
         npc_text: str,
+        player_message_kind: str = "speech",
     ) -> str:
         """与行动事件同一事务写入双方原话，保证审计与对话记忆一致。"""
         now = to_iso(utc_now())
@@ -814,12 +833,14 @@ class ConversationService:
                 """
                 INSERT INTO npc_conversation_turns(
                     id, session_id, world_id, event_id, turn_index,
-                    speaker_character_id, listener_character_id, content, world_time, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    speaker_character_id, listener_character_id, content, world_time, created_at,
+                    message_kind
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(uuid4()), session_id, world_id, event_id, next_turn + offset,
                     speaker_id, listener_id, content, world_time_iso, now,
+                    player_message_kind if offset == 0 else "speech",
                 ),
             )
         names = {
@@ -833,6 +854,11 @@ class ConversationService:
             f"我与{names.get(counterpart_id, '对方')}交谈："
             f"对方说“{player_text.strip()[:350]}”，我回应“{npc_text.strip()[:350]}”。"
         )
+        if player_message_kind == "action":
+            npc_memory = (
+                f"我目睹{names.get(counterpart_id, '对方')}的行动结果："
+                f"{player_text.strip()[:350]}；我回应“{npc_text.strip()[:350]}”。"
+            )
         connection.execute(
             """
             INSERT OR IGNORE INTO character_memories(

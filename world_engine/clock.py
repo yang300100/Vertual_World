@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from world_engine.activation import NPCActivationService
 from world_engine.config import Settings
+from world_engine.contracts import ContractService
 from world_engine.database import Database
 from world_engine.domain import ClockUpdateResult, HeartbeatResult
 from world_engine.movement import MovementService
@@ -149,7 +150,8 @@ class WorldClockService:
                 world_id=world_id,
                 world_time=current_time,
             )
-            version_increment = 1 if world_delta_seconds > 0 else 0
+            contracts_updated = ContractService.advance(connection, world_id, to_iso(current_time))
+            version_increment = 1 if world_delta_seconds > 0 or contracts_updated else 0
             connection.execute(
                 """
                 UPDATE worlds
@@ -319,6 +321,7 @@ class WorldClockService:
                     (characters_updated, heartbeat_id),
                 )
 
+            ContractService.advance(connection, world_id, to_iso(current_time))
             new_world_version = int(row["version"]) + 1
             connection.execute(
                 """

@@ -203,18 +203,23 @@ function renderSocialSystems() {
   const npcCharacters = state.snapshot.characters.filter((item) => !item.is_player);
   const keepSelect = (select, values, selected) => { select.replaceChildren(...values.map((item) => new Option(item.name, item.id))); if (values.some((item) => item.id === selected)) select.value = selected; };
   keepSelect(elements.longTermRecipient, npcCharacters, elements.longTermRecipient.value);
+  updateContractFields();
   elements.longTermList.replaceChildren(...state.longTermRequests.map((request) => {
     const node = document.createElement("article"); node.className = "registration-item";
     const terms = request.terms || {}; const counterTerms = request.counter_terms || null;
     const effectiveTerms = counterTerms || terms; const payment = Number(effectiveTerms.payment ?? effectiveTerms.amount ?? 0);
-    const statusLabels = { npc_accepted: "NPC 已同意", npc_rejected: "NPC 已拒绝", npc_countered: "NPC 提出反提案", applied: "已执行", cancelled: "已取消" };
+    const statusLabels = { npc_accepted: "NPC 已同意", npc_rejected: "NPC 已拒绝", npc_countered: "NPC 提出反提案", applied: "已确认", cancelled: "已取消" };
+    const fulfillment = request.fulfillment;
+    const fulfillmentLabels = { active: "履约中", completed: "已履约", overdue: "已逾期", expired: "租赁到期", cancelled: "已结束" };
+    const fulfillmentView = fulfillment ? `<section><strong>${escapeHtml(fulfillmentLabels[fulfillment.status] || fulfillment.status)}</strong><small>截止：${escapeHtml(formatWorldTime(fulfillment.due_world_time))}${["commission", "employment", "appointment"].includes(fulfillment.kind) ? ` · 已验证 ${fulfillment.completed_units}/${fulfillment.required_units} 次` : ""}${fulfillment.escrow ? ` · 托管 ${fulfillment.escrow} 铜币` : ""}</small></section>` : "";
+    const repayButton = fulfillment?.kind === "loan" && ["active", "overdue"].includes(fulfillment.status) ? `<button class="button" data-contract-repay="${escapeHtml(request.id)}" type="button">结清借款</button>` : "";
     const originalTerms = renderLongTermTerms(terms);
     const counterSection = counterTerms ? `<section class="long-term-counter"><strong>NPC 的反提案</strong>${renderLongTermTerms(counterTerms)}</section>` : "";
     const canConfirm = ["npc_accepted", "npc_countered"].includes(request.status);
     const canRemove = ["npc_accepted", "npc_countered", "npc_rejected", "applied"].includes(request.status);
     const actions = `<div class="registration-actions">${canConfirm ? `<button class="button primary" data-long-term-confirm="${escapeHtml(request.id)}" type="button">${request.status === "npc_countered" ? "接受反提案并确认" : "确认执行"}</button>` : ""}${canRemove ? `<button class="button danger" data-long-term-remove="${escapeHtml(request.id)}" type="button">结束事务</button>` : ""}</div>`;
     const systemNotice = request.system_notice ? `<small class="long-term-system-notice">系统提示：${escapeHtml(request.system_notice)}</small>` : "";
-    node.innerHTML = `<strong>${escapeHtml(request.operation_type)} · ${escapeHtml(request.recipient_name)}</strong><span>${escapeHtml(statusLabels[request.status] || request.status)}${payment ? ` · ${payment} 铜币` : ""}</span><small>${escapeHtml(request.npc_response || "等待回应")}</small>${systemNotice}<section class="long-term-original"><strong>你的原始条款</strong>${originalTerms}</section>${counterSection}${actions}`;
+    node.innerHTML = `<strong>${escapeHtml(request.operation_type)} · ${escapeHtml(request.recipient_name)}</strong><span>${escapeHtml(statusLabels[request.status] || request.status)}${payment ? ` · ${payment} 铜币` : ""}</span><small>${escapeHtml(request.npc_response || "等待回应")}</small>${systemNotice}<section class="long-term-original"><strong>你的原始条款</strong>${originalTerms}</section>${counterSection}${fulfillmentView}${repayButton}${actions}`;
     return node;
   }));
   if (!state.longTermRequests.length) elements.longTermList.append(emptyElement("p", "还没有提交过长期事务。", "empty-list"));
@@ -316,7 +321,7 @@ function renderTools(player) {
   renderToolList(elements.playerGear, player.equipment.map((item) => ({ label: item.name, intent: `使用装备${item.name}` })), "尚未穿戴装备");
 }
 function renderTransport(player) {
-  const vehicles = (state.snapshot.vehicles || []).filter((item) => item.owner_character_id === player.id && item.is_available);
+  const vehicles = (state.snapshot.vehicles || []).filter((item) => (item.owner_character_id === player.id || state.longTermRequests.some((r) => r.fulfillment?.asset_id === item.id && r.fulfillment?.status === "active" && r.fulfillment?.requester_id === player.id)) && item.is_available);
   const selected = player.active_vehicle_id || "";
   elements.playerTransport.replaceChildren(new Option("徒步 · 陆行 · 5 km/h", ""), ...vehicles.map((vehicle) => new Option(`${vehicle.name} · ${movementTypeLabels[vehicle.movement_type] || vehicle.movement_type} · ${Number(vehicle.speed_kmh).toFixed(Number.isInteger(Number(vehicle.speed_kmh)) ? 0 : 1)} km/h`, vehicle.id)));
   elements.playerTransport.value = selected; elements.playerTransport.disabled = Boolean(currentMovement());
@@ -422,6 +427,10 @@ function renderLogs() {
 }
 function eventDetailText(event) {
   const payload = event.payload || {}; const type = normalizedEventType(event.event_type);
+  if (payload.input_kind === "action" || payload.metadata?.input_kind === "action") {
+    return `你的动作：${payload.player_action_text || payload.metadata?.player_action_text || ""}\n实际结果：${payload.result || event.summary}`;
+  }
+  if (type === "reaction" && payload.reply) return `NPC 对行动回应：“${payload.reply}”`;
   if (type === "socialize" && payload.dialogue) {
     const targetName = characterById(event.target_id)?.name || "对方";
     const playerLine = `你说：“${payload.dialogue}”`;
@@ -680,22 +689,57 @@ function renderCharacters(characters) { elements.characterCount.textContent = `$
 function renderInterventionOptions(characters) { const value = elements.interventionCharacter.value; const available = characters.filter((character) => !character.is_player); elements.interventionCharacter.replaceChildren(...available.map((character) => new Option(character.name, character.id))); if (available.some((item) => item.id === value)) elements.interventionCharacter.value = value; }
 function renderAdjudications(runs) { elements.adjudicationList.replaceChildren(...runs.map((run) => { const item = document.createElement("li"); item.innerHTML = `<span><b>${escapeHtml(run.trigger_type === "player_intervention" ? "局部介入" : run.trigger_type === "manual" ? "手动裁判" : "自主裁判")}</b><time>${escapeHtml(formatRealTime(run.completed_at))}</time></span><strong>${escapeHtml(run.provider)}${run.fallback_used ? " · 已降级" : ""}</strong><small>${run.selected_character_ids.length} 名人物 · ${run.final_event_ids.length} 条事件</small>`; return item; })); if (!runs.length) elements.adjudicationList.append(emptyElement("li", "还没有裁判记录", "empty-list")); }
 
-function switchRoom(room, updateHash = true) { const valid = $(`[data-room-panel="${CSS.escape(room)}"]`) ? room : "scene"; state.currentRoom = valid; document.body.dataset.room = valid; $$('[data-room-panel]').forEach((panel) => { panel.hidden = panel.dataset.roomPanel !== valid; panel.classList.toggle("active", panel.dataset.roomPanel === valid); }); $$('[data-room]').forEach((button) => button.classList.toggle("active", button.dataset.room === valid)); if (updateHash) history.replaceState(null, "", `#${valid}`); elements.sideNavigation.classList.remove("open"); if (valid === "map") renderMap(); if (valid === "relationships") { state.relationshipKey = ""; renderRelationshipGraph(state.snapshot); } }
+function switchRoom(room, updateHash = true) { const valid = $(`[data-room-panel="${CSS.escape(room)}"]`) ? room : "scene"; state.currentRoom = valid; document.body.dataset.room = valid; $$('[data-room-panel]').forEach((panel) => { panel.hidden = panel.dataset.roomPanel !== valid; panel.classList.toggle("active", panel.dataset.roomPanel === valid); }); $$('[data-room]').forEach((button) => button.classList.toggle("active", button.dataset.room === valid)); if (updateHash) history.replaceState(null, "", `#${valid}`); elements.sideNavigation.classList.remove("open"); if (valid === "notebook") loadActivityRecords(); if (valid === "map") renderMap(); if (valid === "relationships") { state.relationshipKey = ""; renderRelationshipGraph(state.snapshot); } }
 async function perform(message, action, successMessage, afterSuccess = null) { if (state.busy || !state.worldId) return; setBusy(true, message); try { const result = await action(); await refreshAll({ reloadWorlds: true, silent: true }); if (afterSuccess) afterSuccess(result); showToast(successMessage); } catch (error) { showToast(error.message, true); } finally { setBusy(false); } }
 
 const intentFormLabels = { purchase: "购买物品", sell: "出售物品", trade: "确认交易方向", transfer: "转交物品", learn: "学习技能", repair: "修理物品", heal: "接受治疗", letter_exchange: "交换联络信笺" };
 function addIntentField(labelText, name, value = "", type = "text", required = true) { const label = document.createElement("label"); label.textContent = labelText; const input = document.createElement("input"); input.name = name; input.type = type; input.value = value ?? ""; input.required = required; if (type === "number") { input.min = "0"; input.step = "1"; } label.append(input); elements.intentFormFields.append(label); return input; }
 function openIntentForm(preview) { state.intentPreview = preview; elements.intentFormFields.replaceChildren(); elements.intentFormTitle.textContent = intentFormLabels[preview.operation] || "补全行动细节"; elements.intentFormNote.textContent = "请核对对象与数值；确认后才会进入规则校验和世界结算。"; const targetLabel = document.createElement("label"); targetLabel.textContent = "交互对象"; const target = document.createElement("select"); target.name = "target_character_id"; target.required = true; const blank = document.createElement("option"); blank.value = ""; blank.textContent = "请选择附近人物"; target.append(blank); for (const item of preview.target_options || []) { const option = document.createElement("option"); option.value = item.id; option.textContent = item.identity ? `${item.name} · ${item.identity}` : item.name; option.selected = item.id === preview.target_character_id; target.append(option); } targetLabel.append(target); elements.intentFormFields.append(targetLabel); if (preview.operation === "trade") { const label = document.createElement("label"); label.textContent = "交易方向"; const select = document.createElement("select"); select.name = "trade_direction"; for (const [value, text] of [["purchase", "我要购买"], ["sell", "我要出售"]]) { const option = document.createElement("option"); option.value = value; option.textContent = text; select.append(option); } label.append(select); elements.intentFormFields.append(label); } if (["purchase", "sell", "trade", "transfer", "repair"].includes(preview.operation)) addIntentField("物品名称", "item_name", preview.item_name); if (["purchase", "sell", "trade", "learn"].includes(preview.operation)) addIntentField(preview.operation === "learn" ? "学费（铜币）" : "金额（铜币）", "amount", preview.amount ?? "", "number"); if (preview.operation === "learn") addIntentField("技能名称", "skill_name", preview.skill_name); elements.intentFormDialog.showModal(); }
-function executePlayerIntent(intent, targetCharacterId = null) { const payload = { intent }; if (targetCharacterId) payload.target_character_id = targetCharacterId; perform("世界正在回应你的行动", () => api(`/api/worlds/${state.worldId}/player/act`, { method: "POST", body: JSON.stringify(payload) }), "你的行动已写入世界", (result) => { renderActionResult(result.outcome); if (result.outcome.action !== "socialize") state.conversationTargetId = null; elements.playerIntent.value = ""; saveIntentDraft(); }); }
+function executePlayerIntent(intent, targetCharacterId = null) { const payload = { intent }; if (targetCharacterId) payload.target_character_id = targetCharacterId; perform("世界正在回应你的行动", () => api(`/api/worlds/${state.worldId}/player/act`, { method: "POST", body: JSON.stringify(payload) }), "你的行动已写入世界", (result) => { renderActionResult(result.outcome, result); if (result.outcome.action !== "socialize" && !result.npc_reply && !result.npc_reply_error) state.conversationTargetId = null; elements.playerIntent.value = ""; saveIntentDraft(); }); }
 function executeGroupDialogue(intent) { perform("在场人物正在斟酌回应", () => api(`/api/worlds/${state.worldId}/player/group-dialogue`, { method: "POST", body: JSON.stringify({ intent, max_speakers: 2 }) }), "多人对话已写入世界", (result) => { elements.actionResult.textContent = result.replies.map((item) => `${item.name}：“${item.reply}”`).join("  "); elements.actionResult.hidden = false; state.groupDialogueMode = false; state.conversationTargetId = null; elements.playerIntent.value = ""; saveIntentDraft(); }); }
 function requestLearning(targetCharacterId, skill, payment) { perform("正在向 NPC 请求教学", async () => { const review = await api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId, operation_type: "学习", terms: { skill, payment, title: `学习${skill}` } }) }); if (review.status === "npc_countered") return { review, countered: true }; if (review.status !== "npc_accepted") throw new Error(review.npc_response || "NPC 没有同意教学"); const confirmed = await api(`/api/worlds/${state.worldId}/long-term-requests/${review.id}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }); confirmed.npc_response = review.npc_response; return confirmed; }, "NPC 的回应已写入长期事务", (result) => { if (result.countered) { switchRoom("agreements"); return; } elements.actionResult.textContent = `${result.npc_response} 你已学会${skill}。`; elements.actionResult.hidden = false; elements.playerIntent.value = ""; saveIntentDraft(); }); }
 function requestLetterExchange(targetCharacterId) { perform("正在询问对方是否交换信笺", () => api(`/api/worlds/${state.worldId}/contacts`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId }) }), "联络信笺已交换", (result) => { if (result.status !== "accepted") showToast(result.response, true); else state.selectedContactId = targetCharacterId; }); }
 async function previewPlayerIntent(intent) { if (state.busy || !state.worldId) return; const payload = { intent }; if (state.conversationTargetId) payload.target_character_id = state.conversationTargetId; let directTargetId = null; let shouldExecute = false; setBusy(true, "正在理解你的行动"); try { const preview = await api(`/api/worlds/${state.worldId}/player/intents/preview`, { method: "POST", body: JSON.stringify(payload) }); if (preview.requires_form) openIntentForm(preview); else { directTargetId = state.conversationTargetId; shouldExecute = true; } } catch (error) { showToast(error.message, true); } finally { setBusy(false); } if (shouldExecute) executePlayerIntent(intent, directTargetId); }
 function canonicalIntentFromForm(preview, values, targetName) { const item = values.item_name?.trim(); const amount = Number(values.amount); const skill = values.skill_name?.trim(); const priced = ["purchase", "sell", "trade"].includes(preview.operation); if (priced && (!item || !Number.isInteger(amount) || amount <= 0)) throw new Error("请填写有效的物品名称和正整数金额"); if (preview.operation === "transfer" && !item) throw new Error("请填写要转交的物品"); if (preview.operation === "learn" && (!skill || !Number.isInteger(amount) || amount < 0)) throw new Error("请填写技能名称和非负学费"); if (preview.operation === "repair" && !item) throw new Error("请填写要修理的物品"); if (preview.operation === "purchase" || (preview.operation === "trade" && values.trade_direction === "purchase")) return `向${targetName}支付${amount}铜币购买${item}`; if (preview.operation === "sell" || preview.operation === "trade") return `向${targetName}出售${item}获得${amount}铜币`; if (preview.operation === "transfer") return `将${item}赠与${targetName}`; if (preview.operation === "learn") return `向${targetName}学习${skill}，支付${amount}铜币`; if (preview.operation === "repair") return `请${targetName}修理${item}`; return `请${targetName}治疗我`; }
-function renderActionResult(outcome) { if (!outcome?.summary) return; elements.actionResult.textContent = humanizeEventSummary(outcome.summary); elements.actionResult.hidden = false; elements.actionResult.classList.remove("flash"); void elements.actionResult.offsetWidth; elements.actionResult.classList.add("flash"); }
+function renderActionResult(outcome, result = {}) {
+  if (!outcome?.summary) return;
+  const lines = [humanizeEventSummary(outcome.summary)];
+  if (result.npc_reply) lines.push(`NPC 回应：“${result.npc_reply}”`);
+  if (result.npc_reply_error) lines.push(result.npc_reply_error);
+  elements.actionResult.textContent = lines.join("\n");
+  elements.actionResult.hidden = false;
+  elements.actionResult.classList.remove("flash");
+  void elements.actionResult.offsetWidth;
+  elements.actionResult.classList.add("flash");
+  let retry = $("#retry-action-reaction");
+  if (!retry) {
+    retry = document.createElement("button"); retry.id = "retry-action-reaction";
+    retry.type = "button"; retry.className = "button secondary";
+    retry.textContent = "只重试 NPC 回应";
+    elements.actionResult.insertAdjacentElement("afterend", retry);
+  }
+  retry.hidden = !result.npc_reply_error;
+  retry.onclick = () => perform("正在请 NPC 回应已保存的行动", async () => {
+    const reaction = await api(`/api/worlds/${state.worldId}/player/actions/${outcome.event_id}/reaction`, { method: "POST" });
+    renderActionResult(outcome, { npc_reply: reaction.reply, npc_reply_error: reaction.error });
+    return reaction;
+  }, "已检查行动回应");
+}
 function emptyElement(tag, text, className) { const node = document.createElement(tag); node.textContent = text; if (className) node.className = className; return node; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
-function renderLongTermTerms(terms) { const labels = { payment: "报酬", amount: "金额", title: "标题", details: "补充条款", skill: "技能" }; const entries = Object.entries(terms || {}).filter(([, value]) => value !== "" && value !== null && value !== undefined); if (!entries.length) return '<small class="long-term-empty">未填写</small>'; return `<dl class="long-term-terms">${entries.map(([key, value]) => `<div><dt>${escapeHtml(labels[key] || key)}</dt><dd>${escapeHtml(typeof value === "object" ? JSON.stringify(value) : value)}${["payment", "amount"].includes(key) ? " 铜币" : ""}</dd></div>`).join("")}</dl>`; }
+function renderLongTermTerms(terms) {
+  const labels = { payment: "金额", amount: "金额", title: "标题", details: "补充条款", skill: "技能", duration_days: "期限（世界日）", direction: "借贷方向", vehicle_id: "载具", location_id: "履约地点", fulfillment_action: "履约动作", work_units: "工作次数" };
+  const entries = Object.entries(terms || {}).filter(([, value]) => value !== "" && value !== null && value !== undefined);
+  if (!entries.length) return '<small class="long-term-empty">未填写</small>';
+  const displayValue = (key, value) => {
+    if (key === "direction") return { borrow: "向 NPC 借入", lend: "借给 NPC" }[value] || value;
+    if (key === "fulfillment_action" && value === "work") return "实际完成工作";
+    if (key === "vehicle_id") return state.snapshot?.vehicles?.find((item) => item.id === value)?.name || "原载具已不可用";
+    if (key === "location_id") return locationById(value)?.name || "原地点已不可用";
+    return typeof value === "object" ? JSON.stringify(value) : value;
+  };
+  return `<dl class="long-term-terms">${entries.map(([key, value]) => `<div><dt>${escapeHtml(labels[key] || key)}</dt><dd>${escapeHtml(displayValue(key, value))}${["payment", "amount"].includes(key) ? " 铜币" : ""}</dd></div>`).join("")}</dl>`;
+}
 function saveIntentDraft() { if (state.worldId) localStorage.setItem(`virtual-world-intent:${state.worldId}`, elements.playerIntent.value); }
 
 $$('[data-room]').forEach((button) => button.addEventListener("click", () => switchRoom(button.dataset.room)));
@@ -737,8 +781,8 @@ elements.eventFilters.addEventListener("click", (event) => { const button = even
 if (elements.constructionList) elements.constructionList.addEventListener("click", (event) => { const start = event.target.closest("[data-construction-start]"); const cancel = event.target.closest("[data-construction-cancel]"); if (start) perform("正在校验建设资源", () => api(`/api/worlds/${state.worldId}/registrations/${start.dataset.constructionStart}/construction`, { method: "PATCH", body: JSON.stringify({ status: "constructing" }) }), "建设项目已经开工"); if (cancel) perform("正在结算建设退款", () => api(`/api/worlds/${state.worldId}/registrations/${cancel.dataset.constructionCancel}/construction`, { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) }), "建设项目已取消，退款已结算"); });
 if (elements.registrationList) elements.registrationList.addEventListener("click", (event) => { const confirm = event.target.closest("[data-registration-confirm]"); const reject = event.target.closest("[data-registration-reject]"); if (confirm) perform("正在确认世界元素", () => api(`/api/worlds/${state.worldId}/registrations/${confirm.dataset.registrationConfirm}/confirm`, { method: "POST" }), "候选已写入世界"); if (reject) perform("正在拒绝候选", () => api(`/api/worlds/${state.worldId}/registrations/${reject.dataset.registrationReject}/reject`, { method: "POST", body: JSON.stringify({ reason: "玩家拒绝该候选" }) }), "候选已拒绝"); });
 elements.messageForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = state.selectedContactId; const content = elements.messageContent.value.trim(); if (!recipientId || !content) return showToast("请选择联系人并写下信笺内容", true); perform("信使正在投递信笺", () => api(`/api/worlds/${state.worldId}/messages`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, content }) }), "回笺已送达", () => { elements.messageContent.value = ""; loadMessages(); }); });
-elements.longTermForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = elements.longTermRecipient.value; if (!recipientId) return showToast("请先选择事务对象", true); const payment = Number(elements.longTermPayment.value); if (!Number.isInteger(payment) || payment < 0) return showToast("报酬必须是非负整数", true); const terms = { payment, title: elements.longTermTitle.value.trim(), details: elements.longTermDetails.value.trim() }; perform("正在请NPC审阅长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, operation_type: elements.longTermType.value, terms }) }), "NPC 已作出回应", (result) => { elements.longTermForm.reset(); showToast(result.npc_response, result.status === "npc_rejected"); }); });
-elements.longTermList.addEventListener("click", (event) => { const confirm = event.target.closest("[data-long-term-confirm]"); const remove = event.target.closest("[data-long-term-remove]"); if (confirm) perform("正在原子执行已确认事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${confirm.dataset.longTermConfirm}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }), "长期事务已执行并写入双方记忆"); if (remove) perform("正在结束长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${remove.dataset.longTermRemove}`, { method: "DELETE" }), "事务及其长期待办已移除"); });
+elements.longTermForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = elements.longTermRecipient.value; if (!recipientId) return showToast("请先选择事务对象", true); const payment = Number(elements.longTermPayment.value); if (!Number.isInteger(payment) || payment < 0) return showToast("报酬必须是非负整数", true); const terms = { payment, title: elements.longTermTitle.value.trim(), details: elements.longTermDetails.value.trim(), duration_days: Number($("#long-term-duration").value) }; const kind = elements.longTermType.value; if (kind === "借贷") terms.direction = $("#long-term-direction").value; if (kind === "租赁") { terms.vehicle_id = $("#long-term-vehicle").value; if (!terms.vehicle_id) return showToast("对方没有可租赁的载具", true); } if (["委托", "雇佣"].includes(kind)) { terms.fulfillment_action = "work"; terms.work_units = Number($("#long-term-units").value); } perform("正在请NPC审阅长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, operation_type: elements.longTermType.value, terms }) }), "NPC 已作出回应", (result) => { elements.longTermForm.reset(); updateContractFields(); showToast(result.npc_response, result.status === "npc_rejected"); }); });
+elements.longTermList.addEventListener("click", (event) => { const confirm = event.target.closest("[data-long-term-confirm]"); const remove = event.target.closest("[data-long-term-remove]"); const repay = event.target.closest("[data-contract-repay]"); if (repay) perform("正在结清借款", () => api(`/api/worlds/${state.worldId}/long-term-requests/${repay.dataset.contractRepay}/repay`, { method: "POST" }), "借款已结清"); if (confirm) perform("正在原子执行已确认事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${confirm.dataset.longTermConfirm}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }), "长期事务已执行并写入双方记忆"); if (remove) perform("正在结束长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${remove.dataset.longTermRemove}`, { method: "DELETE" }), "事务及其长期待办已移除"); });
 elements.characterDialogClose.addEventListener("click", () => elements.characterDialog.close()); elements.characterDialog.addEventListener("click", (event) => { if (event.target === elements.characterDialog) elements.characterDialog.close(); }); elements.playerProfileButton.addEventListener("click", () => { const player = currentPlayer(); if (player) openCharacterProfile(player.id); });
 elements.openPhotoDialog.addEventListener("click", () => { const player = currentPlayer(); if (!player) return; renderPhotoControls(player); elements.photoDialog.showModal(); }); elements.photoDialogClose.addEventListener("click", () => elements.photoDialog.close()); elements.photoDialog.addEventListener("click", (event) => { if (event.target === elements.photoDialog) elements.photoDialog.close(); });
 elements.portraitUploadOnly.addEventListener("click", async () => { if (state.busy) return; setBusy(true, "正在保存人设图"); try { const portrait = await uploadSelectedPortrait({ required: true }); await refreshAll({ reloadWorlds: true, silent: true }); showToast("人设图已保存，可以用于后续拍照"); return portrait; } catch (error) { showToast(error.message, true); } finally { setBusy(false); } });
@@ -758,3 +802,35 @@ window.addEventListener("hashchange", () => switchRoom(window.location.hash.slic
 window.setInterval(() => { if (document.visibilityState === "visible" && !state.busy) refreshAll({ silent: true }); }, 5000);
 window.requestAnimationFrame(runLiveFrame);
 refreshAll({ reloadWorlds: true }).then(() => { if (state.worldId) { elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; loadMapFiles(); } });
+
+function updateContractFields() {
+  const kind = elements.longTermType.value;
+  document.querySelectorAll("[data-contract-kind]").forEach((node) => {
+    node.hidden = !({ loan: kind === "借贷", lease: kind === "租赁", work: ["委托", "雇佣"].includes(kind) })[node.dataset.contractKind];
+  });
+  const select = $("#long-term-vehicle");
+  const selected = select.value;
+  const vehicles = (state.snapshot?.vehicles || []).filter((vehicle) => vehicle.owner_character_id === elements.longTermRecipient.value && vehicle.is_available);
+  select.replaceChildren(...vehicles.map((vehicle) => new Option(vehicle.name, vehicle.id)));
+  if (vehicles.some((vehicle) => vehicle.id === selected)) select.value = selected;
+}
+elements.longTermType.addEventListener("change", updateContractFields);
+elements.longTermRecipient.addEventListener("change", updateContractFields);
+
+Object.assign(eventLabels, { activity: "行动工作", reaction: "行动回应" });
+
+async function loadActivityRecords() {
+  const list = $("#activity-record-list");
+  if (!list || !state.worldId) return;
+  const worldId = state.worldId;
+  try {
+    const records = await api(`/api/worlds/${worldId}/player/activities`);
+    if (worldId !== state.worldId) return;
+    list.replaceChildren(...records.map((record) => {
+      const item = document.createElement("article"); item.className = "registration-item";
+      item.innerHTML = `<strong>${escapeHtml(record.title)} · ${record.status === "completed" ? "已记录" : "仍需补全"}</strong><p>${escapeHtml(record.content.result)}</p><small>${escapeHtml(record.content.observation?.location || "")} · ${escapeHtml(formatWorldTime(record.content.observation?.world_time))}</small>`;
+      return item;
+    }));
+    if (!records.length) list.append(emptyElement("p", "还没有行动产生的工作记录", "empty-list"));
+  } catch (error) { list.textContent = error.message; }
+}

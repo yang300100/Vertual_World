@@ -5,6 +5,7 @@ import sqlite3
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from world_engine.demographics import age_years_at
 from world_engine.domain import (
     CharacterState,
     LocationState,
@@ -16,7 +17,6 @@ from world_engine.domain import (
     WorldSnapshot,
     WorldState,
 )
-from world_engine.demographics import age_years_at
 from world_engine.elements import WorldElementCatalog
 from world_engine.time_utils import next_adjudication_boundary, parse_datetime
 

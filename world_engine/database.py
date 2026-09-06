@@ -927,6 +927,7 @@ class Database:
             self._migrate_element_lifecycle_columns(connection)
             self._migrate_character_species_columns(connection)
             self._migrate_social_operation_columns(connection)
+            self._migrate_completion_columns(connection)
             self._remove_legacy_player_controlled_social_records(connection)
             self._ensure_default_species_profiles(connection)
             self._ensure_npc_demographics(connection)
@@ -938,6 +939,89 @@ class Database:
             self._ensure_clock_and_accumulator_rows(connection)
             self._repair_time_only_timestamps(connection)
             self._synchronize_world_element_catalog(connection)
+
+    @staticmethod
+    def _migrate_completion_columns(connection: sqlite3.Connection) -> None:
+        """只新增缺失字段；既有物品的数量、状态和已知所有权均保留。"""
+        additions = {
+            "characters": {"inventory_capacity": "INTEGER NOT NULL DEFAULT 2"},
+            "item_instances": {"owner_character_id": "TEXT REFERENCES characters(id)"},
+            "memory_jobs": {"last_error": "TEXT", "retry_at": "TEXT"},
+            "npc_todos": {"contract_id": "TEXT"},
+            "npc_conversation_turns": {"message_kind": "TEXT NOT NULL DEFAULT 'speech'"},
+        }
+        for table, fields in additions.items():
+            columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+            for name, declaration in fields.items():
+                if name not in columns:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
+                    if table == "item_instances" and name == "owner_character_id":
+                        connection.execute(
+                            """UPDATE item_instances SET owner_character_id=container_id
+                               WHERE container_type IN ('character_inventory','character_equipment')
+                               AND container_id IN (SELECT id FROM characters)"""
+                        )
+        connection.executescript("""
+            CREATE TABLE IF NOT EXISTS player_activity_records (
+                id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id),
+                player_id TEXT NOT NULL REFERENCES characters(id),
+                npc_id TEXT REFERENCES characters(id),
+                source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
+                request_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+                step_key TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL,
+                content_json TEXT NOT NULL, location_id TEXT, created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_player_activity_records_player
+                ON player_activity_records(world_id,player_id,created_at);
+            CREATE TABLE IF NOT EXISTS player_action_reactions (
+                source_event_id TEXT PRIMARY KEY REFERENCES world_events(id) ON DELETE CASCADE,
+                world_id TEXT NOT NULL REFERENCES worlds(id), npc_id TEXT NOT NULL REFERENCES characters(id),
+                reaction_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+                status TEXT NOT NULL CHECK(status IN ('pending','ready','failed')),
+                error_text TEXT
+            );
+            CREATE TABLE IF NOT EXISTS contract_fulfillments (
+                request_id TEXT PRIMARY KEY REFERENCES long_term_operation_requests(id) ON DELETE CASCADE,
+                world_id TEXT NOT NULL REFERENCES worlds(id), kind TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('active','completed','overdue','expired','cancelled')),
+                requester_id TEXT NOT NULL REFERENCES characters(id),
+                recipient_id TEXT NOT NULL REFERENCES characters(id),
+                lender_id TEXT, borrower_id TEXT, principal INTEGER NOT NULL DEFAULT 0,
+                escrow INTEGER NOT NULL DEFAULT 0, asset_id TEXT, location_id TEXT,
+                required_units INTEGER NOT NULL DEFAULT 1, started_world_time TEXT NOT NULL,
+                due_world_time TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_active_vehicle_lease
+                ON contract_fulfillments(asset_id) WHERE kind='lease' AND status='active';
+            CREATE TABLE IF NOT EXISTS contract_receipts (
+                event_id TEXT PRIMARY KEY REFERENCES world_events(id) ON DELETE CASCADE,
+                request_id TEXT NOT NULL REFERENCES contract_fulfillments(request_id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS inventory_changes (
+                id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id),
+                source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
+                item_instance_id TEXT NOT NULL, before_json TEXT, after_json TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_inventory_changes_event
+                ON inventory_changes(world_id, source_event_id);
+            CREATE TRIGGER IF NOT EXISTS item_initial_owner AFTER INSERT ON item_instances
+            WHEN NEW.owner_character_id IS NULL
+             AND NEW.container_type IN ('character_inventory','character_equipment')
+            BEGIN
+                UPDATE item_instances SET owner_character_id=NEW.container_id WHERE id=NEW.id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS enqueue_event_memory AFTER INSERT ON world_events
+            BEGIN
+                INSERT OR IGNORE INTO memory_jobs(id,world_id,event_id,status,created_at,updated_at)
+                VALUES ('memjob:'||NEW.id, NEW.world_id, NEW.id, 'pending',
+                        NEW.created_at, NEW.created_at);
+            END;
+        """)
+        connection.execute("""
+            INSERT OR IGNORE INTO memory_jobs(id,world_id,event_id,status,created_at,updated_at)
+            SELECT 'memjob:'||id, world_id, id, 'pending', created_at, created_at FROM world_events
+        """)
 
     @staticmethod
     def _migrate_social_operation_columns(connection: sqlite3.Connection) -> None:

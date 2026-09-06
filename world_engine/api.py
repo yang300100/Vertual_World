@@ -14,7 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from world_engine.agent_llm import AgentLLMError
+from world_engine.bounded_calls import submit_call
 from world_engine.config import Settings
+from world_engine.contracts import KINDS, ContractError, ContractService
 from world_engine.conversations import ConversationService, NpcCharacterCard
 from world_engine.database import Database
 from world_engine.decisions import DecisionProviderError
@@ -368,7 +370,7 @@ def create_app(
 
     def _world_time(connection: sqlite3.Connection, world_id: str) -> str:
         row = connection.execute(
-            "SELECT current_time FROM worlds WHERE id = ?", (world_id,)
+            'SELECT "current_time" AS current_time FROM worlds WHERE id = ?', (world_id,),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="世界不存在")
@@ -464,7 +466,7 @@ def create_app(
             decision_details=details,
         )
         try:
-            result = backend.complete(
+            result = submit_call(backend.complete,
                 label=label,
                 system_prompt=(
                     "# 角色\n你只扮演输入的 npc，向输入的 player 作出一次自然中文回应。\n"
@@ -483,9 +485,9 @@ def create_app(
                 ),
                 user_payload=context,
                 schema=TypeAdapter(NpcTextResult),
-            )
+            ).result(timeout=resolved_settings.world_agent_timeout_seconds)
             reply = result.data.reply.strip()
-        except (AgentLLMError, ValueError, TypeError, KeyError) as exc:
+        except (AgentLLMError, ValueError, TypeError, KeyError, TimeoutError, RuntimeError) as exc:
             raise HTTPException(
                 status_code=503, detail="NPC 对话模型暂时不可用，请稍后重试"
             ) from exc
@@ -1016,6 +1018,25 @@ def create_app(
         except sqlite3.OperationalError as exc:
             raise HTTPException(status_code=503, detail="世界正在由另一个进程结算") from exc
 
+    @application.get("/api/worlds/{world_id}/player/activities")
+    def player_activities(world_id: str) -> list[dict[str, object]]:
+        from world_engine.player_activities import PlayerActivityService
+
+        with database.read() as connection:
+            snapshot = repository.get_snapshot(connection, world_id)
+            player = next((item for item in snapshot.characters if item.is_player), None)
+            if player is None:
+                raise HTTPException(status_code=404, detail="玩家角色不存在")
+            return PlayerActivityService.recent_records(connection, world_id, player.id)
+
+    @application.post("/api/worlds/{world_id}/player/actions/{event_id}/reaction")
+    def retry_action_reaction(world_id: str, event_id: str) -> dict[str, object]:
+        from world_engine.player_action_flow import react_to_action
+
+        result = react_to_action(engine, world_id, event_id)
+        engine._sync_history_safely(world_id)
+        return result
+
     @application.post(
         "/api/worlds/{world_id}/player/group-dialogue",
         status_code=201,
@@ -1406,7 +1427,8 @@ def create_app(
 
     @application.post("/api/worlds/{world_id}/contacts")
     def request_contact(world_id: str, payload: ContactRequest) -> dict[str, object]:
-        with database.write() as connection:
+        with database.read() as connection:
+            version = repository.get_snapshot(connection, world_id).world.version
             player = connection.execute(
                 "SELECT * FROM characters WHERE world_id = ? AND is_player = 1", (world_id,)
             ).fetchone()
@@ -1421,6 +1443,9 @@ def create_app(
             ) > VISIBLE_PERSON_RADIUS_KM:
                 raise HTTPException(status_code=403, detail="只能与100米内、实际相遇的NPC交换联络信笺")
             status, response = _contact_decision(connection, world_id, player, npc)
+        with database.write() as connection:
+            if repository.get_snapshot(connection, world_id).world.version != version:
+                raise HTTPException(status_code=409, detail="世界状态已变化，请重新提交")
             now = to_iso(utc_now())
             existing = connection.execute(
                 "SELECT id, status FROM character_contacts WHERE world_id = ? AND requester_id = ? AND recipient_id = ?",
@@ -1485,7 +1510,8 @@ def create_app(
 
     @application.post("/api/worlds/{world_id}/messages")
     def send_message(world_id: str, payload: MessageRequest) -> dict[str, object]:
-        with database.write() as connection:
+        with database.read() as connection:
+            version = repository.get_snapshot(connection, world_id).world.version
             player = connection.execute(
                 "SELECT * FROM characters WHERE world_id = ? AND is_player = 1", (world_id,)
             ).fetchone()
@@ -1507,12 +1533,6 @@ def create_app(
             now, world_time = to_iso(utc_now()), _world_time(connection, world_id)
             message_id = str(uuid4())
             content = payload.content.strip()
-            connection.execute(
-                """INSERT INTO character_messages(
-                    id, world_id, contact_id, sender_id, recipient_id, content, world_time, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (message_id, world_id, contact["id"], player["id"], npc["id"], content, world_time, now),
-            )
             reply = _letter_reply(
                 connection,
                 world_id=world_id,
@@ -1520,6 +1540,15 @@ def create_app(
                 npc=npc,
                 content=content,
                 world_time=world_time,
+            )
+        with database.write() as connection:
+            if repository.get_snapshot(connection, world_id).world.version != version:
+                raise HTTPException(status_code=409, detail="世界状态已变化，请重新寄送")
+            connection.execute(
+                """INSERT INTO character_messages(
+                    id, world_id, contact_id, sender_id, recipient_id, content, world_time, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (message_id, world_id, contact["id"], player["id"], npc["id"], content, world_time, now),
             )
             reply_id = str(uuid4())
             connection.execute(
@@ -1588,12 +1617,19 @@ def create_app(
                 item["terms"] = json.loads(item.pop("terms_json"))
                 raw_counter = item.pop("counter_terms_json", None)
                 item["counter_terms"] = json.loads(raw_counter) if raw_counter else None
+                contract = connection.execute(
+                    """SELECT c.*, (SELECT COUNT(*) FROM contract_receipts e
+                       WHERE e.request_id=c.request_id) AS completed_units
+                       FROM contract_fulfillments c WHERE c.request_id=?""", (row["id"],)
+                ).fetchone()
+                item["fulfillment"] = dict(contract) if contract else None
                 result.append(item)
             return result
 
     @application.post("/api/worlds/{world_id}/long-term-requests")
     def submit_long_term(world_id: str, payload: LongTermRequest) -> dict[str, object]:
-        with database.write() as connection:
+        with database.read() as connection:
+            version = repository.get_snapshot(connection, world_id).world.version
             player = connection.execute(
                 "SELECT * FROM characters WHERE world_id = ? AND is_player = 1", (world_id,)
             ).fetchone()
@@ -1634,6 +1670,9 @@ def create_app(
                     "counter_terms": counter_terms,
                 },
             )
+        with database.write() as connection:
+            if repository.get_snapshot(connection, world_id).world.version != version:
+                raise HTTPException(status_code=409, detail="世界状态已变化，请重新提交")
             now, request_id = to_iso(utc_now()), str(uuid4())
             event_id = _record_social_fact(
                 connection, world_id=world_id, actor_id=player["id"], target_id=npc["id"],
@@ -1674,6 +1713,11 @@ def create_app(
             ).fetchone()
             if request is None:
                 raise HTTPException(status_code=404, detail="长期事务不存在")
+            contract = connection.execute("SELECT * FROM contract_fulfillments WHERE request_id=?", (request_id,)).fetchone()
+            try:
+                ContractService.cancel(connection, contract, _world_time(connection, world_id))
+            except ContractError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             if player is None or request["requester_id"] != player["id"]:
                 raise HTTPException(status_code=403, detail="只有提出该事务的玩家可以结束它")
 
@@ -1737,24 +1781,28 @@ def create_app(
             npc = connection.execute("SELECT * FROM characters WHERE id = ?", (request["recipient_id"],)).fetchone()
             if player is None or npc is None:
                 raise HTTPException(status_code=409, detail="事务参与者已不存在")
-            if int(player["money"]) < payment:
+            if KINDS.get(request["operation_type"], request["operation_type"]) == "learning" and int(player["money"]) < payment:
                 raise HTTPException(status_code=409, detail="你的货币不足，事务没有执行")
             now = to_iso(utc_now())
-            if payment:
+            if payment and KINDS.get(request["operation_type"], request["operation_type"]) == "learning":
                 connection.execute("UPDATE characters SET money = money - ?, updated_at = ? WHERE id = ?", (payment, now, player["id"]))
                 connection.execute("UPDATE characters SET money = money + ?, updated_at = ? WHERE id = ?", (payment, now, npc["id"]))
             operation_type = request["operation_type"]
+            try:
+                due = ContractService.start(connection, request, terms, _world_time(connection, world_id))
+            except ContractError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             todo_id = None
             if operation_type in {"委托", "雇佣", "约定", "commission", "employment", "appointment"}:
                 todo_id = str(uuid4())
                 title = str(terms.get("title") or f"履行与{player['name']}的{operation_type}")[:160]
                 details = str(terms.get("details") or "由已确认的长期事务生成。")[:1000]
                 connection.execute(
-                    """INSERT INTO npc_todos(id, world_id, character_id, title, details, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (todo_id, world_id, npc["id"], title, details, now, now),
+                    """INSERT INTO npc_todos(id, world_id, character_id, title, details, created_at, updated_at, contract_id, due_world_time)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (todo_id, world_id, npc["id"], title, details, now, now, request_id, due),
                 )
-            summary = f"{player['name']}与{npc['name']}确认并执行了{operation_type}事务。"
+            summary = f"{player['name']}与{npc['name']}确认了{operation_type}事务，按已约定的规则开始履约。"
             event_id = _record_social_fact(
                 connection, world_id=world_id, actor_id=player["id"], target_id=npc["id"],
                 event_type="social.long_term_applied", summary=summary,
@@ -1789,6 +1837,35 @@ def create_app(
             )
             connection.execute("UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?", (now, world_id))
             return {"id": request_id, "status": "applied", "event_id": event_id, "todo_id": todo_id, "payment": payment}
+
+    @application.post("/api/worlds/{world_id}/long-term-requests/{request_id}/repay")
+    def repay_long_term(world_id: str, request_id: str) -> dict[str, object]:
+        with database.write() as connection:
+            contract = connection.execute(
+                "SELECT * FROM contract_fulfillments WHERE request_id=? AND world_id=?",
+                (request_id, world_id),
+            ).fetchone()
+            if contract is None:
+                raise HTTPException(status_code=404, detail="借贷事务不存在")
+            try:
+                ContractService.repay(connection, contract, _world_time(connection, world_id))
+            except ContractError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            connection.execute("UPDATE worlds SET version=version+1 WHERE id=?", (world_id,))
+            return {"status": "completed"}
+
+    @application.post("/api/worlds/{world_id}/agents/memory-jobs/{job_id}/retry")
+    def retry_memory_job(world_id: str, job_id: str) -> dict[str, object]:
+        with database.write() as connection:
+            changed = connection.execute(
+                """UPDATE memory_jobs SET status='pending', attempt_count=0,
+                   retry_at=NULL,last_error=NULL,updated_at=?
+                   WHERE id=? AND world_id=? AND status='failed'""",
+                (to_iso(utc_now()), job_id, world_id),
+            ).rowcount
+            if changed != 1:
+                raise HTTPException(status_code=409, detail="只能重试当前世界中失败的记忆任务")
+        return {"status": "pending"}
 
     @application.get("/api/worlds/{world_id}/agents/runs")
     def list_agent_runs(
