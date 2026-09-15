@@ -77,6 +77,11 @@ class MovementService:
         ).fetchone()
         if actor is None:
             raise LookupError(character_id)
+        from world_engine.life import LifeActivityService
+
+        LifeActivityService.assert_available(connection, character_id)
+        if actor["current_room_id"]:
+            raise ValueError("请先从房间离开，再开始室外行程")
         active = connection.execute(
             """
             SELECT id FROM character_movements

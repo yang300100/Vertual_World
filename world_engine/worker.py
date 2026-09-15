@@ -26,6 +26,7 @@ class WorldWorker:
         self.engine = WorldEngine(self.database, settings)
         self.stop_event = threading.Event()
         self._memory_future = None
+        self._outreach_future = None
 
     def run_once(self, *, elapsed_seconds: float | None = None) -> int:
         with self.database.read() as connection:
@@ -66,6 +67,13 @@ class WorldWorker:
                     self.engine.process_memory_jobs(world_id)
 
             self._memory_future = submit_call(process_memories)
+        if self._outreach_future is None or self._outreach_future.done():
+            def process_npc_contact():
+                from world_engine.outreach import process_outreach
+                for world in worlds:
+                    if self.stop_event.is_set():break
+                    process_outreach(self.engine,world.id)
+            self._outreach_future=submit_call(process_npc_contact)
         return completed
 
     def run_forever(self) -> None:

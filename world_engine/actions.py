@@ -9,9 +9,10 @@ from uuid import uuid4
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
 from world_engine.geo import great_circle_distance_km
 from world_engine.inventory import InventoryError, InventoryService
+from world_engine.life import LifeActivityError, LifeActivityService
 from world_engine.movement import MovementService
-from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
-from world_engine.repository import to_iso, utc_now
+from world_engine.proximity import VOICE_RADIUS_KM, same_room
+from world_engine.repository import from_iso, to_iso, utc_now
 
 
 class ActionRuleError(ValueError):
@@ -41,7 +42,7 @@ class ActionService:
             actor = self._get_actor(connection, world_id, proposal.actor_id)
             inventory_before = (
                 InventoryService.snapshot(connection, world_id)
-                if proposal.action in {ActionType.USE, ActionType.GATHER} else None
+                if proposal.action in {ActionType.USE, ActionType.GATHER, ActionType.EAT} else None
             )
             summary, target_id = self._apply(
                 connection, world_id, actor, proposal, occurred_at
@@ -67,8 +68,20 @@ class ActionService:
                     "work_completed": work_completed,
                     "input_kind": proposal.metadata.get("input_kind"),
                     "player_action_text": proposal.metadata.get("player_action_text"),
+                    "delivery": proposal.metadata.get("delivery", "normal"),
                 },
             )
+            if proposal.metadata.get("life_activity_id"):
+                connection.execute(
+                    "UPDATE character_life_activities SET source_event_id=? WHERE id=? "
+                    "AND world_id=? AND character_id=? AND source_event_id IS NULL",
+                    (event_id, proposal.metadata["life_activity_id"], world_id, actor["id"]),
+                )
+                from world_engine.activity_tasks import TaskService
+
+                TaskService.attach_source(
+                    connection, proposal.metadata["life_activity_id"], world_id, actor["id"], event_id,
+                )
             self._record_memory(
                 connection,
                 world_id=world_id,
@@ -97,7 +110,7 @@ class ActionService:
                 summary=summary,
                 event_id=event_id,
             )
-        except (ActionRuleError, InventoryError) as exc:
+        except (ActionRuleError, InventoryError, LifeActivityError) as exc:
             summary = f"{proposal.actor_id}的{proposal.action.value}行动未能成立：{exc}"
             event_id = self._record_event(
                 connection,
@@ -130,12 +143,40 @@ class ActionService:
         proposal: ActionProposal,
         occurred_at: datetime,
     ) -> tuple[str, str | None]:
+        LifeActivityService.assert_available(
+            connection, actor["id"], talking=proposal.action is ActionType.SOCIALIZE,
+        )
+        if (
+            proposal.action is ActionType.REST
+            or (
+                proposal.action is ActionType.IDLE
+                and proposal.metadata.get("life_activity") == "wait"
+            )
+        ):
+            kind = "rest" if proposal.action is ActionType.REST else "wait"
+            minutes = proposal.metadata.get("duration_minutes", 60 if kind == "rest" else 30)
+            activity_id = LifeActivityService.start(connection, actor, occurred_at, kind, minutes)
+            proposal.metadata["life_activity_id"] = activity_id
+            name = "休息" if kind == "rest" else "等待"
+            return f"{actor['name']}开始原地{name}，计划持续{minutes}个世界分钟。", None
+        if actor["is_player"] and proposal.action is ActionType.ACTIVITY:
+            from world_engine.activity_tasks import TaskService
+
+            aid, name, minutes = TaskService.start(
+                connection, actor, occurred_at,
+                proposal.metadata.get("recipe_id"), proposal.metadata.get("target_item_id"),
+                proposal.metadata.get("map_record_id"),
+            )
+            proposal.metadata["life_activity_id"] = aid
+            summary = f"{actor['name']}开始{name}，计划持续{minutes}个世界分钟。"
+            detail = "仅核对已有观测，结果尚未完成。" if proposal.metadata.get("map_record_id") else "材料已预留，成果尚未完成。" if proposal.metadata.get("recipe_id") else "完成后才会结算工作报酬。"
+            return summary + detail, None
         if proposal.action is ActionType.REST:
             return self._rest(connection, actor), None
         if proposal.action is ActionType.EAT:
-            return self._eat(connection, actor), None
+            return self._eat(connection, actor, occurred_at), None
         if proposal.action is ActionType.WORK:
-            return self._work(connection, world_id, actor, occurred_at), None
+            return self._work(connection, world_id, actor, occurred_at, proposal), None
         if proposal.action is ActionType.TRAVEL:
             return self._travel(
                 connection, world_id, actor, proposal, occurred_at
@@ -159,7 +200,11 @@ class ActionService:
         self._update_character(connection, actor["id"], energy=energy, satiety=satiety)
         return f"{actor['name']}睡了一觉，精力恢复到{energy}。"
 
-    def _eat(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
+    def _eat(self, connection: sqlite3.Connection, actor: sqlite3.Row, at=None) -> str:
+        from world_engine.economy import EconomyService
+        meal = EconomyService.food(connection, actor, at=at)
+        if meal:
+            return meal
         if actor["money"] < 3:
             raise ActionRuleError("没有足够的钱购买食物")
         location = connection.execute(
@@ -168,6 +213,8 @@ class ActionService:
         ).fetchone()
         self._assert_near_location(actor, location)
         resources = json.loads(location["resources_json"])
+        if connection.execute("SELECT 1 FROM world_item_profiles WHERE world_id=? AND resource_location_id=? AND resource_key='food'",(actor["world_id"],self._require_current_location(actor))).fetchone():
+            raise ActionRuleError("这里的食物按登记库存经营，请购买或合法收取后食用")
         if int(resources.get("food", 0)) <= 0:
             raise ActionRuleError("当前位置没有可获得的食物")
         resources["food"] = int(resources["food"]) - 1
@@ -186,6 +233,7 @@ class ActionService:
         world_id: str,
         actor: sqlite3.Row,
         occurred_at: datetime,
+        proposal: ActionProposal | None = None,
     ) -> str:
         """工作提案在错误地点时先发起真实移动，不瞬移也不直接发放报酬。"""
         active_movement = connection.execute(
@@ -198,16 +246,16 @@ class ActionService:
         ).fetchone()
         at_workplace = (
             location is not None
-            and location["kind"] == "workplace"
+            and (location["kind"] == "workplace" or connection.execute("SELECT 1 FROM workplace_accounts WHERE location_id=? AND world_id=?",(location["id"],world_id)).fetchone())
             and great_circle_distance_km(
                 actor["longitude"], actor["latitude"], location["longitude"], location["latitude"]
-            ) <= 5.0
+            ) <= .1
         )
         if not at_workplace:
             if active_movement is not None:
                 return f"{actor['name']}仍在前往工作地点的路上，抵达后再开始工作。"
             workplaces = connection.execute(
-                "SELECT id, name, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1 AND kind = 'workplace'",
+                "SELECT id, name, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1 AND (kind = 'workplace' OR id IN (SELECT location_id FROM workplace_accounts))",
                 (world_id,),
             ).fetchall()
             if not workplaces:
@@ -235,6 +283,13 @@ class ActionService:
             )
             return f"{actor['name']}当前不在可工作地点，已动身前往{destination['name']}；抵达后才会结算工作。"
         assert location is not None
+        if proposal is not None:
+            from world_engine.activity_tasks import TaskService
+
+            aid, name, minutes = TaskService.start(connection, actor, occurred_at)
+            if proposal is not None:
+                proposal.metadata["life_activity_id"] = aid
+            return f"{actor['name']}开始{name}，持续{minutes}个世界分钟；完成后按场所约定结算报酬。"
         if actor["energy"] < 20:
             raise ActionRuleError("精力不足以完成工作")
         energy = _clamp(actor["energy"] - 16)
@@ -308,15 +363,18 @@ class ActionService:
             raise ActionRuleError("交流对象不存在于当前世界")
         if target["id"] == actor["id"]:
             raise ActionRuleError("不能把自己作为交流对象")
+        if not same_room(actor, target):
+            raise ActionRuleError("双方不在同一个室内外空间，无法当面交流")
+        delivery=proposal.metadata.get("delivery","normal")
+        if delivery not in VOICE_RADIUS_KM:raise ActionRuleError("说话方式无效")
         if great_circle_distance_km(
             actor["longitude"],
             actor["latitude"],
             target["longitude"],
             target["latitude"],
-        ) > VISIBLE_PERSON_RADIUS_KM:
-            raise ActionRuleError("双方距离超过100米，无法交流")
-        self._change_relationship(connection, world_id, actor["id"], target["id"], 3, 2)
-        self._change_relationship(connection, world_id, target["id"], actor["id"], 2, 1)
+        ) > VOICE_RADIUS_KM[delivery]:
+            raise ActionRuleError("对方超出当前说话方式的可听范围，请走近或选择喊话")
+        # 关系变化由经历处理器按世界时间去重，不能靠重复寒暄无限增长。
         self._update_character(
             connection,
             actor["id"],
@@ -355,6 +413,8 @@ class ActionService:
             raise ActionRuleError("目标不存在于当前世界")
         if target["id"] == actor["id"]:
             raise ActionRuleError("不能攻击自己")
+        if not same_room(actor, target):
+            raise ActionRuleError("目标不在同一个室内外空间")
         if great_circle_distance_km(
             actor["longitude"],
             actor["latitude"],
@@ -379,6 +439,10 @@ class ActionService:
             reply_text = f"「{target['name']}」反手回击，造成 {ret} 点伤害。"
         self._update_character(connection, actor["id"], health=attacker_health)
         self._update_character(connection, target["id"], health=target_health)
+        world_time = connection.execute(
+            'SELECT "current_time" FROM worlds WHERE id=?', (world_id,),
+        ).fetchone()[0]
+        LifeActivityService.interrupt(connection, target["id"], from_iso(world_time), "遭到攻击。")
 
         summary = f"{actor['name']}向{target['name']}发起攻击，造成 {dmg} 点伤害。{reply_text}"
 
@@ -495,7 +559,10 @@ class ActionService:
             raise ActionRuleError("使用需要指定物品")
         operation = proposal.metadata.get("operation", "use")
         container = "character_equipment" if operation == "unequip" else "character_inventory"
-        instance = InventoryService.find(connection, world_id, actor["id"], item_name, container)
+        instance = InventoryService.find(
+            connection, world_id, actor["id"], item_name, container,
+            instance_id=proposal.metadata.get("item_id"),
+        )
         if instance is None:
             raise ActionRuleError("背包中没有该物品")
         if not InventoryService.owned(instance, actor["id"]):
@@ -508,8 +575,9 @@ class ActionService:
             location = connection.execute("SELECT * FROM locations WHERE id=?", (location_id,)).fetchone()
             self._assert_near_location(actor, location)
             connection.execute(
-                "UPDATE item_instances SET container_type='location_ground', container_id=? WHERE id=?",
-                (location_id, instance["id"]),
+                "UPDATE item_instances SET container_type=?, container_id=? WHERE id=?",
+                ("room_ground" if actor["current_room_id"] else "location_ground",
+                 actor["current_room_id"] or location_id, instance["id"]),
             )
             return f"{actor['name']}放下了{instance['name']}，所有权保留。", None
         if instance["category"] == "consumable" and instance["heal"] > 0:
@@ -538,7 +606,9 @@ class ActionService:
         ).fetchone()
         self._assert_near_location(actor, location)
         ground = InventoryService.find(
-            connection, world_id, self._require_current_location(actor), item_name, "location_ground"
+            connection, world_id, actor["current_room_id"] or self._require_current_location(actor),
+            item_name, "room_ground" if actor["current_room_id"] else "location_ground",
+            instance_id=proposal.metadata.get("item_id"),
         )
         if ground is None:
             raise ActionRuleError("此处地上没有这件物品")
@@ -671,6 +741,8 @@ class ActionService:
                 to_iso(utc_now()),
             ),
         )
+        from world_engine.society import SocietyService
+        SocietyService.observe_event(connection, event_id)
         return event_id
 
     @staticmethod
@@ -706,6 +778,7 @@ class ActionService:
     @staticmethod
     def _importance(action: ActionType) -> int:
         return {
+            ActionType.ACTIVITY: 4,
             ActionType.SOCIALIZE: 6,
             ActionType.ATTACK: 8,
             ActionType.USE: 5,

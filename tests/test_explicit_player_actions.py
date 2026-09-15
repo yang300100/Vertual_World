@@ -222,7 +222,7 @@ def test_explicit_speech_with_action_words_stays_dialogue(database, scenario):
         assert connection.execute("SELECT COUNT(*) FROM player_activity_records").fetchone()[0] == 0
 
 
-def test_explicit_rest_uses_existing_rules_not_dialogue(database, scenario):
+def test_explicit_rest_starts_persistent_activity_not_instant_recovery(database, scenario):
     engine, provider, wid, player, npc, _ = scenario
     with database.write() as connection:
         connection.execute("UPDATE characters SET energy=30 WHERE id=?", (player,))
@@ -231,8 +231,14 @@ def test_explicit_rest_uses_existing_rules_not_dialogue(database, scenario):
     with database.read() as connection:
         assert (
             connection.execute("SELECT energy FROM characters WHERE id=?", (player,)).fetchone()[0]
-            == 70
+            == 30
         )
+        activity = connection.execute(
+            "SELECT * FROM character_life_activities WHERE character_id=? AND status='running'",
+            (player,),
+        ).fetchone()
+        assert activity is not None and activity["kind"] == "rest"
+        assert activity["source_event_id"] == result.outcome.event_id
 
 
 def test_input_prefix_is_an_explicit_protocol():

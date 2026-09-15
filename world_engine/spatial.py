@@ -51,6 +51,22 @@ class SpatialContextService:
         longitude: float,
         latitude: float,
     ) -> str | None:
+        room = connection.execute(
+            "SELECT r.location_id,l.longitude,l.latitude,l.is_active FROM characters c "
+            "JOIN life_rooms r ON r.id=c.current_room_id JOIN locations l ON l.id=r.location_id "
+            "WHERE c.id=? AND c.world_id=?", (character_id, world_id),
+        ).fetchone()
+        if room is not None and room["is_active"] and great_circle_distance_km(
+            longitude, latitude, room["longitude"], room["latitude"],
+        ) <= 0.1:
+            connection.execute("UPDATE characters SET current_location_id=? WHERE id=?",
+                               (room["location_id"], character_id))
+            return room["location_id"]
+        if room is not None:
+            connection.execute(
+                "UPDATE characters SET current_room_id=NULL,current_fixture_id=NULL WHERE id=?",
+                (character_id,),
+            )
         location = self.resolve_location(
             connection,
             world_id=world_id,

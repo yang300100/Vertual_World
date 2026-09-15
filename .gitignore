@@ -25,3 +25,7 @@ run_pytest_err.txt
 
 # 临时工作目录
 wwtmp/
+
+# pytest 临时产物（审计/回归跑测留下的目录，含临时数据库）
+.audit_*/
+.pytest_tmp*/

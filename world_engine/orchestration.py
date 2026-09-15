@@ -31,6 +31,7 @@ from world_engine.domain import (
     WorldSnapshot,
 )
 from world_engine.geo import great_circle_distance_km
+from world_engine.proximity import same_room
 from world_engine.knowledge import (
     KnowledgeHit,
     WorldKnowledgeBase,
@@ -345,6 +346,8 @@ class SceneAssembler:
                 if c.activation_state == "active" and c.id != (pov.id if pov else None)
             ]
 
+        if pov is not None:
+            visible = [item for item in visible if same_room(pov, item)]
         events = [
             self._event_view(item) for item in (recent_events or [])
         ]

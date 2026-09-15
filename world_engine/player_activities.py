@@ -9,7 +9,8 @@ from uuid import uuid4
 from world_engine.actions import ActionService
 from world_engine.domain import ActionOutcome, ActionType
 from world_engine.geo import great_circle_distance_km
-from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
+from world_engine.life import LifeActivityService
+from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import to_iso, utc_now
 
 
@@ -68,6 +69,7 @@ class PlayerActivityService:
                 npc
                 and not npc.is_player
                 and npc.health > 0
+                and same_room(player, npc)
                 and great_circle_distance_km(
                     player.longitude, player.latitude, npc.longitude, npc.latitude
                 )
@@ -112,7 +114,9 @@ class PlayerActivityService:
             (player.id,),
         ).fetchone()
         rejection = None
-        if not steps:
+        if LifeActivityService.running(connection, player.id):
+            rejection = "请先结束当前的休息或等待，再开始新的行动。"
+        elif not steps:
             rejection = "这项行动尚无可执行规则，未改变人物、物品或任务状态。"
         elif player.energy < len(steps) * 2:
             rejection = "精力不足以完成这项工作，请先休息。"
@@ -135,6 +139,7 @@ class PlayerActivityService:
             location = snapshot.location_by_id(player.current_location_id or player.location_id)
             local_observation = {
                 "location": location.name if location else "野外",
+                "room_id": player.current_room_id,
                 "longitude": player.longitude,
                 "latitude": player.latitude,
                 "world_time": to_iso(snapshot.world.current_time),
@@ -233,6 +238,7 @@ class PlayerActivityService:
         if unsupported and not rejection:
             summary += "；其余未支持的动作尚未执行：" + "、".join(unsupported)
         payload = {
+            **json.loads(connection.execute("SELECT payload_json FROM world_events WHERE id=?", (event_id,)).fetchone()[0]),
             "input_kind": "action",
             "player_action_text": text,
             "result": summary,

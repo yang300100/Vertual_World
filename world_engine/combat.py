@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
 from world_engine.geo import great_circle_distance_km
+from world_engine.proximity import same_room
 from world_engine.repository import to_iso, utc_now
 
 # 战斗交互与撤退出战距离阈值(公里)，与现有 action 规则保持一致。
@@ -66,6 +67,8 @@ class CombatResolver:
             return self._reject(proposal, "目标不存在于当前世界")
         if target["id"] == actor["id"]:
             return self._reject(proposal, "不能攻击自己")
+        if not same_room(actor, target):
+            return self._reject(proposal, "目标不在同一个室内外空间")
         distance = great_circle_distance_km(
             actor["longitude"], actor["latitude"], target["longitude"], target["latitude"]
         )

@@ -10,7 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from world_engine.agent_llm import AgentModelBackend
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
-from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
+from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
+from world_engine.sequences import SequenceStep, explicit_steps
 
 IntentOperation = Literal["purchase", "sell", "trade", "transfer", "learn", "repair", "heal", "letter_exchange", "none"]
 
@@ -23,6 +24,7 @@ class IntentParseResult(BaseModel):
     item_name: str | None = Field(default=None, max_length=80)
     amount: int | None = Field(default=None, ge=0, le=1_000_000)
     skill_name: str | None = Field(default=None, max_length=80)
+    sequence_steps: list[SequenceStep] = Field(default_factory=list,max_length=6)
 
 
 class IntentTargetOption(BaseModel):
@@ -43,6 +45,7 @@ class IntentPreview(BaseModel):
     item_name: str = ""
     amount: int | None = None
     skill_name: str = ""
+    sequence_steps: list[SequenceStep] = Field(default_factory=list,max_length=6)
 
 
 class IntentParserAgent:
@@ -60,7 +63,11 @@ class IntentParserAgent:
         preferred_target_id: str | None = None,
     ) -> IntentPreview:
         targets = self._visible_targets(player, snapshot)
+        explicit=explicit_steps(intent)
+        if explicit:return IntentPreview(requires_form=False,operation="none",sequence_steps=explicit)
         parsed = self._parse(intent, targets, preferred_target_id)
+        if len(parsed.sequence_steps)>=2:
+            return IntentPreview(requires_form=False,operation="none",sequence_steps=parsed.sequence_steps)
         if parsed.operation == "learn" and not self._is_explicit_learning_request(intent):
             # “怎样才肯教”是在交谈中询问条件，不是确认报名学习；不能据此弹出教学表单。
             parsed = IntentParseResult()
@@ -99,6 +106,9 @@ class IntentParserAgent:
                     "只有玩家明确要立刻学习或请求开始教学时才可用 learn；询问对方是否愿意教、"
                     "教学条件、价格或缘由时仍是普通对话，operation=none；"
                     "无法确定时 operation=none。target_character_id 只能取 target_options 的 id。\n"
+                    "如果玩家明确表达先做动作再说话等组合意图，operation=none，另给sequence_steps数组，"
+                    "每项为{kind:action或speech,text:该步原意,target_character_id:可见对象ID或null}；"
+                    "保持顺序，不添加用户没有要求的步骤。普通单句对话、询问或假设不得拆成要执行的动作。\n"
                     "# 输出\n只输出 JSON：{\"operation\":\"purchase|sell|trade|transfer|learn|repair|heal|letter_exchange|none\","
                     "\"target_character_id\":null,\"item_name\":null,\"amount\":null,\"skill_name\":null}。"
                 ),
@@ -137,6 +147,7 @@ class IntentParserAgent:
             for item in snapshot.characters
             if not item.is_player
             and item.health > 0
+            and same_room(player, item)
             and great_circle_distance_km(
                 player.longitude, player.latitude, item.longitude, item.latitude
             ) <= VISIBLE_PERSON_RADIUS_KM

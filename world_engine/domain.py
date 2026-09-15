@@ -142,6 +142,8 @@ class CharacterState(BaseModel):
     movement_speed_kmh: float = Field(default=5.0, gt=0)
     active_vehicle_id: str | None = None
     current_location_id: str | None = None
+    current_room_id: str | None = None
+    current_fixture_id: str | None = None
     activation_state: str = "background"
     activation_policy: str = "distance"
     activation_reason: str | None = None
@@ -303,6 +305,8 @@ class HeartbeatResult(BaseModel):
     adjudication_due: bool
     adjudication: TickResult | None = None
     adjudication_error: str | None = None
+    time_skip_reason: str | None = None
+    time_skip_replayed: bool = False
 
 
 class ClockUpdateResult(BaseModel):

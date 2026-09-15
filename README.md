@@ -4,6 +4,30 @@
 
 ## 设计文档
 
+周期作息、公开时段、实际执行与生计偏好见[实施记录20](docs/design/20-recurring-routines-and-livelihood.md)。
+生产备料、限额采购及制作/修理工具占用与磨损见[实施记录21](docs/design/21-production-supplies-and-tools.md)。
+门口拜访、住客应门、一次性进入邀请及实体钥匙见[实施记录22](docs/design/22-door-visits-and-physical-keys.md)。
+食品批次、保鲜与变质、持续不适见[实施记录23](docs/design/23-food-freshness-and-discomfort.md)。
+内容导出工具现支持 npc_routine，可由其他模型填写后通过统一注册器审核。
+
+最终目标是打造用户可以持续生活其中的虚拟世界。经历需要真实后果，人物需要独立认知和连续性。
+事件因果、姓名/位置证据及有来源的长期倾向见[实施记录19](docs/design/19-lived-experience-evidence-and-growth.md)。
+
+NPC 日程与改期实现见 [设计文档 18](docs/design/18-npc-schedules-and-content-handoff.md)。
+内容可以交给其他模型依据[填写说明](docs/content/life-content-authoring.md)编写，
+使用 `python -m scripts.prepare_life_content` 导出只读目录与真实字段规范，再校验草案。
+该工具不会写入世界或自动确认登记。
+
+文字生活体验的分阶段计划与验收记录见
+[`docs/design/16-lived-world-roadmap.md`](docs/design/16-lived-world-roadmap.md)。
+第一步已支持场景内真实物品查看/拾取/放下，以及按世界时间持续、可结束的休息与等待。
+例如输入 `动作：休息30分钟`，或在场景页“在这里停留”选择活动和持续时间。
+室内空间已支持通过“编年者 → 元素注册”提交并确认已有布局，随后可以开关门、
+进出房间、坐下起身、存取物品并管理使用许可。NPC 自主生活、消息与关系、限期住房、真实生计及个人目标已接通，并通过独立七日生活验收。
+玩家工作、制作和修理现已支持实际耗时、原料预留与完成交付，可选择“等候到下一处变化”。
+困难动作的概率检定评估见 [`docs/design/17-action-checks-proposal.md`](docs/design/17-action-checks-proposal.md)，
+修理与地图核对已经启用服务端检定，包含部分成功、失败后果和受限技能成长；开锁仍是后续扩展。
+
 本轮内核完善的实现与边界见
 [`docs/design/14-core-completion.md`](docs/design/14-core-completion.md)：
 包括记忆可见性与可恢复队列、真实库存和堆叠、模型调用超时、
@@ -361,7 +385,7 @@ logs/worlds/<world_id>/characters/<character_id>.state.jsonl
 
 ## 后续阶段
 
-1. 增加环境、经济、关系传播与长期目标系统。
+1. 在现有生活闭环上扩展天气、食物腐败、开锁与更细的社会经济规则。
 2. 增加模型成本预算、调用统计、批量人物决策优化与记忆压缩。
 3. 轮换已经在聊天中暴露过的测试密钥，并仅在服务器环境变量中配置新密钥。
 4. 根据体验目标选择文字、网页、视觉小说或游戏表现层。

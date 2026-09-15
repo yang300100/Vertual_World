@@ -171,13 +171,15 @@ class WorldEngine:
         *,
         real_now: datetime | None = None,
         elapsed_seconds: float | None = None,
+        activity_skip: dict[str, object] | None = None,
     ) -> HeartbeatResult:
         result = self.clock.heartbeat(
             world_id,
             real_now=real_now,
             elapsed_seconds=elapsed_seconds,
+            activity_skip=activity_skip,
         )
-        if result.adjudication_due:
+        if result.adjudication_due and not result.time_skip_replayed:
             try:
                 with self.database.read() as connection:
                     snapshot = self.repository.get_snapshot(connection, world_id)
@@ -341,6 +343,7 @@ class WorldEngine:
         intent: str,
         *,
         target_character_id: str | None = None,
+        delivery: str = "normal",
     ) -> PlayerActionResult:
         """把玩家一条自然语言意图结算为一次行动，与心跳/裁判解耦。
 
@@ -348,6 +351,8 @@ class WorldEngine:
         意图转成一次 ActionProposal，执行并写事件；只增加版本号，不推进轮次。
         """
         message = parse_player_input(intent)
+        from world_engine.sequences import explicit_steps
+        if explicit_steps(intent):raise ValueError("这是组合输入，请通过连续行动入口执行")
         if message.kind == "action":
             from world_engine.player_action_flow import execute_explicit_action
 
@@ -430,6 +435,11 @@ class WorldEngine:
                 None,
             )
             if target is not None:
+                from world_engine.geo import great_circle_distance_km
+                from world_engine.proximity import VOICE_RADIUS_KM, same_room
+                if delivery not in VOICE_RADIUS_KM:raise ValueError("说话方式无效")
+                if not same_room(player,target) or great_circle_distance_km(player.longitude,player.latitude,target.longitude,target.latitude)>VOICE_RADIUS_KM[delivery]:
+                    raise ValueError("对方听不见当前音量的话语，请走近或选择喊话")
                 if not proposal.dialogue:
                     proposal.dialogue = intent
                 # 目标 NPC 单独决定如何回应；没有模型就拒绝本次对话，不能写入预设回答。
@@ -448,7 +458,7 @@ class WorldEngine:
                             conversation=conversation,
                             channel="in_person",
                             interaction="当面交谈；双方必须在100米可见范围内",
-                            decision_details={"action": "socialize"},
+                            decision_details={"action": "socialize", "delivery":delivery},
                         )
                     npc_reply = responder(npc=target, player=player, context=reply_context)
                 except Exception as exc:
@@ -457,6 +467,7 @@ class WorldEngine:
                 proposal.reply = npc_reply.reply
                 proposal.metadata["npc_social_move"] = npc_reply.social_move
         proposal.metadata.setdefault("player_intent", intent)
+        proposal.metadata["delivery"]=delivery
         if conversation is not None:
             proposal.metadata["conversation_target_id"] = conversation.npc_id
             proposal.metadata["conversation_turn_count"] = len(conversation.turns)
@@ -620,6 +631,7 @@ class WorldEngine:
         *,
         participant_ids: list[str] | None = None,
         max_speakers: int = 2,
+        delivery: str = "normal",
     ) -> dict[str, object]:
         """让本地调度器选中在场发言者，再逐人生成并原子记录多人回应。"""
         with self.database.read() as connection:
@@ -628,12 +640,15 @@ class WorldEngine:
             if player is None:
                 raise ValueError("当前世界还没有玩家角色，无法发起多人对话")
             scheduler = DialogueSpeakerScheduler(max_speakers=max_speakers)
+            from world_engine.proximity import VOICE_RADIUS_KM
+            if delivery not in VOICE_RADIUS_KM:raise ValueError("说话方式无效")
             selected = scheduler.select(
                 connection,
                 snapshot=snapshot,
                 player=player,
                 intent=intent,
                 participant_ids=participant_ids,
+                radius_km=VOICE_RADIUS_KM[delivery],
             )
         if not selected:
             raise ValueError("100米内没有可以参与多人对话的 NPC")
@@ -716,6 +731,7 @@ class WorldEngine:
                     reply=reply.reply,
                     metadata={
                         "group_dialogue_id": group_dialogue_id,
+                        "delivery": delivery,
                         "group_turn_order": turn_order,
                         "npc_social_move": reply.social_move,
                     },
@@ -787,6 +803,10 @@ class WorldEngine:
             player = next((item for item in snapshot.characters if item.is_player), None)
             if player is None:
                 raise ValueError("当前世界还没有玩家角色，无法解析行动")
+            from world_engine.sequences import explicit_steps
+            steps = explicit_steps(intent)
+            if steps:
+                return IntentPreview(requires_form=False, operation="none", sequence_steps=steps)
             if parse_player_input(intent).kind in {"action", "speech"}:
                 if not parse_player_input(intent).text:
                     raise ValueError("输入前缀后不能为空")

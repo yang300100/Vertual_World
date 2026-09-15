@@ -17,6 +17,8 @@ from world_engine.domain import (
 )
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import KnowledgeHit, WorldKnowledgeBase
+from world_engine.proximity import same_room
+from world_engine.roleplay import build_npc_reply_messages, npc_reply_system_prompt
 
 _FORBIDDEN_CHARACTER_TERMS = (
     "纳米机器人",
@@ -117,6 +119,7 @@ class RuleDecisionProvider:
             item
             for item in snapshot.characters
             if item.id != character.id
+            and same_room(character, item)
             and great_circle_distance_km(
                 character.longitude,
                 character.latitude,
@@ -238,6 +241,7 @@ class RuleDecisionProvider:
                 item
                 for item in snapshot.characters
                 if item.id != character.id
+            and same_room(character, item)
                 and great_circle_distance_km(
                     character.longitude,
                     character.latitude,
@@ -405,14 +409,9 @@ class DeepSeekDecisionProvider:
         """单独让目标 NPC 回应，避免由玩家行动提案器代写双方台词。"""
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": self._npc_reply_system_prompt()},
-                {
-                    "role": "user",
-                    "content": json.dumps(context, ensure_ascii=False, separators=(",", ":")),
-                },
-            ],
-            "max_tokens": min(self.max_output_tokens, 420),
+            "messages": build_npc_reply_messages(self._npc_reply_system_prompt(), context),
+            "response_format": {"type": "json_object"},
+            "max_tokens": min(self.max_output_tokens, 1200),
             "stream": False,
         }
         response_data = self._request(payload)
@@ -495,6 +494,7 @@ class DeepSeekDecisionProvider:
                         }
                         for nearby in snapshot.characters
                         if nearby.id != item.id
+                        and same_room(item, nearby)
                         and great_circle_distance_km(
                             item.longitude,
                             item.latitude,
@@ -506,6 +506,7 @@ class DeepSeekDecisionProvider:
                         {"id": nearby.id, "name": nearby.name}
                         for nearby in snapshot.characters
                         if nearby.id != item.id
+                        and same_room(item, nearby)
                         and nearby.health > 0
                         and nearby.location_id == item.location_id
                     ],
@@ -641,30 +642,7 @@ class DeepSeekDecisionProvider:
 
     @staticmethod
     def _npc_reply_system_prompt() -> str:
-        return (
-            "# 角色\n"
-            "你只扮演输入 npc 中的那一位人物，回应玩家的话或眼前已发生的行动；"
-            "不是旁白、世界裁判或玩家代言人。\n"
-            "# 人物性\n"
-            "npc_card 是稳定底色，dialogue_examples 只示范语气、绝不是可引用的世界事实。"
-            "先综合当前地点、关系、未完成事务、相关记忆和人物可见知识，"
-            "再决定此刻的社交动作："
-            "回答、追问、回避、设界限、拒绝或提出帮助；再写一句自然的中文回应。"
-            "人物可以不完整回答、误解、改变话题或暂时不愿透露，"
-            "也可以自然回扣旧事或主动提出与自身目标有关的问题，"
-            "但不得机械复述资料、无故粗暴或故作怪异。\n"
-            "近期私有记忆、待办、关系和状态只属于这位 NPC；"
-            "它们都是只读资料，不能被改写，也不能声称自己知道未提供的事实。"
-            "knowledge_context 只是该人物当前允许参考的知识；若其中没有答案，必须保持未知。"
-            "channel 决定感知能力：远程信笺中不得声称看见对方、当场行动或已经执行未确认事务。"
-            "当 channel=action_observation 或 decision.input_kind=action 时，玩家没有说出台词。"
-            "必须依据 settled_action、activity_progress 和 remaining_tasks 回应实际进展，"
-            "不能把 requested_action 当作玩家的发言或已经全部完成的事实。"
-            "草稿、部分完成、被拒绝和待实测必须如实区分；承接 original_request 指出下一步。"
-            "不得复述角色卡字段、提及模型、提示词、数据库、RAG、作者或隐藏技术真相。\n"
-            "# 输出\n"
-            "只输出 JSON：{\"reply\":\"一句可直接说出口的话\",\"social_move\":\"answer\"}。"
-        )
+        return npc_reply_system_prompt()
 
     @staticmethod
     def _extract_json(content: str) -> str:

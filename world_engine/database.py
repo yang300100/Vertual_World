@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
 from world_engine.demographics import stable_npc_demographics
+from world_engine.interiors import INTERIOR_SCHEMA
+from world_engine.life import LIFE_SCHEMA
 from world_engine.time_utils import is_time_only, next_adjudication_boundary, parse_datetime
 
 SCHEMA = """
@@ -573,7 +576,7 @@ CREATE TABLE IF NOT EXISTS element_registration_requests (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     element_type TEXT NOT NULL CHECK(element_type IN (
-        'character_birth','character_arrival','settlement','building','structure','lore'
+        'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine'
     )),
     requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
     source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
@@ -928,6 +931,59 @@ class Database:
             self._migrate_character_species_columns(connection)
             self._migrate_social_operation_columns(connection)
             self._migrate_completion_columns(connection)
+            self._migrate_life_kinds(connection)
+            connection.executescript(LIFE_SCHEMA)
+            from world_engine.activity_tasks import TASK_SCHEMA
+            connection.executescript(TASK_SCHEMA)
+            from world_engine.action_checks import CHECK_SCHEMA
+            connection.executescript(CHECK_SCHEMA)
+            from world_engine.society import SOCIETY_SCHEMA
+            connection.executescript(SOCIETY_SCHEMA)
+            from world_engine.economy import ECONOMY_SCHEMA
+            connection.executescript(ECONOMY_SCHEMA)
+            from world_engine.living_api import LIVING_SCHEMA
+            connection.executescript(LIVING_SCHEMA)
+            from world_engine.sequences import SEQUENCE_SCHEMA
+            connection.executescript(SEQUENCE_SCHEMA)
+            from world_engine.schedules import SCHEDULE_SCHEMA
+            connection.executescript(SCHEDULE_SCHEMA)
+            from world_engine.routines import ROUTINE_SCHEMA
+            connection.executescript(ROUTINE_SCHEMA)
+            from world_engine.npc_goals import GOAL_SCHEMA
+            connection.executescript(GOAL_SCHEMA)
+            from world_engine.event_history import EVENT_HISTORY_SCHEMA
+            from world_engine.epistemics import EPISTEMIC_SCHEMA
+            from world_engine.character_growth import CHARACTER_GROWTH_SCHEMA
+            connection.executescript(EVENT_HISTORY_SCHEMA)
+            connection.executescript(EPISTEMIC_SCHEMA)
+            connection.executescript(CHARACTER_GROWTH_SCHEMA)
+            connection.executescript(INTERIOR_SCHEMA)
+            from world_engine.food import FOOD_SCHEMA
+            connection.executescript(FOOD_SCHEMA)
+            item_columns = {row["name"] for row in connection.execute("PRAGMA table_info(item_instances)")}
+            for column in ("fresh_until_world_time", "spoils_world_time"):
+                if column not in item_columns:
+                    connection.execute(f"ALTER TABLE item_instances ADD COLUMN {column} TEXT")
+            from world_engine.visits import VISIT_SCHEMA
+            connection.executescript(VISIT_SCHEMA)
+            character_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(characters)")
+            }
+            if "current_room_id" not in character_columns:
+                connection.execute(
+                    "ALTER TABLE characters ADD COLUMN current_room_id TEXT "
+                    "REFERENCES life_rooms(id) ON DELETE RESTRICT"
+                )
+            if "current_fixture_id" not in character_columns:
+                connection.execute(
+                    "ALTER TABLE characters ADD COLUMN current_fixture_id TEXT "
+                    "REFERENCES life_fixtures(id) ON DELETE RESTRICT"
+                )
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_occupied_fixture "
+                "ON characters(current_fixture_id) "
+                "WHERE current_fixture_id IS NOT NULL"
+            )
             self._remove_legacy_player_controlled_social_records(connection)
             self._ensure_default_species_profiles(connection)
             self._ensure_npc_demographics(connection)
@@ -939,6 +995,45 @@ class Database:
             self._ensure_clock_and_accumulator_rows(connection)
             self._repair_time_only_timestamps(connection)
             self._synchronize_world_element_catalog(connection)
+            from world_engine.society import SocietyService
+            SocietyService.bootstrap(connection)
+            from world_engine.event_history import EventHistoryService
+            from world_engine.character_growth import CharacterGrowthService
+            EventHistoryService.bootstrap(connection)
+            CharacterGrowthService.bootstrap(connection)
+
+    @staticmethod
+    def _migrate_life_kinds(connection: sqlite3.Connection) -> None:
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name='character_life_activities'"
+        ).fetchone()
+        if row is None or "map_review" in row["sql"]:
+            return
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            ddl = row["sql"].replace(
+                "character_life_activities", "character_life_activities_next", 1,
+            )
+            ddl = re.sub(
+                r"kind IN \([^)]*\)",
+                "kind IN ('rest','wait','work','craft','repair','map_review')", ddl, count=1,
+            )
+            connection.execute(ddl)
+            connection.execute(
+                "INSERT INTO character_life_activities_next SELECT * FROM character_life_activities"
+            )
+            connection.execute("DROP TABLE character_life_activities")
+            connection.execute(
+                "ALTER TABLE character_life_activities_next RENAME TO character_life_activities"
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
     def _migrate_completion_columns(connection: sqlite3.Connection) -> None:
@@ -1132,7 +1227,7 @@ class Database:
             "SELECT sql FROM sqlite_master WHERE type = 'table' "
             "AND name = 'element_registration_requests'"
         ).fetchone()
-        if row is None or "character_arrival" in str(row["sql"] or ""):
+        if row is None or "npc_routine" in str(row["sql"] or ""):
             return
         connection.commit()
         connection.execute("PRAGMA foreign_keys = OFF")
@@ -1143,7 +1238,7 @@ class Database:
                     id TEXT PRIMARY KEY,
                     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
                     element_type TEXT NOT NULL CHECK(element_type IN (
-                        'character_birth','character_arrival','settlement','building','structure','lore'
+                        'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine'
                     )),
                     requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
                     source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
@@ -1283,7 +1378,7 @@ class Database:
         来源可能来自外部/手工写入；若不修复，编排入口与裁判的
         datetime.fromisoformat 会因时间串直接崩溃。
         """
-        for row in connection.execute("SELECT id, current_time FROM worlds").fetchall():
+        for row in connection.execute("SELECT w.id, w.current_time FROM worlds w").fetchall():
             current = str(row["current_time"] or "")
             if not is_time_only(current):
                 continue

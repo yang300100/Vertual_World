@@ -865,6 +865,10 @@ class WorldRepository:
             world_id=row["world_id"],
             name=row["name"],
             location_id=row["location_id"],
+            current_room_id=row["current_room_id"] if "current_room_id" in row.keys() else None,
+            current_fixture_id=(
+                row["current_fixture_id"] if "current_fixture_id" in row.keys() else None
+            ),
             longitude=row["longitude"],
             latitude=row["latitude"],
             movement_type=(row["movement_type"] if "movement_type" in row.keys() else "land"),

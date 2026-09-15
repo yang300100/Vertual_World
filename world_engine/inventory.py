@@ -13,13 +13,26 @@ class InventoryError(ValueError):
 
 class InventoryService:
     @staticmethod
-    def find(connection, world_id, holder_id, name, container="character_inventory"):
+    def same_freshness(first, second):
+        return all(dict(first).get(key) == dict(second).get(key)
+                   for key in ("fresh_until_world_time", "spoils_world_time"))
+
+    @staticmethod
+    def copy_freshness(connection, item, new_id):
+        data = dict(item)
+        connection.execute("UPDATE item_instances SET fresh_until_world_time=?,spoils_world_time=? WHERE id=?",
+                           (data.get("fresh_until_world_time"), data.get("spoils_world_time"), new_id))
+    @staticmethod
+    def find(
+        connection, world_id, holder_id, name, container="character_inventory", *, instance_id=None,
+    ):
         return connection.execute(
             """SELECT i.*, t.name, t.category, t.stack_limit, t.slot_size, t.heal, t.usable
                FROM item_instances i JOIN item_types t ON t.id=i.item_type_id
                WHERE i.world_id=? AND i.container_id=? AND i.container_type=?
-                 AND t.name=? AND i.quantity>0 ORDER BY i.condition DESC, i.id LIMIT 1""",
-            (world_id, holder_id, container, name),
+                 AND t.name=? AND i.quantity>0 AND (? IS NULL OR i.id=?)
+               ORDER BY i.condition DESC, i.id LIMIT 1""",
+            (world_id, holder_id, container, name, instance_id, instance_id),
         ).fetchone()
 
     @staticmethod
@@ -75,6 +88,7 @@ class InventoryService:
                 for row in rows
                 if row["item_type_id"] == item["item_type_id"]
                 and row["condition"] == item["condition"]
+                and InventoryService.same_freshness(row, item)
                 and row["owner_character_id"] == character_id
                 and row["quantity"] + quantity <= max(1, item["stack_limit"])
             ),
@@ -111,12 +125,13 @@ class InventoryService:
             )
         else:
             cls.consume(connection, item, quantity)
+            new_id = str(uuid4())
             connection.execute(
                 """INSERT INTO item_instances(id, world_id, item_type_id, container_id,
                    container_type, quantity, condition, owner_character_id)
                    VALUES (?, ?, ?, ?, 'character_inventory', ?, ?, ?)""",
                 (
-                    str(uuid4()),
+                    new_id,
                     item["world_id"],
                     item["item_type_id"],
                     recipient_id,
@@ -125,6 +140,7 @@ class InventoryService:
                     owner,
                 ),
             )
+            cls.copy_freshness(connection, item, new_id)
 
     @staticmethod
     def consume(connection, item, quantity=1):

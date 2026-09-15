@@ -8,30 +8,6 @@ from world_engine.database import Database
 from world_engine.repository import WorldRepository, from_iso
 from world_engine.time_utils import is_time_only, parse_datetime
 
-# 某些运行环境(如 DSH 沙箱)会对 sqlite 中名为 current_time 的列在写入时强制改写为
-# 当前时刻，导致"存储修复 current_time"的断言无法在该环境成立。此探测用于跳过这类用例。
-_CURRENT_TIME_SENTINEL = "2000-01-01T00:00:00+00:00"
-
-
-def _environment_rewrites_current_time(database: Database) -> bool:
-    try:
-        repository = WorldRepository()
-        with database.write() as connection:
-            world_id = repository.create_world(
-                connection, name="探测", minutes_per_tick=60, seed_demo=False
-            )
-            connection.execute(
-                "UPDATE worlds SET current_time = ? WHERE id = ?",
-                (_CURRENT_TIME_SENTINEL, world_id),
-            )
-        with database.read() as connection:
-            value = connection.execute(
-                "SELECT current_time FROM worlds WHERE id = ?", (world_id,)
-            ).fetchone()["current_time"]
-        return value != _CURRENT_TIME_SENTINEL
-    except Exception:
-        return True
-
 
 def test_parse_datetime_handles_time_only() -> None:
     value = parse_datetime("14:33:12")
@@ -65,9 +41,6 @@ def test_from_iso_is_defensive() -> None:
 
 
 def test_repair_migration_fixes_time_only_current_time(database: Database) -> None:
-    if _environment_rewrites_current_time(database):
-        pytest.skip("运行环境会重写 current_time 列，无法验证存储修复")
-
     repository = WorldRepository()
     with database.write() as connection:
         world_id = repository.create_world(
@@ -80,7 +53,7 @@ def test_repair_migration_fixes_time_only_current_time(database: Database) -> No
 
     with database.read() as connection:
         before = connection.execute(
-            "SELECT current_time FROM worlds WHERE id = ?", (world_id,)
+            "SELECT w.current_time FROM worlds w WHERE w.id = ?", (world_id,)
         ).fetchone()["current_time"]
     assert is_time_only(before)
 
@@ -88,7 +61,7 @@ def test_repair_migration_fixes_time_only_current_time(database: Database) -> No
     database.initialize()
     with database.read() as connection:
         after = connection.execute(
-            "SELECT current_time FROM worlds WHERE id = ?", (world_id,)
+            "SELECT w.current_time FROM worlds w WHERE w.id = ?", (world_id,)
         ).fetchone()["current_time"]
     assert not is_time_only(after)
     repaired = parse_datetime(after)
@@ -96,9 +69,6 @@ def test_repair_migration_fixes_time_only_current_time(database: Database) -> No
 
 
 def test_snapshot_reads_repaired_current_time(database: Database) -> None:
-    if _environment_rewrites_current_time(database):
-        pytest.skip("运行环境会重写 current_time 列，无法验证存储修复")
-
     repository = WorldRepository()
     with database.write() as connection:
         world_id = repository.create_world(
@@ -112,3 +82,21 @@ def test_snapshot_reads_repaired_current_time(database: Database) -> None:
         snapshot = repository.get_snapshot(connection, world_id)
     assert isinstance(snapshot.world.current_time, datetime)
     assert snapshot.world.current_time.hour == 9
+
+
+def test_initialize_preserves_valid_world_time(database: Database) -> None:
+    expected = "2051-06-02T19:44:33+00:00"
+    with database.write() as connection:
+        wid = WorldRepository().create_world(
+            connection, name="保持时钟", minutes_per_tick=60, seed_demo=False
+        )
+        connection.execute('UPDATE worlds SET "current_time"=? WHERE id=?', (expected, wid))
+    database.initialize()
+    database.initialize()
+    with database.read() as connection:
+        assert (
+            connection.execute(
+                "SELECT w.current_time FROM worlds w WHERE w.id=?", (wid,)
+            ).fetchone()[0]
+            == expected
+        )

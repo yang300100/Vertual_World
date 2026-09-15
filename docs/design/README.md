@@ -2,9 +2,29 @@
 
 设计版本：`0.1`
 
-最后更新：2026-08-23
+最后更新：2026-09-14
 
 ## 文档目的
+
+食品批次保鲜、变质与持续不适见[记录23](23-food-freshness-and-discomfort.md)。
+
+门口拜访、短时进入邀请及实体钥匙的当前实施见[记录22](22-door-visits-and-physical-keys.md)。
+
+当前未完成设计、已实现但待填内容以及历史状态修正，见[完成度核对](implementation-audit-20260913.md)。
+
+周期作息与生计选择的最新实现及验收见[实施记录20](20-recurring-routines-and-livelihood.md)。
+生产准备、限额采购及工具消耗见[实施记录21](21-production-supplies-and-tools.md)。
+
+生活经历的因果、认知证据和后天倾向见[实施记录19](19-lived-experience-evidence-and-growth.md)。
+
+NPC 日程、见面时间窗、确认改期及内容交接见
+[18-npc-schedules-and-content-handoff.md](18-npc-schedules-and-content-handoff.md)。
+交给内容模型填写时使用[生活内容填写说明](../content/life-content-authoring.md)。
+
+文字生活体验的最新实施路线与阶段验收见
+[16-lived-world-roadmap.md](16-lived-world-roadmap.md)。
+困难动作的概率检定评估见 [17-action-checks-proposal.md](17-action-checks-proposal.md)，
+修理与地图核对检定已实现并通过本轮统一验收；开锁等扩展仍按文档边界单独实施。
 
 本目录保存自主世界的长期设计思路，供后续实现、迁移、表现层开发和服务器部署时直接恢复上下文。
 
@@ -30,12 +50,12 @@
 | D005 | 每现实一分钟进行一次轻量状态心跳 | 已实现 | `01-runtime-and-time.md` |
 | D006 | 世界时间比例可在运行时修改，按实际现实时间差推进 | 已实现 | `01-runtime-and-time.md` |
 | D007 | 模型固定在世界时间00:00和12:00裁判，不随每次心跳调用 | 已实现 | `01-runtime-and-time.md` |
-| D008 | 事件范围与影响强度分开；范围分世界、地区、地方、人际四级 | 已确认待实现 | `02-events-and-history.md` |
+| D008 | 事件范围与影响强度分开；范围分世界、地区、地方、人际四级 | 基础档案与本地因果已实现；高级升级待补 | `02-events-and-history.md` |
 | D009 | 世界事件、人物状态变化和人物主观记忆分开记录 | 已实现 | `02-events-and-history.md` |
-| D010 | 人物长期特质与当前状态分开存储 | 已确认待实现 | `03-characters-and-knowledge.md` |
-| D011 | 客观世界关系图与每个观察者的主观知识图分离 | 已确认待实现 | `03-characters-and-knowledge.md` |
+| D010 | 人物长期特质与当前状态分开存储 | 首批知识与倾向已实现，通用设计仍待扩展 | `03-characters-and-knowledge.md` |
+| D011 | 客观世界关系图与每个观察者的主观知识图分离 | 首批知识与倾向已实现，通用设计仍待扩展 | `03-characters-and-knowledge.md` |
 | D012 | 普通人物拥有小背包，物品来源和所有权可追溯 | 基础实现；默认2格，完整容器与经济待扩展 | `04-items-and-inventory.md`、`14-core-completion.md` |
-| D013 | 2GB服务器第一阶段继续使用SQLite节点表和边表，不引入图数据库 | 已确认待实现 | `03-characters-and-knowledge.md` |
+| D013 | 2GB服务器第一阶段继续使用SQLite节点表和边表，不引入图数据库 | 首批知识与倾向已实现，通用设计仍待扩展 | `03-characters-and-knowledge.md` |
 | D014 | 人物使用0至100的正向饱食度，100最舒适 | 已实现 | `01-runtime-and-time.md` |
 | D015 | 调速先按旧比例结算并原子提交；相同比例为无操作 | 已实现 | `01-runtime-and-time.md` |
 | D016 | 世界长期变化通过统一注册门面、严格类型处理器和来源事件审计落库；Agent只能提交候选 | 已实现（第一阶段） | `11-world-element-registry.md` |

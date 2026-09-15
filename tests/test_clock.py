@@ -34,8 +34,10 @@ def test_one_to_one_heartbeat_advances_one_world_minute(database, settings) -> N
 
 
 def test_fractional_state_changes_accumulate_without_rounding_loss(
-    database, settings
+    database, settings, monkeypatch
 ) -> None:
+    # 本项只检查连续数值的小数累计；NPC 自主动作在七日生活集成中保持开启。
+    monkeypatch.setattr("world_engine.daily_life.DailyLifeService.tick", lambda *args, **kwargs: None)
     world_id = _create_world(database)
     repository = WorldRepository()
     with database.read() as connection:
@@ -206,7 +208,9 @@ def test_worker_presence_is_exposed_and_can_be_cleared(database, settings) -> No
     assert offline.world.last_worker_seen_at is None
 
 
-def test_time_scale_change_is_one_atomic_world_version(database, settings) -> None:
+def test_time_scale_change_is_one_atomic_world_version(database, settings, monkeypatch) -> None:
+    # 隔离日常事件，精确核验本次调速事务；生产中的日常系统没有关闭。
+    monkeypatch.setattr("world_engine.daily_life.DailyLifeService.tick", lambda *args, **kwargs: None)
     world_id = _create_world(database)
     baseline = datetime(2026, 8, 23, 10, 0, tzinfo=UTC)
     engine = WorldEngine(database, settings)

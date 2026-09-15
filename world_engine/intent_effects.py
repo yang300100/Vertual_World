@@ -73,6 +73,9 @@ class IntentEffectService:
         if item is None or price <= 0 or int(buyer["money"]) < price or not any(x in (buyer["identity"] or "") for x in ("商", "贩", "店")):
             return self._record(connection, world_id, event_id, "sell", actor_id, buyer_id, "rejected", {"item":item_name,"price":price}, "出售条件不成立")
         try:
+            profile = connection.execute("SELECT price FROM world_item_profiles WHERE world_id=? AND item_type_id=?", (world_id,item["item_type_id"])).fetchone()
+            if profile and price != max(1, profile["price"] // 2):
+                return self._record(connection,world_id,event_id,"sell",actor_id,buyer_id,"rejected",{},"报价与登记收购价格不符")
             self._move_item(connection, world_id, event_id, item, buyer_id)
         except InventoryError as exc:
             return self._record(connection, world_id, event_id, "sell", actor_id, buyer_id,
@@ -117,6 +120,15 @@ class IntentEffectService:
             return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id, "rejected", {"item": item_name, "price": price}, "交易条件不成立")
         if int(player["money"]) < price:
             return self._record(connection, world_id, event_id, "purchase", actor_id, seller_id, "rejected", {"item": item_name, "price": price}, "铜币不足")
+        profile = connection.execute("SELECT price FROM world_item_profiles WHERE world_id=? AND item_type_id=?", (world_id,item["item_type_id"])).fetchone()
+        from world_engine.food import FoodService
+        from world_engine.repository import from_iso
+
+        at = from_iso(connection.execute("SELECT occurred_at FROM world_events WHERE id=?", (event_id,)).fetchone()[0])
+        if FoodService.spoiled(item, at):
+            return self._record(connection,world_id,event_id,"purchase",actor_id,seller_id,"rejected",{},"食物已变质，不能按正常商品购买")
+        if profile and price != profile["price"]:
+            return self._record(connection,world_id,event_id,"purchase",actor_id,seller_id,"rejected",{},"报价与登记售价不符")
         try:
             self._move_item(connection, world_id, event_id, item, actor_id)
         except InventoryError as exc:
@@ -156,6 +168,10 @@ class IntentEffectService:
         target = connection.execute("SELECT * FROM characters WHERE id = ? AND world_id = ?", (target_id, world_id)).fetchone()
         if player is None or target is None:
             raise ValueError("交易或学习对象不存在")
+        from world_engine.proximity import same_room
+
+        if not same_room(player, target):
+            raise ValueError("双方不在同一室内外空间，不能当面交易")
         return player, target
 
     @staticmethod

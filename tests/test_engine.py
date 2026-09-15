@@ -117,8 +117,13 @@ def test_sleep_restores_energy_faster_than_natural_time(database, settings) -> N
     )
     with database.read() as connection:
         after = repository.get_snapshot(connection, world_id).character_by_id(sleeper.id)
-    assert after.energy == 70
-    assert after.satiety == 76
+    assert after.energy == 30
+    assert after.satiety == 80
+    WorldEngine(database, settings).heartbeat(world_id, elapsed_seconds=3600)
+    with database.read() as connection:
+        rested = repository.get_snapshot(connection, world_id).character_by_id(sleeper.id)
+    assert rested.energy == 37
+    assert rested.satiety == 77
 
 
 def test_npc_purchase_uses_the_same_audited_effect_pipeline(database, settings) -> None:

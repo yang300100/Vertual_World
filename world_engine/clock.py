@@ -9,6 +9,7 @@ from world_engine.config import Settings
 from world_engine.contracts import ContractService
 from world_engine.database import Database
 from world_engine.domain import ClockUpdateResult, HeartbeatResult
+from world_engine.life import LifeActivityService
 from world_engine.movement import MovementService
 from world_engine.registration import ConstructionProjectService
 from world_engine.repository import WorldNotFoundError, from_iso, to_iso, utc_now
@@ -65,9 +66,11 @@ class WorldClockService:
         *,
         real_now: datetime | None = None,
         elapsed_seconds: float | None = None,
+        activity_skip: dict[str, object] | None = None,
     ) -> HeartbeatResult:
         now = real_now or utc_now()
         heartbeat_id = str(uuid4())
+        skip_reason = None
         with self.database.write() as connection:
             row = connection.execute(
                 """
@@ -83,6 +86,18 @@ class WorldClockService:
             if row is None:
                 raise WorldNotFoundError(world_id)
 
+            if activity_skip:
+                cached = connection.execute(
+                    "SELECT * FROM activity_time_skips WHERE world_id=? AND request_id=?",
+                    (world_id, activity_skip["request_id"]),
+                ).fetchone()
+                if cached:
+                    if (cached["activity_id"] != activity_skip["activity_id"]
+                            or cached["input_version"] != activity_skip["expected_version"]):
+                        raise ValueError("等候请求标识已经用于其他请求")
+                    result = HeartbeatResult.model_validate_json(cached["response_json"])
+                    result.time_skip_replayed = True
+                    return result
             previous_time = from_iso(row["current_time"])
             if elapsed_seconds is None:
                 last_real = row["last_heartbeat_real_time"]
@@ -95,6 +110,12 @@ class WorldClockService:
 
             time_scale = float(row["time_scale"])
             world_delta_seconds = real_elapsed_seconds * time_scale
+            if activity_skip:
+                from world_engine.activity_waiting import waiting_boundary
+                world_delta_seconds, skip_reason, skip_actor_id = waiting_boundary(
+                    connection, world_id, row, activity_skip, self.settings,
+                )
+                real_elapsed_seconds = 0.0
             current_time = previous_time + timedelta(seconds=world_delta_seconds)
             clock_revision = int(row["clock_revision"]) + 1
             adjudication_due = current_time >= from_iso(
@@ -138,6 +159,14 @@ class WorldClockService:
                 current_time=current_time,
                 created_at=now,
             )
+            life_updates = LifeActivityService.advance(
+                connection, world_id, current_time, heartbeat_id,
+            )
+            if life_updates:
+                state_update_count, characters_updated = connection.execute(
+                    "SELECT count(*),count(DISTINCT character_id) FROM character_state_updates "
+                    "WHERE heartbeat_id=?", (heartbeat_id,),
+                ).fetchone()
             construction_updates = self.construction.advance(
                 connection,
                 world_id=world_id,
@@ -151,7 +180,18 @@ class WorldClockService:
                 world_time=current_time,
             )
             contracts_updated = ContractService.advance(connection, world_id, to_iso(current_time))
-            version_increment = 1 if world_delta_seconds > 0 or contracts_updated else 0
+            from world_engine.daily_life import DailyLifeService
+            from world_engine.economy import EconomyService
+            from world_engine.society import SocietyService
+            if world_delta_seconds > 0:
+                from world_engine.visits import VisitService
+                VisitService.tick(connection, world_id, current_time)
+                EconomyService.tick(connection, world_id, current_time)
+                DailyLifeService.tick(connection, world_id, current_time, adjudication_due=adjudication_due)
+                SocietyService.tick(connection, world_id, current_time)
+            version_increment = int(bool(
+                world_delta_seconds > 0 or contracts_updated or life_updates
+            ))
             connection.execute(
                 """
                 UPDATE worlds
@@ -184,23 +224,41 @@ class WorldClockService:
                 (characters_updated, heartbeat_id),
             )
 
-        return HeartbeatResult(
-            world_id=world_id,
-            heartbeat_id=heartbeat_id,
-            real_time=now,
-            real_elapsed_seconds=real_elapsed_seconds,
-            time_scale=time_scale,
-            world_delta_seconds=world_delta_seconds,
-            previous_time=previous_time,
-            current_time=current_time,
-            clock_revision=clock_revision,
-            characters_updated=characters_updated,
-            state_update_count=state_update_count,
-            movements_updated=movements_updated,
-            construction_updates=construction_updates,
-            activation_updates=activation_updates,
-            adjudication_due=adjudication_due,
-        )
+            result = HeartbeatResult(
+                world_id=world_id,
+                heartbeat_id=heartbeat_id,
+                real_time=now,
+                real_elapsed_seconds=real_elapsed_seconds,
+                time_scale=time_scale,
+                world_delta_seconds=world_delta_seconds,
+                previous_time=previous_time,
+                current_time=current_time,
+                clock_revision=clock_revision,
+                characters_updated=characters_updated,
+                state_update_count=state_update_count,
+                movements_updated=movements_updated,
+                construction_updates=construction_updates,
+                activation_updates=activation_updates,
+                adjudication_due=adjudication_due,
+                time_skip_reason=skip_reason,
+            )
+            if activity_skip:
+                from world_engine.actions import ActionService
+                ActionService._record_event(
+                    connection, world_id=world_id, tick_id=heartbeat_id, occurred_at=current_time,
+                    event_type="action.time_waited", actor_id=skip_actor_id, target_id=None,
+                    location_id=None,
+                    summary=f"你等候了{world_delta_seconds / 60:.1f}个世界分钟：{skip_reason}。",
+                    payload={"activity_id": activity_skip["activity_id"], "reason": skip_reason,
+                             "world_delta_seconds": world_delta_seconds},
+                )
+                connection.execute(
+                    "INSERT INTO activity_time_skips VALUES (?,?,?,?,?)",
+                    (activity_skip["request_id"], world_id, activity_skip["activity_id"],
+                     activity_skip["expected_version"], result.model_dump_json()),
+                )
+        return result
+
 
     def set_time_scale(
         self,
@@ -300,6 +358,14 @@ class WorldClockService:
                     current_time=current_time,
                     created_at=now,
                 )
+                life_updates = LifeActivityService.advance(
+                    connection, world_id, current_time, heartbeat_id,
+                )
+                if life_updates:
+                    state_update_count, characters_updated = connection.execute(
+                        "SELECT count(*),count(DISTINCT character_id) FROM character_state_updates "
+                        "WHERE heartbeat_id=?", (heartbeat_id,),
+                    ).fetchone()
                 construction_updates = self.construction.advance(
                     connection,
                     world_id=world_id,
@@ -322,6 +388,15 @@ class WorldClockService:
                 )
 
             ContractService.advance(connection, world_id, to_iso(current_time))
+            if world_delta_seconds > 0:
+                from world_engine.daily_life import DailyLifeService
+                from world_engine.economy import EconomyService
+                from world_engine.society import SocietyService
+                from world_engine.visits import VisitService
+                VisitService.tick(connection, world_id, current_time)
+                EconomyService.tick(connection, world_id, current_time)
+                DailyLifeService.tick(connection, world_id, current_time, adjudication_due=adjudication_due)
+                SocietyService.tick(connection, world_id, current_time)
             new_world_version = int(row["version"]) + 1
             connection.execute(
                 """

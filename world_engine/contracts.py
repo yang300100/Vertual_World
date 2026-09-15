@@ -14,6 +14,8 @@ KINDS = {
     "租赁": "lease",
     "约定": "appointment",
     "学习": "learning",
+    "住房": "lodging",
+    "约定改期": "reschedule_appointment",
 }
 
 
@@ -67,6 +69,8 @@ class ContractService:
                 raise ContractError("借贷必须指定正数本金与借入或借出方向")
         if kind == "lease" and not result.get("vehicle_id"):
             raise ContractError("租赁必须指定对方拥有的载具")
+        if kind == "lodging" and not result.get("room_id"):
+            raise ContractError("住房约定需要明确房间")
         if kind in {"commission", "employment"}:
             if result.get("fulfillment_action") != "work":
                 raise ContractError("当前可验证的委托和雇佣须明确选择工作履约")
@@ -93,11 +97,20 @@ class ContractService:
         if kind == "learning":
             return None
         terms = cls.normalize(kind, terms)
+        from world_engine.schedules import ScheduleError, ScheduleService
+        try:
+            if kind == "reschedule_appointment":
+                return ScheduleService.apply_amendment(connection, request, terms, from_iso(world_time))
+            window = ScheduleService.validate(connection, request["world_id"], request["requester_id"], request["recipient_id"], terms, from_iso(world_time)) if kind == "appointment" and terms.get("meeting_world_time") else None
+        except ScheduleError as exc:
+            raise ContractError(str(exc)) from exc
         player, npc = request["requester_id"], request["recipient_id"]
         amount = terms["payment"]
         escrow = 0
         lender = borrower = asset = None
         due = to_iso(from_iso(world_time) + timedelta(days=terms["duration_days"]))
+        if window:
+            due = to_iso(window[1])
         if kind == "loan":
             lender, borrower = (npc, player) if terms["direction"] == "borrow" else (player, npc)
             cls._pay(connection, lender, borrower, amount)
@@ -117,6 +130,19 @@ class ContractService:
             if vehicle is None or in_use or moving:
                 raise ContractError("载具不存在、不归对方所有或正在使用中")
             cls._pay(connection, player, npc, amount)
+        elif kind == "lodging":
+            asset=terms["room_id"]
+            room=connection.execute("SELECT r.*,p.nightly_rate FROM life_rooms r JOIN room_rental_rates p ON p.room_id=r.id JOIN locations l ON l.id=r.location_id WHERE r.id=? AND r.world_id=? AND r.owner_character_id=? AND l.is_active=1",(asset,request["world_id"],npc)).fetchone()
+            if room is None:raise ContractError("该房间没有有效的出租约定或不属于对方")
+            if connection.execute("SELECT 1 FROM contract_fulfillments WHERE kind='lodging' AND asset_id=? AND status='active'",(asset,)).fetchone():raise ContractError("房间已被租用")
+            if amount<room["nightly_rate"]*terms["duration_days"]:raise ContractError("租金低于登记的当前房价")
+            parent=room["parent_room_id"]
+            while parent:
+                outer=connection.execute("SELECT * FROM life_rooms WHERE id=?",(parent,)).fetchone()
+                if outer is None or outer["access_policy"]!="public" or outer["door_locked"]:raise ContractError("房间外层通道没有可用的公共通行条件")
+                parent=outer["parent_room_id"]
+            cls._pay(connection,player,npc,amount)
+            terms={**terms,"location_id":room["location_id"]}
         else:
             # 报酬先托管；真实工作或见面证据成立后才交给 NPC。
             cls._pay(connection, player, None, amount)
@@ -129,7 +155,7 @@ class ContractService:
         )
         if kind in {"commission", "employment"}:
             workplaces = connection.execute(
-                "SELECT * FROM locations WHERE world_id=? AND kind='workplace' AND is_active=1",
+                "SELECT * FROM locations WHERE world_id=? AND (kind='workplace' OR id IN (SELECT location_id FROM workplace_accounts)) AND is_active=1",
                 (request["world_id"],),
             ).fetchall()
             npc_row = connection.execute("SELECT * FROM characters WHERE id=?", (npc,)).fetchone()
@@ -175,6 +201,8 @@ class ContractService:
                 to_iso(utc_now()),
             ),
         )
+        if window:
+            connection.execute("INSERT INTO appointment_windows VALUES (?,?,?,?,1)", (request["id"],request["world_id"],to_iso(window[0]),to_iso(window[1])))
         return due
 
     @staticmethod
@@ -210,6 +238,8 @@ class ContractService:
                    VALUES (?,?,?,?,'experienced',?,6,1,?)""",
                 (str(uuid4()), contract["world_id"], cid, event_id, summary, to_iso(utc_now())),
             )
+        from world_engine.society import SocietyService
+        SocietyService.observe_event(connection,event_id)
         connection.execute(
             "UPDATE contract_fulfillments SET status=? WHERE request_id=?",
             (status, contract["request_id"]),
@@ -239,6 +269,9 @@ class ContractService:
         if contract["kind"] == "loan":
             cls.repay(connection, contract, world_time)
             return
+        if contract["kind"]=="lodging":
+            stored=connection.execute("SELECT 1 FROM item_instances i LEFT JOIN life_fixtures f ON f.id=i.container_id WHERE i.owner_character_id=? AND ((i.container_type='fixture_storage' AND f.room_id=?) OR (i.container_type='room_ground' AND i.container_id=?)) LIMIT 1",(contract["requester_id"],contract["asset_id"],contract["asset_id"])).fetchone()
+            if stored:raise ContractError("请先取回租住空间里的个人物品，再结束住房约定")
         if contract["escrow"]:
             connection.execute(
                 "UPDATE characters SET money=money+? WHERE id=?",
@@ -275,6 +308,7 @@ class ContractService:
             (world_id,),
         ).fetchall()
         for contract in rows:
+            window = connection.execute("SELECT * FROM appointment_windows WHERE contract_id=?",(contract["request_id"],)).fetchone()
             if contract["kind"] in {"commission", "employment", "appointment"}:
                 desired = "action.socialize" if contract["kind"] == "appointment" else "action.work"
                 events = connection.execute(
@@ -294,6 +328,10 @@ class ContractService:
                     ),
                 ).fetchall()
                 for event in events:
+                    if window and from_iso(event["occurred_at"]) < from_iso(window["starts_world_time"]):
+                        continue
+                    if window and from_iso(event["occurred_at"]) >= from_iso(window["ends_world_time"]):
+                        continue
                     if contract["kind"] == "appointment":
                         if {event["actor_id"], event["target_id"]} != {
                             contract["requester_id"],
@@ -335,6 +373,10 @@ class ContractService:
                 if count >= contract["required_units"]:
                     continue
             if from_iso(world_time) < from_iso(contract["due_world_time"]):
+                continue
+            if contract["kind"]=="lodging":
+                cls.record(connection,contract,"expired",world_time)
+                changed+=1
                 continue
             if contract["kind"] == "loan":
                 try:

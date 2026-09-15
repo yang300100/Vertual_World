@@ -15,9 +15,11 @@ from uuid import uuid4
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import WorldKnowledgeBase, search_dynamic_knowledge
+from world_engine.life import LifeActivityService
 from world_engine.player_inputs import parse_player_input
-from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
+from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import from_iso, to_iso, utc_now
+from world_engine.roleplay import conversation_exchanges
 
 _ASCII_WORD_PATTERN = re.compile(r"[a-z0-9_]{2,}", re.IGNORECASE)
 _CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -149,19 +151,15 @@ class ConversationService:
         if traits & {"热情", "健谈"}:
             speech_style = "语气亲切，句子稍长，会自然补充与话题有关的见闻"
             initiative = "愿意主动追问，也会提起自己正在关心的人或事"
-            examples = ("你慢慢说，我听着；若正好知道，我不会让你白跑一趟。",)
         elif traits & {"警觉", "谨慎", "戒备", "孤僻"}:
             speech_style = "措辞克制，先确认来意，未知和不愿说的部分会明确保留"
             initiative = "发现问题涉及隐私或风险时，会反问来源或结束话题"
-            examples = ("先说清楚你为什么问，我才好决定能告诉你多少。",)
         elif traits & {"直率", "务实", "专注"}:
             speech_style = "表达直接，偏好具体的人、物、时间与可执行事项"
             initiative = "会把空泛问题收束成可以回答或办理的具体问题"
-            examples = ("先说要办什么事，能做与不能做我都直说。",)
         else:
             speech_style = "语气自然含蓄，会随关系和场合调整回答长短"
-            initiative = "会在回答后留下一个与自身处境有关的追问或话题钩子"
-            examples = ("这事得看眼下情形，你先把来意说清楚。",)
+            initiative = "有相关牵挂时可以主动提及；话题已经说清时也可以自然结束"
         trait_text = "、".join(npc.traits[:2]) or "职责"
         return NpcCharacterCard(
             public_role=role,
@@ -172,7 +170,7 @@ class ConversationService:
             speech_style=speech_style,
             initiative_notes=initiative,
             preferred_address="根据关系与场合自然称呼对方，不固定使用尊称",
-            dialogue_examples=examples,
+            dialogue_examples=(),
         )
 
     def get_card(
@@ -234,6 +232,23 @@ class ConversationService:
         decision_details: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """按人物视角和预算组装一次对话所需的全部只读资料。"""
+        decision_details = dict(decision_details or {})
+        if channel == "letter":
+            # 信笺只将该联系人真实来往的原话放入消息历史，保留远程感知边界。
+            letters = decision_details.pop("recent_letters", [])
+            letter_turns = [
+                f"[{item['world_time']}] "
+                f"{'NPC' if item['sender_id'] == npc.id else '玩家'}：{item['content']}"
+                for item in letters
+                if isinstance(item, dict)
+                and item.get("sender_id") in {npc.id, player.id}
+                and "world_time" in item and "content" in item
+            ] if isinstance(letters, list) else []
+            conversation = NpcConversationContext(npc.id, npc.name, tuple(letter_turns))
+        elif conversation is None:
+            conversation = self.load_context(
+                connection, snapshot=snapshot, player_id=player.id, npc=npc,
+            )
         card = self.get_card(connection, world_id=snapshot.world.id, npc=npc)
         memories = self._relevant_memories(
             connection,
@@ -270,6 +285,7 @@ class ConversationService:
             }
             for item in snapshot.characters
             if item.id not in {npc.id, player.id}
+            and same_room(npc, item)
             and great_circle_distance_km(
                 npc.longitude, npc.latitude, item.longitude, item.latitude
             ) <= VISIBLE_PERSON_RADIUS_KM
@@ -293,6 +309,19 @@ class ConversationService:
                 limit=6,
             ),
         }
+        if npc.current_room_id:
+            from world_engine.interiors import InteriorService
+
+            npc_row = connection.execute(
+                "SELECT * FROM characters WHERE id=?", (npc.id,),
+            ).fetchone()
+            interior = InteriorService.scene(connection, npc_row)
+            scene["room"] = interior["room"]
+            scene["fixtures"] = [
+                {"name": item["name"], "kind": item["kind"],
+                 "open": item["open"], "occupied": item["occupied"]}
+                for item in interior["fixtures"]
+            ]
         knowledge = self._retrieve_dialogue_knowledge(
             connection,
             snapshot=snapshot,
@@ -358,6 +387,34 @@ class ConversationService:
             ],
             "world_time": snapshot.world.current_time.isoformat(),
         }
+        from world_engine.society import SocietyService
+        base["personal_experience"] = SocietyService.personal_context(
+            connection, snapshot.world.id, npc.id, snapshot.world.current_time,
+        )
+        from world_engine.routines import RoutineService
+        routine=RoutineService.view(connection,snapshot.world.id,npc.id)
+        if routine:
+            base["personal_experience"]["routine"]={"goal":routine["spec"]["goal"],"income_reserve":routine["spec"]["income_reserve"],"utc_offset_minutes":routine["spec"]["utc_offset_minutes"],"recent_occurrences":routine["recent_occurrences"][:3],"work_preference":routine["work_preference"]}
+            weekly=[]
+            for slot in routine["spec"]["slots"]:
+                place=connection.execute("SELECT name FROM locations WHERE id=? AND world_id=?",(slot["location_id"],snapshot.world.id)).fetchone()
+                weekly.append(f"星期编号{','.join(map(str,slot['weekdays']))}（0为周一），{slot['starts_at']}起{slot['duration_minutes']}分钟：{slot['name']}，地点{place[0] if place else '原地点已不可用'}")
+            base["personal_experience"]["routine"]["enabled"]=routine["spec"]["enabled"]
+            base["personal_experience"]["routine"]["weekly_slots"]=weekly
+        base["personal_experience"]["shared_appointments"] = [dict(row) for row in connection.execute(
+            "SELECT f.request_id,f.location_id,f.status,f.due_world_time,w.starts_world_time,w.ends_world_time "
+            "FROM contract_fulfillments f LEFT JOIN appointment_windows w ON w.contract_id=f.request_id "
+            "WHERE f.world_id=? AND f.requester_id=? AND f.recipient_id=? AND f.kind='appointment' AND f.status IN ('active','overdue') ORDER BY f.due_world_time LIMIT 5",(snapshot.world.id,player.id,npc.id),
+        )]
+        base["player"]["name"] = SocietyService.label(connection, npc.id, player.id)
+        if channel != "letter" and same_room(npc, player) and great_circle_distance_km(
+            npc.longitude, npc.latitude, player.longitude, player.latitude,
+        ) <= VISIBLE_PERSON_RADIUS_KM:
+            active = LifeActivityService.running(connection, player.id)
+            if active:
+                base["player_current_activity"] = LifeActivityService.view(
+                    active, snapshot.world.current_time,
+                )
         return self._apply_context_budget(base)
 
     @staticmethod
@@ -382,25 +439,40 @@ class ConversationService:
         result = dict(context)
         for key in optional_keys:
             result[key] = []
+        # 世界护栏不被长历史挤出；资料仍放在用户数据中，不提升为系统指令。
+        knowledge = context.get("knowledge_context", [])
+        result["knowledge_context"] = [
+            item for item in knowledge
+            if isinstance(item, dict) and item.get("audience") == "guardrail"
+        ] if isinstance(knowledge, list) else []
         trace: dict[str, int] = {}
         base_tokens = self.estimate_tokens(result)
         trace["mandatory"] = base_tokens
-        remaining = max(0, self.max_context_tokens - base_tokens)
         for key in optional_keys:
-            selected: list[object] = []
+            selected = list(result[key])
             raw_items = context.get(key)
             if not isinstance(raw_items, list):
                 continue
-            for item in raw_items:
-                item_tokens = self.estimate_tokens(item)
-                if item_tokens > remaining:
-                    break
-                selected.append(item)
-                remaining -= item_tokens
+            groups = (
+                list(reversed(conversation_exchanges(raw_items)))
+                if key == "recent_conversation" else [[item] for item in raw_items]
+            )
+            for group in groups:
+                if key == "knowledge_context" and group[0] in selected:
+                    continue
+                candidate = group + selected if key == "recent_conversation" else selected + group
+                result[key] = candidate
+                if self.estimate_tokens(result) > self.max_context_tokens:
+                    result[key] = selected
+                    if key == "recent_conversation":
+                        break
+                    continue
+                selected = candidate
             result[key] = selected
-            trace[key] = sum(self.estimate_tokens(item) for item in selected)
-        trace["total"] = self.max_context_tokens - remaining
+            trace[key] = self.estimate_tokens(selected)
+        trace["total"] = self.estimate_tokens(result)
         trace["limit"] = self.max_context_tokens
+        trace["over_budget_tokens"] = max(0, trace["total"] - self.max_context_tokens)
         result["budget_trace"] = trace
         return result
 
@@ -685,10 +757,10 @@ class ConversationService:
             target = by_id.get(target_character_id)
             if target is None or target.is_player:
                 raise ValueError("指定的对话对象不存在于当前世界")
-            if great_circle_distance_km(
+            if not same_room(player, target) or great_circle_distance_km(
                 player.longitude, player.latitude, target.longitude, target.latitude
             ) > VISIBLE_PERSON_RADIUS_KM:
-                raise ValueError("指定的对话对象距离超过100米")
+                raise ValueError("指定的对话对象不在同一空间或距离超过100米")
             return target
         named = next(
             (
@@ -705,7 +777,7 @@ class ConversationService:
                 return named
             if not self.looks_like_directed_dialogue(intent):
                 return None
-            if great_circle_distance_km(
+            if not same_room(player, named) or great_circle_distance_km(
                 player.longitude, player.latitude, named.longitude, named.latitude
             ) > VISIBLE_PERSON_RADIUS_KM:
                 raise ValueError(f"{named.name}不在你100米视线范围内")
@@ -725,7 +797,7 @@ class ConversationService:
         if row is None:
             return None
         target = by_id.get(row["npc_character_id"])
-        if target is None or great_circle_distance_km(
+        if target is None or not same_room(player, target) or great_circle_distance_km(
             player.longitude, player.latitude, target.longitude, target.latitude
         ) > VISIBLE_PERSON_RADIUS_KM:
             return None
@@ -764,8 +836,12 @@ class ConversationService:
             f"{'玩家行动' if row['message_kind'] == 'action' else '玩家' if row['speaker_character_id'] == player_id else 'NPC'}：{row['content']}"
             for row in rows
         ]
-        while turns and sum(len(item) + 1 for item in turns) > self.max_context_chars:
-            turns.pop(0)
+        exchanges = conversation_exchanges(turns)
+        while exchanges and sum(len(item) + 1 for group in exchanges for item in group) > (
+            self.max_context_chars
+        ):
+            exchanges.pop(0)
+        turns = [item for group in exchanges for item in group]
         if not turns:
             return None
         return NpcConversationContext(
@@ -1037,19 +1113,21 @@ class DialogueSpeakerScheduler:
         player: CharacterState,
         intent: str,
         participant_ids: list[str] | None = None,
+        radius_km: float = VISIBLE_PERSON_RADIUS_KM,
     ) -> list[ScheduledDialogueSpeaker]:
         visible = [
             character
             for character in snapshot.characters
             if not character.is_player
             and character.health > 0
+            and same_room(player, character)
             and great_circle_distance_km(
                 player.longitude,
                 player.latitude,
                 character.longitude,
                 character.latitude,
             )
-            <= VISIBLE_PERSON_RADIUS_KM
+            <= radius_km
         ]
         if not visible:
             return []

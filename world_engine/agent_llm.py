@@ -8,6 +8,7 @@ import httpx
 from pydantic import TypeAdapter
 
 from world_engine.config import Settings
+from world_engine.roleplay import build_npc_reply_messages
 
 
 class AgentLLMError(RuntimeError):
@@ -69,6 +70,7 @@ class AgentModelBackend:
         user_payload: dict[str, object],
         schema: TypeAdapter[Any],
         label: str,
+        roleplay: bool = False,
     ) -> ModelCompletion:
         """发起一次结构化解码；失败时抛出 AgentLLMError 由调用方回退规则。"""
         started = time.monotonic()
@@ -84,6 +86,10 @@ class AgentModelBackend:
             "max_tokens": self.max_tokens,
             "stream": False,
         }
+        if roleplay:
+            payload["messages"] = build_npc_reply_messages(system_prompt, user_payload)
+            payload["response_format"] = {"type": "json_object"}
+            payload["max_tokens"] = min(self.max_tokens, 1200)
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:

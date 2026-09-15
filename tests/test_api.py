@@ -98,6 +98,13 @@ def test_cross_channel_npc_replies_share_dialogue_context(
         "long_term_reply",
     ]
     contexts = [call["user_payload"] for call in backend.calls]
+    from world_engine.roleplay import npc_reply_system_prompt
+
+    assert all(call["roleplay"] is True for call in backend.calls)
+    assert all(
+        call["system_prompt"] == npc_reply_system_prompt(include_topic=True)
+        for call in backend.calls
+    )
     assert [context["channel"] for context in contexts] == [
         "contact_request",
         "letter",
@@ -108,6 +115,9 @@ def test_cross_channel_npc_replies_share_dialogue_context(
         assert context["scene"]["location"]["id"] == npc["location_id"]
         assert context["budget_trace"]["total"] <= context["budget_trace"]["limit"]
         assert any("确认前" in item["content"] for item in context["knowledge_context"])
+    letter_context = contexts[1]
+    assert letter_context["recent_conversation"]
+    assert "recent_letters" not in letter_context["decision"]
 
 
 def test_group_dialogue_api_returns_locally_scheduled_speakers(
@@ -357,7 +367,7 @@ def test_frontend_assets_are_served_by_fastapi(settings) -> None:
     assert "/player/group-dialogue" in script.text
     assert "向在场众人说话" in script.text
     assert "function eventDetailText" in script.text
-    assert "你说：“${payload.dialogue}”" in script.text
+    assert "${speaker}说：“${payload.dialogue}”" in script.text
     assert "正在确认抵达" in script.text
     assert "let shouldExecute = false" in script.text
     assert "if (shouldExecute) executePlayerIntent(intent, directTargetId);" in script.text

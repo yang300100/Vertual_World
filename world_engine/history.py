@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import time
 from collections.abc import Iterator
@@ -47,6 +48,11 @@ class WorldHistoryLogger:
             with self.database.read() as connection:
                 snapshot = self.repository.get_snapshot(connection, safe_world_id)
                 events = self.repository.list_all_events_ascending(connection, safe_world_id)
+                from world_engine.event_history import EventHistoryService
+                for event in events:
+                    event["history"]=EventHistoryService.view(connection,event["id"])
+                    profile=connection.execute("SELECT scope_type,scope_id FROM event_profiles WHERE event_id=?",(event["id"],)).fetchone()
+                    event["history_scope"]=dict(profile) if profile else {"scope_type":"interpersonal","scope_id":None}
                 heartbeats = self.repository.list_heartbeats_ascending(
                     connection, safe_world_id
                 )
@@ -55,6 +61,19 @@ class WorldHistoryLogger:
                 )
 
             tick_groups = self._group_ticks(events)
+            scope_groups={}
+            for event in events:
+                scope=event["history_scope"]
+                kind=scope["scope_type"]
+                slug=hashlib.sha256(str(scope["scope_id"] or safe_world_id).encode()).hexdigest()[:16]
+                relative="global" if kind=="global" else "interpersonal" if kind=="interpersonal" else f"{'regions' if kind=='regional' else 'locations'}/{slug}"
+                scope_groups.setdefault(relative,[]).append(event)
+            for relative,scoped in scope_groups.items():
+                destination=world_directory / relative
+                destination.mkdir(parents=True,exist_ok=True)
+                self._atomic_write(destination / "history.jsonl",self._render_jsonl(snapshot.world.name,self._group_ticks(scoped)))
+                self._atomic_write(destination / "history.md",self._render_markdown(snapshot.world.name,safe_world_id,self._group_ticks(scoped),{item.id:item.name for item in snapshot.characters}))
+            self._atomic_write(world_directory / "scope_manifest.json",json.dumps({"world_id":safe_world_id,"files":[{"directory":key,"event_count":len(value)} for key,value in scope_groups.items()]},ensure_ascii=False,indent=2))
             tick_directory = world_directory / "ticks"
             tick_directory.mkdir(parents=True, exist_ok=True)
             for sequence, (tick_id, tick_events) in enumerate(tick_groups.items(), start=1):
@@ -65,7 +84,7 @@ class WorldHistoryLogger:
                     tick_id=tick_id,
                     events=tick_events,
                 )
-                tick_path = tick_directory / f"{sequence:08d}_{self._safe_uuid(tick_id)}.json"
+                tick_path = tick_directory / f"{sequence:08d}_{self._tick_file_id(tick_id)}.json"
                 self._atomic_write(
                     tick_path,
                     json.dumps(record, ensure_ascii=False, indent=2) + "\n",
@@ -332,6 +351,14 @@ class WorldHistoryLogger:
             "world.adjudication": "模型裁判",
             "world.clock_rate_changed": "时间比例调整",
         }.get(event_type, "世界事件")
+
+    @staticmethod
+    def _tick_file_id(value: str) -> str:
+        try:
+            return str(UUID(value))
+        except ValueError:
+            # 活动和契约有可读轮次标识，只对文件名散列；原标识仍保留在 JSON 中。
+            return "named-"+hashlib.sha256(value.encode()).hexdigest()[:32]
 
     @staticmethod
     def _safe_uuid(value: str) -> str:

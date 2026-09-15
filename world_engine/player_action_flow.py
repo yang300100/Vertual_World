@@ -1,14 +1,16 @@
 """明确动作先结算，再让实际在场的 NPC 观察结果并回应。"""
 
 import json
+import re
 from uuid import uuid4
 
 from world_engine.actions import ActionService
 from world_engine.bounded_calls import submit_call
 from world_engine.domain import ActionProposal, ActionType, PlayerActionResult
 from world_engine.geo import great_circle_distance_km
+from world_engine.life import parse_life_activity
 from world_engine.player_activities import PlayerActivityService, native_action
-from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
+from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import to_iso, utc_now
 
 
@@ -26,6 +28,21 @@ def execute_explicit_action(engine, world_id, text, target_id):
             raise ValueError("当前世界还没有玩家角色")
         npc = service.observer(connection, snapshot, player, target_id)
         kind = native_action(text)
+        map_record_id = None
+        if re.fullmatch(r"(?:我)?核对(?:现场)?地图[。！!]?", text.strip()):
+            record = connection.execute(
+                "SELECT id FROM player_activity_records WHERE world_id=? AND player_id=? "
+                "AND location_id=? AND step_key IN ('road_notes','field_notes') "
+                "AND status='completed' ORDER BY created_at DESC LIMIT 1",
+                (world_id, player.id, player.current_location_id or player.location_id),
+            ).fetchone()
+            if record is None:
+                raise ValueError("请先在当前地点留下真实的道路或现场观测记录")
+            map_record_id = record["id"]
+            kind = ActionType.ACTIVITY
+        life_request = parse_life_activity(text)
+        if life_request:
+            kind = ActionType.REST if life_request[0] == "rest" else ActionType.IDLE
         progress = []
         if kind is None:
             outcome, progress = service.execute(
@@ -37,8 +54,22 @@ def execute_explicit_action(engine, world_id, text, target_id):
                 action_id=action_id,
             )
         else:
-            if kind in {ActionType.REST, ActionType.WORK, ActionType.EAT}:
+            if map_record_id:
+                proposal = ActionProposal(
+                    actor_id=player.id, action=ActionType.ACTIVITY, reason=text[:500],
+                    metadata={"map_record_id": map_record_id},
+                )
+            elif life_request:
+                proposal = ActionProposal(
+                    actor_id=player.id, action=kind, reason=text[:500],
+                    metadata={
+                        "life_activity": life_request[0], "duration_minutes": life_request[1],
+                    },
+                )
+            elif kind in {ActionType.REST, ActionType.WORK, ActionType.EAT}:
                 proposal = ActionProposal(actor_id=player.id, action=kind, reason=text[:500])
+            elif kind is ActionType.ATTACK and target_id:
+                proposal = ActionProposal(actor_id=player.id, action=kind, target_id=target_id, reason=text[:500])
             else:
                 proposal = engine.fallback_provider.plan_player_action(snapshot, player, text)
             if proposal.action != kind:
@@ -134,6 +165,7 @@ def react_to_action(engine, world_id, event_id):
                 player is None
                 or npc is None
                 or not player.is_player
+                or not same_room(player, npc)
                 or great_circle_distance_km(
                     player.longitude, player.latitude, npc.longitude, npc.latitude
                 )
