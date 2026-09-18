@@ -8,31 +8,19 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.actions import ActionService
+from world_engine.character_growth import CharacterGrowthService
 from world_engine.economy import CommoditySpec, EconomyService, WorkplaceBudgetSpec
+from world_engine.epistemics import KnowledgeService
+from world_engine.event_history import EventHistoryService
 from world_engine.geo import great_circle_distance_km
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeActivityService
 from world_engine.proximity import same_room
 from world_engine.registration import ElementRegistrationSubmit, WorldElementRegistry
-from world_engine.repository import from_iso, to_iso, utc_now
-from world_engine.society import SocietyService
-from world_engine.event_history import EventHistoryService
-from world_engine.epistemics import KnowledgeService
-from world_engine.character_growth import CharacterGrowthService
+from world_engine.repository import WorldRepository, from_iso, to_iso, utc_now
 from world_engine.routines import RoutinePlanSpec, RoutineService
 from world_engine.schedules import ScheduleService
-
-LIVING_SCHEMA = """
-CREATE TABLE IF NOT EXISTS player_life_goals (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id),player_id TEXT NOT NULL REFERENCES characters(id),
- kind TEXT NOT NULL,title TEXT NOT NULL,target_id TEXT,quantity INTEGER NOT NULL,
- status TEXT NOT NULL DEFAULT 'active',created_world_time TEXT NOT NULL,completed_world_time TEXT
-);
-CREATE TABLE IF NOT EXISTS player_trade_requests (
- world_id TEXT NOT NULL,request_id TEXT NOT NULL,payload_json TEXT NOT NULL,response_json TEXT NOT NULL,
- PRIMARY KEY(world_id,request_id)
-);
-"""
+from world_engine.society import SocietyService
 
 
 class EconomyDefinition(BaseModel):
@@ -319,7 +307,7 @@ def build_living_router(database, engine):
             if subject is None:
                 raise HTTPException(409,"只能核对当前确实看见的人物，不能远程读取对方位置")
             event_id=ActionService._record_event(c,world_id=world_id,tick_id=str(uuid4()),occurred_at=at,event_type="knowledge.observed",actor_id=player["id"],target_id=subject_id,location_id=player["current_location_id"] or player["location_id"],summary="你核对了眼前人物所在的位置。",payload={})
-            c.execute("UPDATE worlds SET version=version+1 WHERE id=?",(world_id,))
+            WorldRepository().bump_version(c, world_id)
             return {"summary":"已用当前亲眼所见更新位置记录；旧说法保留供对照。","event_id":event_id}
 
     @router.get("/player/events/{event_id}/causes")
@@ -486,7 +474,7 @@ def build_living_router(database, engine):
                     payload={"item_id": item["id"], "quantity": payload.quantity, "total": total},
                 )
                 InventoryService.audit(c, world_id, eid, before)
-                c.execute("UPDATE worlds SET version=version+1 WHERE id=?", (world_id,))
+                WorldRepository().bump_version(c, world_id)
                 response = {"summary": summary, "event_id": eid}
                 c.execute(
                     "INSERT INTO player_trade_requests VALUES (?,?,?,?)",
@@ -508,7 +496,7 @@ def build_living_router(database, engine):
             LifeActivityService.assert_available(c, player["id"])
             if not EconomyService.harvest(c, player, at):
                 raise HTTPException(409, "当前没有可合法收取的已登记资源，或背包/精力不足")
-            c.execute("UPDATE worlds SET version=version+1 WHERE id=?", (world_id,))
+            WorldRepository().bump_version(c, world_id)
             return {"summary": "已收取一份真实资源。"}
 
     @router.post("/economy-definitions", status_code=201)

@@ -15,40 +15,6 @@ from world_engine.life import LifeActivityService
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import to_iso, utc_now
 
-INTERIOR_SCHEMA = """
-CREATE TABLE IF NOT EXISTS life_rooms (
-    id TEXT PRIMARY KEY,
-    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-    location_id TEXT NOT NULL REFERENCES locations(id) ON DELETE RESTRICT,
-    parent_room_id TEXT REFERENCES life_rooms(id) ON DELETE RESTRICT,
-    registration_id TEXT NOT NULL REFERENCES element_registration_requests(id) ON DELETE RESTRICT,
-    name TEXT NOT NULL,
-    owner_character_id TEXT REFERENCES characters(id) ON DELETE RESTRICT,
-    access_policy TEXT NOT NULL CHECK(access_policy IN ('public','private')),
-    door_open INTEGER NOT NULL DEFAULT 0 CHECK(door_open IN (0,1)),
-    door_locked INTEGER NOT NULL DEFAULT 0 CHECK(door_locked IN (0,1)),
-    CHECK(NOT (door_open=1 AND door_locked=1))
-);
-CREATE INDEX IF NOT EXISTS idx_life_rooms_location
-    ON life_rooms(world_id,location_id,parent_room_id);
-CREATE TABLE IF NOT EXISTS life_fixtures (
-    id TEXT PRIMARY KEY,
-    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-    room_id TEXT NOT NULL REFERENCES life_rooms(id) ON DELETE RESTRICT,
-    name TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('container','seat')),
-    capacity INTEGER NOT NULL DEFAULT 8 CHECK(capacity BETWEEN 1 AND 64),
-    is_open INTEGER NOT NULL DEFAULT 0 CHECK(is_open IN (0,1)),
-    is_locked INTEGER NOT NULL DEFAULT 0 CHECK(is_locked IN (0,1)),
-    CHECK(NOT (is_open=1 AND is_locked=1))
-);
-CREATE TABLE IF NOT EXISTS life_room_access (
-    room_id TEXT NOT NULL REFERENCES life_rooms(id) ON DELETE CASCADE,
-    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    PRIMARY KEY(room_id,character_id)
-);
-"""
-
 
 class FixtureSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

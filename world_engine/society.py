@@ -10,53 +10,6 @@ from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import same_room
 from world_engine.repository import from_iso, to_iso, utc_now
 
-SOCIETY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS event_observers (
- event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- character_id TEXT NOT NULL REFERENCES characters(id),
- channel TEXT NOT NULL, PRIMARY KEY(event_id,character_id)
-);
-CREATE TABLE IF NOT EXISTS character_acquaintances (
- observer_id TEXT NOT NULL REFERENCES characters(id), subject_id TEXT NOT NULL REFERENCES characters(id),
- world_id TEXT NOT NULL REFERENCES worlds(id), known_name TEXT,
- encounters INTEGER NOT NULL DEFAULT 0, shared_experiences INTEGER NOT NULL DEFAULT 0,
- respect INTEGER NOT NULL DEFAULT 0, conflict INTEGER NOT NULL DEFAULT 0,
- first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, last_social_gain TEXT,
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL, PRIMARY KEY(observer_id,subject_id)
-);
-CREATE TABLE IF NOT EXISTS character_emotions (
- character_id TEXT PRIMARY KEY REFERENCES characters(id), world_id TEXT NOT NULL REFERENCES worlds(id),
- emotion TEXT NOT NULL, intensity INTEGER NOT NULL, stress INTEGER NOT NULL DEFAULT 0,
- expires_world_time TEXT NOT NULL, source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL
-);
-CREATE TABLE IF NOT EXISTS character_event_knowledge (
- character_id TEXT NOT NULL REFERENCES characters(id), event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id), source_kind TEXT NOT NULL,
- source_character_id TEXT REFERENCES characters(id), confidence REAL NOT NULL,
- hops INTEGER NOT NULL DEFAULT 0, learned_world_time TEXT NOT NULL,
- PRIMARY KEY(character_id,event_id)
-);
-CREATE TABLE IF NOT EXISTS player_notifications (
- id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id), recipient_id TEXT NOT NULL REFERENCES characters(id),
- event_id TEXT REFERENCES world_events(id) ON DELETE CASCADE, title TEXT NOT NULL, read_at TEXT, created_at TEXT NOT NULL,
- UNIQUE(recipient_id,event_id)
-);
-CREATE TABLE IF NOT EXISTS npc_daily_states (
- character_id TEXT PRIMARY KEY REFERENCES characters(id), world_id TEXT NOT NULL REFERENCES worlds(id),
- last_slot TEXT, intention TEXT NOT NULL DEFAULT '', next_world_time TEXT,
- last_outreach_day TEXT, last_error TEXT
-);
-CREATE TABLE IF NOT EXISTS npc_outreach_jobs (
- id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id), npc_id TEXT NOT NULL REFERENCES characters(id),
- player_id TEXT NOT NULL REFERENCES characters(id), contact_id TEXT REFERENCES character_contacts(id),
- channel TEXT NOT NULL, reason TEXT NOT NULL, source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- status TEXT NOT NULL DEFAULT 'pending', claim_time TEXT, attempts INTEGER NOT NULL DEFAULT 0,
- world_day TEXT NOT NULL, result_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL, error TEXT,
- UNIQUE(world_id,npc_id,player_id,world_day)
-);
-CREATE INDEX IF NOT EXISTS idx_knowledge_observer ON character_event_knowledge(world_id,character_id,learned_world_time);
-"""
-
 
 class SocietyService:
     @staticmethod
@@ -275,8 +228,8 @@ class SocietyService:
                 ),
             )
 
-        from world_engine.epistemics import KnowledgeService
         from world_engine.character_growth import CharacterGrowthService
+        from world_engine.epistemics import KnowledgeService
         KnowledgeService.capture(c,event_id)
         CharacterGrowthService.apply(c,event_id)
         if target and speech and voice != "whisper":
@@ -337,8 +290,8 @@ class SocietyService:
         ]
         for entry in news:
             entry["summary"] = cls.mask_text(c, wid, cid, entry["summary"])
-        from world_engine.epistemics import KnowledgeService
         from world_engine.character_growth import CharacterGrowthService
+        from world_engine.epistemics import KnowledgeService
         beliefs=KnowledgeService.view(c,cid,at,limit=6)
         for belief in beliefs:
             belief["evidence"]=[{"method":item["method"],"quote":item["quote"][:160],"learned_at":item["learned_at"]} for item in belief["evidence"][:2]]

@@ -10,50 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from world_engine.geo import great_circle_distance_km
 from world_engine.life import LifeActivityService
+from world_engine.npc_goals import LifeGoalSpec, NpcGoalService, validate_dependencies
 from world_engine.repository import from_iso, to_iso
 from world_engine.schedules import ScheduleService
-from world_engine.npc_goals import LifeGoalSpec, NpcGoalService, validate_dependencies
-
-ROUTINE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS npc_routine_plans (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- character_id TEXT NOT NULL UNIQUE REFERENCES characters(id) ON DELETE CASCADE,
- registration_id TEXT NOT NULL REFERENCES element_registration_requests(id),
- revision INTEGER NOT NULL,spec_json TEXT NOT NULL,effective_world_time TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS npc_routine_occurrences (
- id TEXT PRIMARY KEY,plan_id TEXT NOT NULL REFERENCES npc_routine_plans(id),
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- character_id TEXT NOT NULL REFERENCES characters(id),revision INTEGER NOT NULL,
- slot_key TEXT NOT NULL,starts_world_time TEXT NOT NULL,ends_world_time TEXT NOT NULL,
- slot_json TEXT NOT NULL,required_minutes INTEGER NOT NULL,
- status TEXT NOT NULL DEFAULT 'planned',reason TEXT NOT NULL DEFAULT '',
- next_attempt_world_time TEXT,source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- UNIQUE(plan_id,revision,slot_key,starts_world_time)
-);
-CREATE TABLE IF NOT EXISTS npc_routine_activities (
- occurrence_id TEXT NOT NULL REFERENCES npc_routine_occurrences(id) ON DELETE CASCADE,
- activity_id TEXT NOT NULL UNIQUE REFERENCES character_life_activities(id),
- PRIMARY KEY(occurrence_id,activity_id)
-);
-CREATE TABLE IF NOT EXISTS npc_work_preferences (
- character_id TEXT PRIMARY KEY REFERENCES characters(id),plan_id TEXT NOT NULL REFERENCES npc_routine_plans(id),
- scope_key TEXT NOT NULL,location_id TEXT NOT NULL REFERENCES locations(id),
- selected_world_day TEXT NOT NULL,reason TEXT NOT NULL,
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL
-);
-CREATE TABLE IF NOT EXISTS npc_routine_cursors (
- plan_id TEXT PRIMARY KEY REFERENCES npc_routine_plans(id),
- revision INTEGER NOT NULL,last_world_time TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS npc_routine_supplies (
- occurrence_id TEXT NOT NULL REFERENCES npc_routine_occurrences(id) ON DELETE CASCADE,
- world_time TEXT NOT NULL,item_type_id TEXT NOT NULL REFERENCES item_types(id),
- method TEXT NOT NULL CHECK(method IN ('harvest','purchase')),spent INTEGER NOT NULL CHECK(spent>=0),
- source_event_id TEXT REFERENCES world_events(id),
- PRIMARY KEY(occurrence_id,world_time)
-);
-"""
 
 
 class RoutineSlot(BaseModel):

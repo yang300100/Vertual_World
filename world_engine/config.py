@@ -69,6 +69,10 @@ class Settings:
     image_size: str = "2048x2048"
     image_response_format: str = "url"
     media_directory: Path | None = None
+    # 数据保留：控制事件衍生表的长期增长。
+    # 已完成的记忆任务只留最近若干条；知识归档窗口为 0 表示永久保留（默认）。
+    memory_job_keep_recent: int = 500
+    knowledge_retention_days: int = 0
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -193,5 +197,11 @@ class Settings:
             image_response_format=os.getenv("IMAGE_RESPONSE_FORMAT", "url").strip(),
             media_directory=_resolve_path(
                 os.getenv("WORLD_MEDIA_DIR", "data/world-media")
+            ),
+            memory_job_keep_recent=max(
+                0, int(os.getenv("WORLD_MEMORY_JOB_KEEP_RECENT", "500"))
+            ),
+            knowledge_retention_days=max(
+                0, int(os.getenv("WORLD_KNOWLEDGE_RETENTION_DAYS", "0"))
             ),
         )

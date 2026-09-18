@@ -141,6 +141,48 @@ def test_heartbeat_and_character_state_logs_are_separate(database, settings, tmp
     assert state_manifest["state_update_count"] == 3
 
 
+def test_state_logs_are_appended_not_rewritten(database, settings, tmp_path) -> None:
+    """心跳状态日志必须增量追加：既有内容不得被整体重写。
+
+    旧实现每 tick 全量重写这两个 JSONL，随历史增长呈 O(n²) 的 I/O。
+    这里在两次心跳之间插入一行哨兵：追加实现会保留它，重写实现会抹掉它。
+    """
+    history_directory = tmp_path / "incremental-history"
+    history_settings = replace(
+        settings,
+        history_logging_enabled=True,
+        history_directory=history_directory,
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+
+    engine.heartbeat(world_id, elapsed_seconds=600)
+    world_directory = history_directory / world_id
+    heartbeat_path = world_directory / "heartbeats.jsonl"
+    state_path = world_directory / "state_updates.jsonl"
+    first_heartbeats = heartbeat_path.read_text(encoding="utf-8").splitlines()
+    first_states = state_path.read_text(encoding="utf-8").splitlines()
+
+    sentinel = '{"sentinel":true}'
+    with heartbeat_path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(sentinel + "\n")
+
+    engine.heartbeat(world_id, elapsed_seconds=600)
+    heartbeats = heartbeat_path.read_text(encoding="utf-8").splitlines()
+    states = state_path.read_text(encoding="utf-8").splitlines()
+    manifest = json.loads(
+        (world_directory / "state_manifest.json").read_text(encoding="utf-8")
+    )
+
+    # 哨兵仍在 → 旧内容被追加保留而非覆盖重写。
+    assert sentinel in heartbeats
+    assert len(heartbeats) == len(first_heartbeats) + 2
+    assert states[: len(first_states)] == first_states
+    assert manifest["heartbeat_count"] == len(first_heartbeats) + 1
+    assert manifest["heartbeat_rowid"] > 0
+    assert manifest["state_update_rowid"] > 0
+
+
 def test_time_scale_change_is_recorded_in_world_history(database, settings, tmp_path) -> None:
     history_directory = tmp_path / "clock-history"
     history_settings = replace(

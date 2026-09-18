@@ -11,9 +11,13 @@ from world_engine.config import Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
-from world_engine.repository import WorldRepository
+from world_engine.repository import WorldRepository, from_iso
+from world_engine.retention import apply_retention
 
 LOGGER = logging.getLogger("virtual-world.worker")
+
+# 每推进这么多轮做一次数据保留维护（按默认 60 秒心跳约合 1 小时）。
+MAINTENANCE_EVERY_ROUNDS = 60
 
 
 class WorldWorker:
@@ -27,6 +31,7 @@ class WorldWorker:
         self.stop_event = threading.Event()
         self._memory_future = None
         self._outreach_future = None
+        self._rounds_since_maintenance = 0
 
     def run_once(self, *, elapsed_seconds: float | None = None) -> int:
         with self.database.read() as connection:
@@ -74,7 +79,42 @@ class WorldWorker:
                     if self.stop_event.is_set():break
                     process_outreach(self.engine,world.id)
             self._outreach_future=submit_call(process_npc_contact)
+        self._rounds_since_maintenance += 1
+        if self._rounds_since_maintenance >= MAINTENANCE_EVERY_ROUNDS:
+            self._rounds_since_maintenance = 0
+            self._run_maintenance(worlds)
         return completed
+
+    def _run_maintenance(self, worlds) -> None:
+        """定期清理已完成的事件衍生数据，避免数据库随运行无限膨胀。"""
+        for world in worlds:
+            if self.stop_event.is_set():
+                return
+            try:
+                with self.database.write() as connection:
+                    row = connection.execute(
+                        'SELECT "current_time" AS current_time FROM worlds WHERE id = ?',
+                        (world.id,),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    outcome = apply_retention(
+                        connection,
+                        world.id,
+                        current_world_time=from_iso(row["current_time"]),
+                        memory_job_keep_recent=self.settings.memory_job_keep_recent,
+                        knowledge_retention_days=self.settings.knowledge_retention_days,
+                    )
+                if outcome.touched_anything:
+                    LOGGER.info(
+                        "世界 %s 数据保留：清理记忆任务%s条，归档知识%s条/目击%s条",
+                        world.name,
+                        outcome.memory_jobs_deleted,
+                        outcome.knowledge_archived,
+                        outcome.observers_archived,
+                    )
+            except Exception:
+                LOGGER.exception("世界 %s 的数据保留维护失败", world.name)
 
     def run_forever(self) -> None:
         reset_count = self.engine.reset_offline_baseline()

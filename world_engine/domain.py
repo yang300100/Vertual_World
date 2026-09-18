@@ -443,23 +443,6 @@ class CombatIntentBatch(BaseModel):
     intents: list[CombatIntent] = Field(default_factory=list)
 
 
-class CombatEncounterState(BaseModel):
-    """战斗遭遇只读视图，供CombatResolver与战斗Agent使用。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    world_id: str
-    status: str
-    random_seed: int
-    started_at_world: datetime
-    resolved_at_world: datetime | None = None
-    participants: list[str] = Field(default_factory=list)
-    terrain_id: str | None = None
-    location_id: str | None = None
-    summary: str | None = None
-
-
 class AgentRunView(BaseModel):
     """Agent单次调用的审计记录(agent_runs行的只读投影)。"""
 
@@ -478,19 +461,3 @@ class AgentRunView(BaseModel):
     error_text: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
-
-
-class AgentProposalView(BaseModel):
-    """Agent提案的审计记录(agent_proposals行的只读投影)。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    run_id: str
-    world_id: str
-    actor_id: str | None = None
-    proposal_type: str
-    payload: dict[str, object]
-    validation_status: str
-    rejection_reason: str | None = None
-    created_at: datetime

@@ -11,26 +11,6 @@ from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeSceneService
 from world_engine.repository import from_iso, to_iso
 
-ECONOMY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS world_item_profiles (
- world_id TEXT NOT NULL REFERENCES worlds(id),item_type_id TEXT PRIMARY KEY REFERENCES item_types(id),
- registration_id TEXT NOT NULL REFERENCES element_registration_requests(id),
- price INTEGER NOT NULL,nutrition INTEGER NOT NULL DEFAULT 0,
- resource_location_id TEXT REFERENCES locations(id),resource_key TEXT,resource_owner_id TEXT REFERENCES characters(id),
- daily_growth INTEGER NOT NULL DEFAULT 0,resource_capacity INTEGER NOT NULL DEFAULT 0,last_growth_world_time TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS workplace_accounts (
- world_id TEXT NOT NULL REFERENCES worlds(id),location_id TEXT PRIMARY KEY REFERENCES locations(id),
- registration_id TEXT NOT NULL REFERENCES element_registration_requests(id),balance INTEGER NOT NULL,
- wage INTEGER NOT NULL DEFAULT 9
-);
-CREATE TABLE IF NOT EXISTS room_rental_rates (
- room_id TEXT PRIMARY KEY REFERENCES life_rooms(id),nightly_rate INTEGER NOT NULL CHECK(nightly_rate>0)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_active_room_lease ON contract_fulfillments(asset_id)
- WHERE kind='lodging' AND status='active';
-"""
-
 
 class CommoditySpec(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

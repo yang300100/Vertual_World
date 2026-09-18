@@ -97,7 +97,7 @@ def test_movement_advances_along_route_segmentwise(database, settings) -> None:
         player = snapshot.character_by_id(player_id)
         if row is None:
             break
-        movement_now = WorldRepository._movement_from_row(row)
+        movement_now = WorldRepository.movement_from_row(row)
         assert movement_now.distance_travelled_km >= previous_travelled - 1e-9
         previous_travelled = movement_now.distance_travelled_km
         longitude_steps.append(round(player.longitude, 5))

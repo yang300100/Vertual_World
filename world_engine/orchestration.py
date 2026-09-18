@@ -31,12 +31,12 @@ from world_engine.domain import (
     WorldSnapshot,
 )
 from world_engine.geo import great_circle_distance_km
-from world_engine.proximity import same_room
 from world_engine.knowledge import (
     KnowledgeHit,
     WorldKnowledgeBase,
     search_dynamic_knowledge,
 )
+from world_engine.proximity import same_room
 
 # 与 DeepSeekDecisionProvider 保持一致的人物不可知底层术语。
 _FORBIDDEN_AGENT_TERMS = (
@@ -153,27 +153,6 @@ def _validate_agent_perspective(
         if leaked is not None:
             return f"{agent_label}输出泄露不可知术语：{leaked}"
     return None
-
-
-def _actor_priority(proposal: ActionProposal, snapshot: WorldSnapshot) -> int:
-    """返回提案在一个 actor 内部的冲突优先级；越大越优先。"""
-    actor = snapshot.character_by_id(proposal.actor_id)
-    if actor is None:
-        return 0
-    # 生存/安全规则优先于普通需求。
-    if actor.health <= 0:
-        return 100
-    if actor.satiety <= 30:
-        return 90
-    if actor.energy <= 30:
-        return 85
-    if actor.money < 10:
-        return 80
-    if actor.is_core and actor.goals:
-        return 70
-    if actor.goals:
-        return 60
-    return 40
 
 
 def _proposal_from_actor(

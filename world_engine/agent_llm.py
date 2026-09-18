@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -9,6 +10,8 @@ from pydantic import TypeAdapter
 
 from world_engine.config import Settings
 from world_engine.roleplay import build_npc_reply_messages
+
+LOGGER = logging.getLogger("virtual-world.agent-llm")
 
 
 class AgentLLMError(RuntimeError):
@@ -51,7 +54,10 @@ class AgentModelBackend:
         if not settings.deepseek_api_key:
             raise ValueError("Agent 模型后端需要 DEEPSEEK_API_KEY")
         self.model = settings.deepseek_model
-        self.timeout_seconds = settings.world_agent_timeout_seconds
+        # HTTP 层用模型自己的超时预算。`world_agent_timeout_seconds` 是编排整体预算
+        # （由 orchestration 与 Future.result 强制），拿它当单次请求超时会让
+        # 稍慢的响应直接失败。
+        self.timeout_seconds = settings.deepseek_timeout_seconds
         self.max_retries = settings.deepseek_max_retries
         self.max_tokens = settings.deepseek_max_output_tokens
         self.client = client or httpx.Client(
@@ -152,5 +158,7 @@ def build_agent_model_backend(settings: Settings) -> AgentModelBackend | None:
         try:
             return AgentModelBackend(settings)
         except Exception:
+            # 后端构建失败只降级为规则决策，但要留下可排查的痕迹。
+            LOGGER.exception("Agent 模型后端构建失败，本次运行将回退规则决策")
             return None
     return None

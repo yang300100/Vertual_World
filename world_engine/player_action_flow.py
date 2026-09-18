@@ -11,7 +11,7 @@ from world_engine.geo import great_circle_distance_km
 from world_engine.life import parse_life_activity
 from world_engine.player_activities import PlayerActivityService, native_action
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
-from world_engine.repository import to_iso, utc_now
+from world_engine.repository import WorldRepository, to_iso, utc_now
 
 
 def execute_explicit_action(engine, world_id, text, target_id):
@@ -263,7 +263,7 @@ def react_to_action(engine, world_id, event_id):
                    WHERE source_event_id=?""",
                 (reaction_id, event_id),
             )
-            connection.execute("UPDATE worlds SET version=version+1 WHERE id=?", (world_id,))
+            WorldRepository().bump_version(connection, world_id)
         return {"reply": reply, "event_id": reaction_id}
     except Exception:
         error = "行动结果已经保存；NPC 回应暂时不可用，可单独重试回应，无需重做动作"

@@ -9,14 +9,20 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from world_engine.combat_rules import (
+    COMBAT_RANGE_KM,
+    counter_damage,
+    current_location_id,
+    equipment_bonus,
+    is_important_character,
+    location_kind,
+    offensive_damage,
+)
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
+from world_engine.event_log import record_event
 from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import same_room
 from world_engine.repository import to_iso, utc_now
-
-# 战斗交互与撤退出战距离阈值(公里)，与现有 action 规则保持一致。
-COMBAT_RANGE_KM = 5.0
-WITHDRAW_RANGE_KM = 12.0
 
 
 @dataclass(slots=True)
@@ -200,16 +206,16 @@ class CombatResolver:
         first, second = self._order_by_initiative(actor, target, initiative)
         initiative_order = (first["id"], second["id"])
 
-        atk_bonus = self._equipment_bonus(connection, actor, "attack")
-        def_bonus = self._equipment_bonus(connection, target, "defense")
-        dmg = max(1, rng.randint(10, 20) + int(actor["energy"]) // 10 + atk_bonus - def_bonus)
+        atk_bonus = equipment_bonus(connection, actor, "attack")
+        def_bonus = equipment_bonus(connection, target, "defense")
+        dmg = offensive_damage(rng, actor, attack_bonus=atk_bonus, defense_bonus=def_bonus)
         target_health = max(0, int(target["health"]) - dmg)
         actor_health = int(actor["health"])
         reply_text = ""
         if target_health > 0:
-            t_atk = self._equipment_bonus(connection, target, "attack")
-            a_def = self._equipment_bonus(connection, actor, "defense")
-            ret = max(1, rng.randint(6, 16) + int(target["energy"]) // 10 + t_atk - a_def)
+            t_atk = equipment_bonus(connection, target, "attack")
+            a_def = equipment_bonus(connection, actor, "defense")
+            ret = counter_damage(rng, target, attack_bonus=t_atk, defense_bonus=a_def)
             actor_health = max(0, actor_health - ret)
             reply_text = f"「{target['name']}」反手回击，造成 {ret} 点伤害。"
         self._update_character(connection, actor["id"], health=actor_health)
@@ -234,7 +240,7 @@ class CombatResolver:
             event_type="action.attack",
             actor_id=actor["id"],
             target_id=target["id"],
-            location_id=self._current_location_id(actor),
+            location_id=current_location_id(actor),
             summary=summary,
             payload={
                 "reason": proposal.reason,
@@ -249,7 +255,9 @@ class CombatResolver:
         )
         if withdrawn:
             loser = target if target_health <= 0 else actor
-            event_type = "world.major_death" if self._is_important(loser) else "action.target_down"
+            event_type = (
+                "world.major_death" if is_important_character(loser) else "action.target_down"
+            )
             self._record_event(
                 connection,
                 world_id=world_id,
@@ -258,7 +266,7 @@ class CombatResolver:
                 event_type=event_type,
                 actor_id=actor["id"],
                 target_id=target["id"],
-                location_id=self._current_location_id(actor),
+                location_id=current_location_id(actor),
                 summary=(
                     f"{loser['name']}被击倒。"
                     if event_type == "action.target_down"
@@ -269,8 +277,7 @@ class CombatResolver:
         self._record_memory_task(connection, world_id, event_id, actor["id"], target["id"])
 
         # 公开攻击引来守卫/河务介入(仅在未撤退时发生)。
-        location_kind = self._location_kind(connection, self._current_location_id(actor))
-        if location_kind in ("city", "public"):
+        if location_kind(connection, current_location_id(actor)) in ("city", "public"):
             self._record_event(
                 connection,
                 world_id=world_id,
@@ -279,7 +286,7 @@ class CombatResolver:
                 event_type="world.warden_intervention",
                 actor_id=actor["id"],
                 target_id=target["id"],
-                location_id=self._current_location_id(actor),
+                location_id=current_location_id(actor),
                 summary=f"守卫与河务的注意被惊动：{actor['name']}的公开攻击引来了追究。",
                 payload={"reason": proposal.reason},
             )
@@ -332,7 +339,7 @@ class CombatResolver:
             event_type="combat.withdraw",
             actor_id=None,
             target_id=None,
-            location_id=self._current_location_id(actor),
+            location_id=current_location_id(actor),
             summary=summary,
             payload={"encounter_id": encounter["id"], "round_seed": round_seed},
         )
@@ -442,52 +449,6 @@ class CombatResolver:
             return None
 
     @staticmethod
-    def _current_location_id(actor: sqlite3.Row) -> str | None:
-        if "current_location_id" in actor.keys() and actor["current_location_id"]:
-            return actor["current_location_id"]
-        return actor["location_id"]
-
-    @staticmethod
-    def _location_kind(connection: sqlite3.Connection, location_id: str | None) -> str | None:
-        if not location_id:
-            return None
-        row = connection.execute(
-            "SELECT kind FROM locations WHERE id = ?", (location_id,)
-        ).fetchone()
-        return row["kind"] if row else None
-
-    @staticmethod
-    def _equipment_bonus(
-        connection: sqlite3.Connection, character_row: sqlite3.Row, kind: str
-    ) -> int:
-        if kind == "attack":
-            weapon = connection.execute(
-                """
-                SELECT it.attack_bonus AS b
-                FROM item_instances ii JOIN item_types it ON it.id = ii.item_type_id
-                WHERE ii.container_id = ? AND ii.container_type = 'character_equipment'
-                  AND it.category = 'weapon'
-                """,
-                (character_row["id"],),
-            ).fetchone()
-            bonus = weapon["b"] if weapon else 0
-            if "skills_json" in character_row.keys() and any(
-                key in ("剑术", "蛮力", "搏斗") for key in json.loads(character_row["skills_json"])
-            ):
-                bonus += 4
-            return bonus
-        charm = connection.execute(
-            """
-            SELECT it.defense_bonus AS b
-            FROM item_instances ii JOIN item_types it ON it.id = ii.item_type_id
-            WHERE ii.container_id = ? AND ii.container_type = 'character_equipment'
-              AND it.category = 'charm'
-            """,
-            (character_row["id"],),
-        ).fetchone()
-        return charm["b"] if charm else 0
-
-    @staticmethod
     def _update_character(
         connection: sqlite3.Connection, character_id: str, **changes: object
     ) -> None:
@@ -515,31 +476,6 @@ class CombatResolver:
         )
 
     @staticmethod
-    def _is_important(target: sqlite3.Row) -> bool:
-        if int(target["is_core"]):
-            return True
-        identity = target["identity"] or ""
-        return any(
-            key in identity
-            for key in (
-                "女王",
-                "代表",
-                "召集人",
-                "记录官",
-                "首席",
-                "行誓者",
-                "祭官",
-                "灯判",
-                "守潮",
-                "调度官",
-                "井见",
-                "海议长",
-                "港守",
-                "传声人",
-            )
-        )
-
-    @staticmethod
     def _record_event(
         connection: sqlite3.Connection,
         *,
@@ -553,30 +489,19 @@ class CombatResolver:
         summary: str,
         payload: dict[str, object],
     ) -> str:
-        event_id = str(uuid4())
-        connection.execute(
-            """
-            INSERT INTO world_events(
-                id, world_id, tick_id, occurred_at, event_type, actor_id, target_id,
-                location_id, summary, importance, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                world_id,
-                tick_id,
-                to_iso(occurred_at),
-                event_type,
-                actor_id,
-                target_id,
-                location_id,
-                summary,
-                "major" if event_type == "world.major_death" else "routine",
-                json.dumps(payload, ensure_ascii=False),
-                to_iso(utc_now()),
-            ),
+        """战斗事件同样需要登记因果与目击者知识，因此走统一入口。"""
+        return record_event(
+            connection,
+            world_id=world_id,
+            tick_id=tick_id,
+            occurred_at=occurred_at,
+            event_type=event_type,
+            actor_id=actor_id,
+            target_id=target_id,
+            location_id=location_id,
+            summary=summary,
+            payload=payload,
         )
-        return event_id
 
     @staticmethod
     def _record_memory_task(
@@ -595,7 +520,3 @@ class CombatResolver:
             """,
             ("memjob:" + event_id, world_id, event_id, now, now),
         )
-
-
-def build_combat_resolver() -> CombatResolver:
-    return CombatResolver()

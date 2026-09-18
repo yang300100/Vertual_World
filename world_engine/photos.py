@@ -3,12 +3,15 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import json
 import math
+import socket
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -25,6 +28,36 @@ _MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024
 _DIRECTION_BEARINGS = {"north": 0.0, "east": 90.0, "south": 180.0, "west": 270.0}
 _DIRECTION_LABELS = {"north": "北方", "east": "东方", "south": "南方", "west": "西方"}
 _MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+
+
+def _assert_public_http_url(url: str) -> None:
+    """只允许下载指向公网主机的 http(s) 地址。
+
+    生图接口返回的 URL 会被服务端主动请求，若不校验就等于把内网地址
+    交给外部响应控制（SSRF）。这里解析主机名并拒绝回环/私有/保留网段。
+    """
+    parsed = urlsplit(url)
+    if parsed.scheme not in ("http", "https"):
+        raise PhotoGenerationError("生图接口返回的图片地址不是 http(s)")
+    host = parsed.hostname
+    if not host:
+        raise PhotoGenerationError("生图接口返回的图片地址缺少主机名")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        resolved = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise PhotoGenerationError("生图接口返回的图片地址无法解析") from exc
+    for info in resolved:
+        address = ipaddress.ip_address(info[4][0])
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_multicast
+            or address.is_unspecified
+        ):
+            raise PhotoGenerationError("生图接口返回的图片地址指向非公网主机")
 
 
 class PortraitUploadRequest(BaseModel):
@@ -145,6 +178,7 @@ class SeedreamImageClient:
             url = item.get("url") or item.get("image_url")
             if not isinstance(url, str) or not url.startswith(("http://", "https://")):
                 raise PhotoGenerationError("生图接口没有返回可保存的图片数据")
+            _assert_public_http_url(url)
             downloaded = client.get(url)
             downloaded.raise_for_status()
             if len(downloaded.content) > _MAX_GENERATED_IMAGE_BYTES:

@@ -165,10 +165,6 @@ def _feature_type_map(pack: dict[str, Any]) -> dict[int, str]:
     return result
 
 
-def _is_water_by_feature(feature_type: str) -> bool:
-    return feature_type in ("ocean", "lake")
-
-
 def _elevation_m(cell: dict[str, Any], is_water: bool) -> int:
     if is_water:
         return 0
@@ -177,10 +173,6 @@ def _elevation_m(cell: dict[str, Any], is_water: bool) -> int:
         return 0
     ratio = (code - SEA_LEVEL_CODE) / (ELEVATION_MAX_CODE - SEA_LEVEL_CODE)
     return int(round((max(0.0, ratio) ** ELEVATION_EXPONENT) * MAX_ELEVATION_M))
-
-
-def _is_water(cell: dict[str, Any]) -> bool:
-    return int(cell.get("biome", 0)) == 0
 
 
 def _water_basins(cells: list[dict[str, Any]], feature_type_by_f: dict[int, str]) -> dict[int, str]:

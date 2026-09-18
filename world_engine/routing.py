@@ -16,13 +16,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from world_engine.config import PROJECT_ROOT
 from world_engine.geo import great_circle_distance_km
 from world_engine.navigation import TerrainService
 
-LAND_MODES = ("land", "underground")
 SLOPE_BLOCK_DEGREES = 35.0
 LAND_CROSSINGS = ("bridge", "ford", "ferry", "port")
-MAX_LOCAL_COST_KM = 400.0
 
 
 @dataclass
@@ -266,7 +265,7 @@ class RoutePlanner:
 
     @staticmethod
     def _projects_root() -> Path:
-        return Path(__file__).resolve().parents[1]
+        return PROJECT_ROOT
 
     def _passable(
         self,

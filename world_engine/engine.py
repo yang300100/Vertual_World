@@ -1227,31 +1227,34 @@ class WorldEngine:
     ) -> None:
         """把 NPC 已有的角色目标转为其自行维护的可见计划。"""
         now = to_iso(utc_now())
-        for character in characters:
-            if character.is_player:
-                continue
-            existing_titles = {
-                str(row["title"])
-                for row in connection.execute(
-                    """
-                    SELECT title FROM npc_todos
-                    WHERE world_id = ? AND character_id = ? AND status IN ('open', 'doing')
-                    """,
-                    (world_id, character.id),
-                ).fetchall()
-            }
+        npc_characters = [item for item in characters if not item.is_player]
+        if not npc_characters:
+            return
+        # 一次性取回全部 NPC 的既有计划，避免逐个角色查询（原先每个 NPC 一次 SELECT）。
+        placeholders = ",".join("?" for _ in npc_characters)
+        existing_titles: dict[str, set[str]] = {}
+        for row in connection.execute(
+            f"""
+            SELECT character_id, title FROM npc_todos
+            WHERE world_id = ? AND character_id IN ({placeholders})
+              AND status IN ('open', 'doing')
+            """,  # noqa: S608 - 占位符由上方按角色数生成，不含用户输入
+            (world_id, *(item.id for item in npc_characters)),
+        ).fetchall():
+            existing_titles.setdefault(str(row["character_id"]), set()).add(str(row["title"]))
+
+        pending: list[tuple[object, ...]] = []
+        for character in npc_characters:
+            known = existing_titles.setdefault(character.id, set())
             for goal in character.goals[:3]:
                 normalized_goal = str(goal).strip()
                 if not normalized_goal:
                     continue
                 title = f"推进：{normalized_goal}"[:160]
-                if title in existing_titles:
+                if title in known:
                     continue
-                connection.execute(
-                    """
-                    INSERT INTO npc_todos(id, world_id, character_id, title, details, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
+                known.add(title)
+                pending.append(
                     (
                         str(uuid4()),
                         world_id,
@@ -1260,9 +1263,16 @@ class WorldEngine:
                         f"{character.name}根据自身目标自行安排。",
                         now,
                         now,
-                    ),
+                    )
                 )
-                existing_titles.add(title)
+        if pending:
+            connection.executemany(
+                """
+                INSERT INTO npc_todos(id, world_id, character_id, title, details, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                pending,
+            )
 
     def sync_history(self, world_id: str) -> HistoryExportResult:
         if self.history_logger is None:

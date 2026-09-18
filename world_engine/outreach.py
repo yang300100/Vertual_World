@@ -8,7 +8,7 @@ from world_engine.actions import ActionService
 from world_engine.agent_llm import AgentLLMError
 from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import same_room
-from world_engine.repository import to_iso, utc_now
+from world_engine.repository import WorldRepository, to_iso, utc_now
 from world_engine.roleplay import npc_reply_system_prompt
 
 
@@ -244,7 +244,7 @@ def process_outreach(engine, wid):
                 "UPDATE npc_outreach_jobs SET status='done',result_event_id=?,error=NULL WHERE id=?",
                 (event, job["id"]),
             )
-            c.execute("UPDATE worlds SET version=version+1 WHERE id=?", (wid,))
+            WorldRepository().bump_version(c, wid)
         return 1
     except Exception as exc:
         with engine.database.write() as c:

@@ -4,28 +4,6 @@ import json
 
 from world_engine.repository import from_iso
 
-EVENT_HISTORY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS event_profiles (
- event_id TEXT PRIMARY KEY REFERENCES world_events(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- scope_type TEXT NOT NULL CHECK(scope_type IN ('global','regional','local','interpersonal')),
- scope_id TEXT, impact_level INTEGER NOT NULL CHECK(impact_level BETWEEN 1 AND 5),
- status TEXT NOT NULL CHECK(status IN ('confirmed','ongoing','resolved','archived')),
- classification_basis TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS event_causes (
- event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- cause_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- relation TEXT NOT NULL, PRIMARY KEY(event_id,cause_event_id), CHECK(event_id!=cause_event_id)
-);
-CREATE TABLE IF NOT EXISTS event_affected_entities (
- event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- entity_id TEXT NOT NULL, entity_type TEXT NOT NULL,
- PRIMARY KEY(event_id,entity_id,entity_type)
-);
-CREATE INDEX IF NOT EXISTS idx_event_profile_scope ON event_profiles(world_id,scope_type,scope_id);
-"""
-
 
 class EventHistoryService:
     @staticmethod

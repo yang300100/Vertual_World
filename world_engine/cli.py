@@ -36,6 +36,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     seed.add_argument("--name", default="伊瑟拉·澜誓城")
 
+    noryia = subparsers.add_parser(
+        "seed-noryia", help="创建伊瑟拉·诺里亚世界（导入 Noryia 人文地理）"
+    )
+    noryia.add_argument(
+        "--name",
+        default=None,
+        help="世界名称，默认使用 noryia_seeder.WORLD_NAME",
+    )
+
     subparsers.add_parser("list", help="列出所有世界")
 
     show = subparsers.add_parser("show", help="查看世界快照")
@@ -148,6 +157,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "seed-isera":
         world_id = create_iserra_world(database, name=args.name)
+        with database.read() as connection:
+            snapshot = repository.get_snapshot(connection, world_id)
+        _print_json(
+            {
+                "world_id": world_id,
+                "name": snapshot.world.name,
+                "locations": len(snapshot.locations),
+                "characters": len(snapshot.characters),
+                "core_characters": sum(1 for c in snapshot.characters if c.is_core),
+                "world_time": snapshot.world.current_time.isoformat(),
+            }
+        )
+        return 0
+    if args.command == "seed-noryia":
+        from world_engine.noryia_seeder import WORLD_NAME, create_noryia_world
+
+        world_id = create_noryia_world(database, name=args.name or WORLD_NAME)
         with database.read() as connection:
             snapshot = repository.get_snapshot(connection, world_id)
         _print_json(

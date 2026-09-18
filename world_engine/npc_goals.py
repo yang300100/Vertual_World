@@ -9,28 +9,6 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from world_engine.repository import from_iso, to_iso
 
-GOAL_SCHEMA = """
-CREATE TABLE IF NOT EXISTS npc_life_goals (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- plan_id TEXT NOT NULL REFERENCES npc_routine_plans(id) ON DELETE CASCADE,
- revision INTEGER NOT NULL,goal_key TEXT NOT NULL,spec_json TEXT NOT NULL,
- status TEXT NOT NULL DEFAULT 'waiting',progress INTEGER NOT NULL DEFAULT 0,
- reason TEXT NOT NULL DEFAULT '',next_step_json TEXT NOT NULL DEFAULT '{}',
- retry_world_time TEXT,failures INTEGER NOT NULL DEFAULT 0,spent INTEGER NOT NULL DEFAULT 0,
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- UNIQUE(plan_id,revision,goal_key)
-);
-CREATE TABLE IF NOT EXISTS npc_goal_steps (
- id TEXT PRIMARY KEY,goal_id TEXT NOT NULL REFERENCES npc_life_goals(id) ON DELETE CASCADE,
- world_time TEXT NOT NULL,kind TEXT NOT NULL,
- activity_id TEXT REFERENCES character_life_activities(id) ON DELETE SET NULL,
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- summary TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_npc_life_goals_actor ON npc_life_goals(character_id,status);
-"""
-
 
 class LifeGoalSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

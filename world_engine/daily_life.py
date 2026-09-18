@@ -7,8 +7,8 @@ from uuid import uuid4
 from world_engine.geo import great_circle_distance_km
 from world_engine.life import LifeActivityService
 from world_engine.repository import from_iso, to_iso
-from world_engine.schedules import ScheduleService
 from world_engine.routines import RoutinePlanSpec, RoutineService
+from world_engine.schedules import ScheduleService
 
 
 class DailyLifeService:

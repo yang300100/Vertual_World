@@ -6,14 +6,15 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from world_engine.actions import ActionService
 from world_engine.action_checks import CheckService
+from world_engine.actions import ActionService
 from world_engine.activity_tasks import ActivityRecipeSpec, TaskService
+from world_engine.api_deps import require_player_and_time
 from world_engine.domain import ActionProposal, ActionType
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeActivityError, LifeActivityService, LifeSceneService
 from world_engine.registration import ElementRegistrationSubmit, WorldElementRegistry
-from world_engine.repository import WorldNotFoundError, from_iso, to_iso, utc_now
+from world_engine.repository import WorldNotFoundError, to_iso, utc_now
 
 
 class TaskStart(BaseModel):
@@ -47,15 +48,7 @@ def build_task_router(database, engine):
     router = APIRouter(prefix="/api/worlds/{world_id}", tags=["活动过程"])
 
     def player_and_time(c, wid):
-        world = c.execute('SELECT "current_time" FROM worlds WHERE id=?', (wid,)).fetchone()
-        if world is None:
-            raise HTTPException(404, "世界不存在")
-        player = c.execute(
-            "SELECT * FROM characters WHERE world_id=? AND is_player=1", (wid,)
-        ).fetchone()
-        if player is None:
-            raise HTTPException(404, "当前世界没有玩家")
-        return player, from_iso(world["current_time"])
+        return require_player_and_time(c, wid)
 
     @router.get("/activity-recipes/catalog")
     def catalog(world_id: str):

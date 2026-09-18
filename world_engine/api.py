@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -9,13 +10,14 @@ from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from world_engine.agent_llm import AgentLLMError
 from world_engine.bounded_calls import submit_call
-from world_engine.config import Settings
+from world_engine.character_growth import CharacterGrowthService
+from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.contracts import KINDS, ContractError, ContractService
 from world_engine.conversations import ConversationService, NpcCharacterCard
 from world_engine.database import Database
@@ -64,17 +66,14 @@ from world_engine.repository import WorldNotFoundError, WorldRepository, from_is
 from world_engine.roleplay import npc_reply_system_prompt
 from world_engine.routing import RoutePlanner
 
+LOGGER = logging.getLogger("virtual-world.api")
+
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
-WORLD_MAP_DIRECTORY = Path(__file__).resolve().parent.parent / "docs" / "worldbuilding" / "maps"
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+WORLD_MAP_DIRECTORY = PROJECT_ROOT / "docs" / "worldbuilding" / "maps"
 
 # 只有整张世界图能作为可交互底图：它们与世界坐标同为等距圆柱投影、覆盖
 # [-180, 180] × [-90, 90]。区域旧图和城镇详图不能混入此列表，否则点击坐标会
 # 被错误投影到另一片地理范围。navigation/noryia 是当前 Noryia 的同投影图层目录。
-WORLD_MAP_LAYER_PATHS = (
-    "map_new/Noryia.svg",
-    "map_new/Noryia_标注.svg",
-)
 WORLD_MAP_LAYER_EXTENSIONS = {".svg", ".png", ".jpg", ".jpeg", ".webp"}
 
 
@@ -256,14 +255,6 @@ class MessageRequest(BaseModel):
 
     recipient_id: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1, max_length=1000)
-
-
-class LetterReplyResult(BaseModel):
-    """角色扮演 Agent 生成的远程信笺正文。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    reply: str = Field(min_length=1, max_length=900)
 
 
 class NpcTextResult(BaseModel):
@@ -667,6 +658,19 @@ def create_app(
         if request.url.path.startswith("/ui/"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
+
+    @application.exception_handler(WorldNotFoundError)
+    async def _world_not_found_handler(_request, exc):
+        """把领域层的世界不存在统一映射为 404，路由内不必各自写 try/except。"""
+        return JSONResponse(
+            status_code=404, content={"detail": str(exc) or "世界不存在"}
+        )
+
+    @application.exception_handler(Exception)
+    async def _unhandled_exception_handler(request, exc):
+        """兜底处理器：记录完整堆栈，但只向客户端返回统一错误体，不泄露内部细节。"""
+        LOGGER.exception("处理 %s %s 时发生未捕获异常", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
 
     @application.get("/")
     def root() -> RedirectResponse:
@@ -1501,7 +1505,11 @@ def create_app(
             return {"status": status, "contact_id": contact_id, "response": response}
 
     @application.get("/api/worlds/{world_id}/contacts")
-    def list_contacts(world_id: str) -> list[dict[str, object]]:
+    def list_contacts(
+        world_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[dict[str, object]]:
         with database.read() as connection:
             _world_time(connection, world_id)
             return [
@@ -1512,8 +1520,9 @@ def create_app(
                     FROM character_contacts c JOIN characters n ON n.id = c.recipient_id
                     WHERE c.world_id = ? AND c.status = 'accepted'
                     ORDER BY c.updated_at DESC
+                    LIMIT ? OFFSET ?
                     """,
-                    (world_id,),
+                    (world_id, limit, offset),
                 ).fetchall()
             ]
 
@@ -1575,7 +1584,12 @@ def create_app(
             return {"id": message_id, "reply_id": reply_id, "reply": reply, "status": "sent"}
 
     @application.get("/api/worlds/{world_id}/messages")
-    def list_messages(world_id: str, recipient_id: str = Query(min_length=1, max_length=100)) -> list[dict[str, object]]:
+    def list_messages(
+        world_id: str,
+        recipient_id: str = Query(min_length=1, max_length=100),
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[dict[str, object]]:
         with database.read() as connection:
             player = connection.execute(
                 "SELECT id FROM characters WHERE world_id = ? AND is_player = 1", (world_id,)
@@ -1592,13 +1606,19 @@ def create_app(
             return [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT * FROM character_messages WHERE contact_id = ? ORDER BY world_time, created_at, rowid",
-                    (contact["id"],),
+                    """SELECT * FROM character_messages WHERE contact_id = ?
+                       ORDER BY world_time, created_at, rowid LIMIT ? OFFSET ?""",
+                    (contact["id"], limit, offset),
                 ).fetchall()
             ]
 
     @application.get("/api/worlds/{world_id}/todos")
-    def list_todos(world_id: str, character_id: str | None = None) -> list[dict[str, object]]:
+    def list_todos(
+        world_id: str,
+        character_id: str | None = None,
+        limit: Annotated[int, Query(ge=1, le=500)] = 200,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[dict[str, object]]:
         with database.read() as connection:
             _world_time(connection, world_id)
             sql = "SELECT t.*, c.name AS character_name FROM npc_todos t JOIN characters c ON c.id = t.character_id WHERE t.world_id = ?"
@@ -1606,10 +1626,21 @@ def create_app(
             if character_id:
                 sql += " AND t.character_id = ?"
                 args.append(character_id)
-            return [dict(row) for row in connection.execute(sql + " ORDER BY t.status, t.due_world_time, t.created_at", args).fetchall()]
+            args.extend((limit, offset))
+            return [
+                dict(row)
+                for row in connection.execute(
+                    sql + " ORDER BY t.status, t.due_world_time, t.created_at LIMIT ? OFFSET ?",
+                    args,
+                ).fetchall()
+            ]
 
     @application.get("/api/worlds/{world_id}/long-term-requests")
-    def list_long_term(world_id: str) -> list[dict[str, object]]:
+    def list_long_term(
+        world_id: str,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> list[dict[str, object]]:
         with database.read() as connection:
             _world_time(connection, world_id)
             rows = connection.execute(
@@ -1617,21 +1648,30 @@ def create_app(
                    FROM long_term_operation_requests r
                    JOIN characters p ON p.id = r.requester_id
                    JOIN characters n ON n.id = r.recipient_id
-                   WHERE r.world_id = ? ORDER BY r.created_at DESC""",
-                (world_id,),
+                   WHERE r.world_id = ?
+                   ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
+                (world_id, limit, offset),
             ).fetchall()
+            # 一次性取回本页涉及的履约记录，避免逐条查询（原实现是每请求一次 SELECT）。
+            request_ids = [str(row["id"]) for row in rows]
+            fulfillments: dict[str, dict[str, object]] = {}
+            if request_ids:
+                placeholders = ",".join("?" for _ in request_ids)
+                for row in connection.execute(
+                    f"""SELECT c.*, (SELECT COUNT(*) FROM contract_receipts e
+                        WHERE e.request_id=c.request_id) AS completed_units
+                        FROM contract_fulfillments c
+                        WHERE c.request_id IN ({placeholders})""",  # noqa: S608 - 占位符按请求数生成
+                    request_ids,
+                ).fetchall():
+                    fulfillments[str(row["request_id"])] = dict(row)
             result: list[dict[str, object]] = []
             for row in rows:
                 item = dict(row)
                 item["terms"] = json.loads(item.pop("terms_json"))
                 raw_counter = item.pop("counter_terms_json", None)
                 item["counter_terms"] = json.loads(raw_counter) if raw_counter else None
-                contract = connection.execute(
-                    """SELECT c.*, (SELECT COUNT(*) FROM contract_receipts e
-                       WHERE e.request_id=c.request_id) AS completed_units
-                       FROM contract_fulfillments c WHERE c.request_id=?""", (row["id"],)
-                ).fetchone()
-                item["fulfillment"] = dict(contract) if contract else None
+                item["fulfillment"] = fulfillments.get(str(row["id"]))
                 result.append(item)
             return result
 
@@ -1830,14 +1870,13 @@ def create_app(
                         "UPDATE characters SET skills_json = ? WHERE id = ?",
                         (json.dumps(skills, ensure_ascii=False), player["id"]),
                     )
-                connection.execute(
-                    """INSERT INTO character_skill_proficiencies(
-                        character_id, world_id, skill_name, proficiency, source_event_id, updated_at
-                    ) VALUES (?, ?, ?, 10, ?, ?)
-                    ON CONFLICT(character_id, skill_name) DO UPDATE SET
-                        proficiency = MIN(100, character_skill_proficiencies.proficiency + 10),
-                        source_event_id = excluded.source_event_id, updated_at = excluded.updated_at""",
-                    (player["id"], world_id, skill, event_id, now),
+                CharacterGrowthService.gain_skill_proficiency(
+                    connection,
+                    character_id=player["id"],
+                    world_id=world_id,
+                    skill_name=skill,
+                    amount=10,
+                    event_id=event_id,
                 )
             if todo_id:
                 connection.execute("UPDATE npc_todos SET source_event_id = ? WHERE id = ?", (event_id, todo_id))
@@ -1861,7 +1900,7 @@ def create_app(
                 ContractService.repay(connection, contract, _world_time(connection, world_id))
             except ContractError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
-            connection.execute("UPDATE worlds SET version=version+1 WHERE id=?", (world_id,))
+            repository.bump_version(connection, world_id)
             return {"status": "completed"}
 
     @application.post("/api/worlds/{world_id}/agents/memory-jobs/{job_id}/retry")
@@ -1923,8 +1962,8 @@ def create_app(
 
     from world_engine.interior_api import build_interior_router
     from world_engine.life_api import build_life_router
-    from world_engine.task_api import build_task_router
     from world_engine.living_api import build_living_router
+    from world_engine.task_api import build_task_router
 
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))

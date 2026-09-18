@@ -9,36 +9,6 @@ from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import VOICE_RADIUS_KM, same_room
 from world_engine.repository import from_iso, to_iso
 
-EPISTEMIC_SCHEMA = """
-CREATE TABLE IF NOT EXISTS observer_knowledge_nodes (
- observer_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- subject_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- first_learned_at TEXT NOT NULL,last_learned_at TEXT NOT NULL,
- PRIMARY KEY(observer_id,subject_id)
-);
-CREATE TABLE IF NOT EXISTS observer_knowledge_edges (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- observer_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- subject_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- predicate TEXT NOT NULL CHECK(predicate IN ('name','location')),
- value TEXT NOT NULL,status TEXT NOT NULL,confidence REAL NOT NULL,
- first_learned_at TEXT NOT NULL,last_learned_at TEXT NOT NULL,last_verified_at TEXT,
- UNIQUE(observer_id,subject_id,predicate,value)
-);
-CREATE TABLE IF NOT EXISTS knowledge_evidence (
- id TEXT PRIMARY KEY,edge_id TEXT NOT NULL REFERENCES observer_knowledge_edges(id) ON DELETE CASCADE,
- source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- source_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
- origin_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- method TEXT NOT NULL CHECK(method IN ('observed','reported','document','heard')),
- quote TEXT NOT NULL,confidence REAL NOT NULL,hops INTEGER NOT NULL,
- learned_at TEXT NOT NULL,valid_until TEXT,fact_world_time TEXT NOT NULL,
- UNIQUE(edge_id,source_event_id,origin_event_id,method)
-);
-CREATE INDEX IF NOT EXISTS idx_epistemic_observer ON observer_knowledge_edges(world_id,observer_id,subject_id);
-"""
-
 
 class KnowledgeService:
     @staticmethod

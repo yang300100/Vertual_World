@@ -28,7 +28,6 @@ from datetime import UTC, datetime
 # 锚点:引擎硬编码起始世界时间(repository.create_world)为 2040-04-01 08:00 UTC。
 # 历法以锚点当日零点为"年/月/日"起点,08:00 自然作为当日已过时间被编码进偏移。
 ISERRA_EPOCH_DAY_ZERO = datetime(2040, 4, 1, 0, 0, tzinfo=UTC)
-ISERRA_EPOCH = datetime(2040, 4, 1, 8, 0, tzinfo=UTC)  # 展示用锚点时刻
 ISERRA_EPOCH_H = 24816  # 锚点对应的环后纪年(H)
 
 # 伊瑟拉天文基准(单位:秒)

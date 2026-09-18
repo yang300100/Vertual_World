@@ -7,38 +7,10 @@ import json
 import secrets
 from uuid import uuid4
 
+from world_engine.character_growth import CharacterGrowthService
 from world_engine.life import LifeActivityError
 from world_engine.repository import to_iso, utc_now
 
-CHECK_SCHEMA = """
-CREATE TABLE IF NOT EXISTS action_check_attempts (
- id TEXT PRIMARY KEY,
- world_id TEXT NOT NULL REFERENCES worlds(id),
- character_id TEXT NOT NULL REFERENCES characters(id),
- fingerprint TEXT NOT NULL,
- kind TEXT NOT NULL,
- snapshot_json TEXT NOT NULL,
- roll INTEGER CHECK(roll BETWEEN 1 AND 100),
- outcome TEXT CHECK(outcome IN ('success','partial','failure')),
- status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','resolved')),
- activity_id TEXT REFERENCES character_life_activities(id),
- source_event_id TEXT REFERENCES world_events(id),
- result_event_id TEXT REFERENCES world_events(id),
- created_at TEXT NOT NULL,
- UNIQUE(world_id,character_id,fingerprint)
-);
-CREATE TABLE IF NOT EXISTS activity_start_requests (
- world_id TEXT NOT NULL REFERENCES worlds(id),
- request_id TEXT NOT NULL,
- payload_json TEXT NOT NULL,
- response_json TEXT NOT NULL,
- PRIMARY KEY(world_id,request_id)
-);
-CREATE TABLE IF NOT EXISTS skill_practice_awards (
- attempt_id TEXT PRIMARY KEY REFERENCES action_check_attempts(id),world_id TEXT NOT NULL,
- character_id TEXT NOT NULL,skill_name TEXT NOT NULL,amount INTEGER NOT NULL,world_day TEXT NOT NULL
-);
-"""
 RULE_VERSION = "action-check-v1"
 
 
@@ -255,7 +227,15 @@ class CheckService:
             amount=min(2 if outcome=="success" else 1,max(0,3-awarded)) if known else 0
             if amount:
                 connection.execute("INSERT OR IGNORE INTO skill_practice_awards VALUES (?,?,?,?,?,?)",(attempt_id,row["world_id"],row["character_id"],snap["skill_name"],amount,day))
-                connection.execute("INSERT INTO character_skill_proficiencies(character_id,world_id,skill_name,proficiency,source_event_id,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(character_id,skill_name) DO UPDATE SET proficiency=MIN(100,proficiency+?),source_event_id=excluded.source_event_id,updated_at=excluded.updated_at",(row["character_id"],row["world_id"],snap["skill_name"],min(100,snap["skill"]+amount),event_id,to_iso(utc_now()),amount))
+                CharacterGrowthService.gain_skill_proficiency(
+                    connection,
+                    character_id=row["character_id"],
+                    world_id=row["world_id"],
+                    skill_name=snap["skill_name"],
+                    amount=amount,
+                    event_id=event_id,
+                    initial_proficiency=min(100, snap["skill"] + amount),
+                )
         return {
             "attempt_id": attempt_id,
             **cls.public_plan({"snapshot": snap}),

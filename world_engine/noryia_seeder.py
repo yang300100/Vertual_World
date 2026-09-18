@@ -7,15 +7,14 @@ import json
 import sqlite3
 from collections import Counter
 from datetime import UTC, datetime
-from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
+from world_engine.config import PROJECT_ROOT
 from world_engine.database import Database
 from world_engine.repository import WorldRepository, to_iso
 
-ROOT = Path(__file__).resolve().parents[1]
-BURGS_CSV = ROOT / "docs/worldbuilding/maps/map_new/data/Noryia Burgs 2026-08-29-11-38.csv"
-STATES_CSV = ROOT / "docs/worldbuilding/maps/map_new/data/Noryia States 2026-08-29-11-38.csv"
+BURGS_CSV = PROJECT_ROOT / "docs/worldbuilding/maps/map_new/data/Noryia Burgs 2026-08-29-11-38.csv"
+STATES_CSV = PROJECT_ROOT / "docs/worldbuilding/maps/map_new/data/Noryia States 2026-08-29-11-38.csv"
 WORLD_NAME = "伊瑟拉·诺里亚"
 
 
@@ -37,7 +36,7 @@ def _seed_settlements(connection: sqlite3.Connection, world_id: str) -> None:
     with BURGS_CSV.open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     translations = json.loads(
-        (ROOT / "docs/worldbuilding/maps/map_new/data/translations.json").read_text(
+        (PROJECT_ROOT / "docs/worldbuilding/maps/map_new/data/translations.json").read_text(
             encoding="utf-8"
         )
     )
@@ -89,7 +88,7 @@ def _seed_settlements(connection: sqlite3.Connection, world_id: str) -> None:
 def _seed_capital_features(connection: sqlite3.Connection, world_id: str) -> None:
     now = to_iso(datetime.now(UTC))
     translations = json.loads(
-        (ROOT / "docs/worldbuilding/maps/map_new/data/translations.json").read_text(
+        (PROJECT_ROOT / "docs/worldbuilding/maps/map_new/data/translations.json").read_text(
             encoding="utf-8"
         )
     )

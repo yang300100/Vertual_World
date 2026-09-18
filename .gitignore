@@ -25,7 +25,15 @@ run_pytest_err.txt
 
 # 临时工作目录
 wwtmp/
+wwtmp*/
+wwt/
+tmprun*/
+tmp-test/
 
 # pytest 临时产物（审计/回归跑测留下的目录，含临时数据库）
 .audit_*/
 .pytest_tmp*/
+.ptmp_*/
+
+# 打包产物：内含世界数据库与玩家照片，禁止入库
+data.zip

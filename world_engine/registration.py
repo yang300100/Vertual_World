@@ -12,12 +12,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from world_engine.agent_llm import AgentModelBackend
 from world_engine.activity_tasks import ActivityRecipeSpec, TaskService
+from world_engine.agent_llm import AgentModelBackend
 from world_engine.demographics import stable_npc_demographics
 from world_engine.domain import CharacterState, WorldSnapshot
-from world_engine.elements import WorldElementCatalog
 from world_engine.economy import CommoditySpec, EconomyService, WorkplaceBudgetSpec
+from world_engine.elements import WorldElementCatalog
 from world_engine.geo import great_circle_distance_km
 from world_engine.interiors import InteriorError, InteriorRoomSpec, InteriorService
 from world_engine.repository import from_iso, to_iso, utc_now

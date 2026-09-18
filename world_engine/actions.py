@@ -6,7 +6,17 @@ import sqlite3
 from datetime import datetime
 from uuid import uuid4
 
+from world_engine.combat_rules import (
+    COMBAT_RANGE_KM,
+    counter_damage,
+    current_location_id,
+    equipment_bonus,
+    is_important_character,
+    location_kind,
+    offensive_damage,
+)
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
+from world_engine.event_log import record_event
 from world_engine.geo import great_circle_distance_km
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeActivityError, LifeActivityService
@@ -58,7 +68,7 @@ class ActionService:
                 event_type=f"action.{proposal.action.value}",
                 actor_id=actor["id"],
                 target_id=target_id,
-                location_id=self._current_location_id(actor),
+                location_id=current_location_id(actor),
                 summary=summary,
                 payload={
                     "reason": proposal.reason,
@@ -242,7 +252,7 @@ class ActionService:
         ).fetchone()
         location = connection.execute(
             "SELECT id, name, kind, longitude, latitude FROM locations WHERE id = ?",
-            (self._current_location_id(actor),),
+            (current_location_id(actor),),
         ).fetchone()
         at_workplace = (
             location is not None
@@ -317,7 +327,7 @@ class ActionService:
         ).fetchone()
         if destination is None:
             raise ActionRuleError("目的地不存在于当前世界")
-        if destination["id"] == self._current_location_id(actor):
+        if destination["id"] == current_location_id(actor):
             raise ActionRuleError("人物已经在目的地")
         if actor["energy"] < 8:
             raise ActionRuleError("精力不足以旅行")
@@ -420,21 +430,25 @@ class ActionService:
             actor["latitude"],
             target["longitude"],
             target["latitude"],
-        ) > 5.0:
+        ) > COMBAT_RANGE_KM:
             raise ActionRuleError("攻击目标距离过远")
         if int(target["health"]) <= 0:
             raise ActionRuleError("目标已无战力")
 
-        atk_bonus = self._equipment_bonus(connection, actor, "attack")
-        def_bonus = self._equipment_bonus(connection, target, "defense")
-        dmg = max(1, random.randint(10, 20) + actor["energy"] // 10 + atk_bonus - def_bonus)
+        atk_bonus = equipment_bonus(connection, actor, "attack")
+        def_bonus = equipment_bonus(connection, target, "defense")
+        dmg = offensive_damage(
+            random, actor, attack_bonus=atk_bonus, defense_bonus=def_bonus
+        )
         target_health = max(0, int(target["health"]) - dmg)
         attacker_health = int(actor["health"])
         reply_text = ""
         if target_health > 0:
-            t_atk = self._equipment_bonus(connection, target, "attack")
-            a_def = self._equipment_bonus(connection, actor, "defense")
-            ret = max(1, random.randint(6, 16) + int(target["energy"]) // 10 + t_atk - a_def)
+            t_atk = equipment_bonus(connection, target, "attack")
+            a_def = equipment_bonus(connection, actor, "defense")
+            ret = counter_damage(
+                random, target, attack_bonus=t_atk, defense_bonus=a_def
+            )
             attacker_health = max(0, attacker_health - ret)
             reply_text = f"「{target['name']}」反手回击，造成 {ret} 点伤害。"
         self._update_character(connection, actor["id"], health=attacker_health)
@@ -448,7 +462,9 @@ class ActionService:
 
         # 目标死亡：重要人物记入重大历史事件
         if target_health <= 0:
-            event_type = "world.major_death" if self._is_important(target) else "action.target_down"
+            event_type = (
+                "world.major_death" if is_important_character(target) else "action.target_down"
+            )
             self._record_event(
                 connection,
                 world_id=world_id,
@@ -457,7 +473,7 @@ class ActionService:
                 event_type=event_type,
                 actor_id=actor["id"],
                 target_id=target["id"],
-                location_id=self._current_location_id(actor),
+                location_id=current_location_id(actor),
                 summary=(
                     f"{target['name']}被击倒。"
                     if event_type == "action.target_down"
@@ -466,16 +482,8 @@ class ActionService:
                 payload={"reason": proposal.reason},
             )
         # 公开攻击引来外界代价
-        current_location_id = self._current_location_id(actor)
-        location_row = (
-            connection.execute(
-                "SELECT kind FROM locations WHERE id = ?", (current_location_id,)
-            ).fetchone()
-            if current_location_id
-            else None
-        )
-        location_kind = location_row["kind"] if location_row else None
-        if location_kind in ("city", "public"):
+        attack_location_id = current_location_id(actor)
+        if location_kind(connection, attack_location_id) in ("city", "public"):
             self._record_event(
                 connection,
                 world_id=world_id,
@@ -484,68 +492,11 @@ class ActionService:
                 event_type="world.warden_intervention",
                 actor_id=actor["id"],
                 target_id=target["id"],
-                location_id=current_location_id,
+                location_id=attack_location_id,
                 summary=f"守卫与河务的注意被惊动：{actor['name']}的公开攻击引来了追究。",
                 payload={"reason": proposal.reason},
             )
         return summary, target["id"]
-
-    @staticmethod
-    def _is_important(target: sqlite3.Row) -> bool:
-        if int(target["is_core"]):
-            return True
-        identity = target["identity"] or ""
-        return any(
-            key in identity
-            for key in (
-                "女王",
-                "代表",
-                "召集人",
-                "记录官",
-                "首席",
-                "行誓者",
-                "祭官",
-                "灯判",
-                "守潮",
-                "调度官",
-                "井见",
-                "海议长",
-                "港守",
-                "传声人",
-            )
-        )
-
-    @staticmethod
-    def _equipment_bonus(
-        connection: sqlite3.Connection, character_row: sqlite3.Row, kind: str
-    ) -> int:
-        """读取人物装备位的武器(攻击)或护符(防御)加成；技能"剑术/蛮力"等加攻。"""
-        if kind == "attack":
-            weapon = connection.execute(
-                """
-                SELECT it.attack_bonus AS b
-                FROM item_instances ii JOIN item_types it ON it.id = ii.item_type_id
-                WHERE ii.container_id = ? AND ii.container_type = 'character_equipment'
-                  AND it.category = 'weapon'
-                """,
-                (character_row["id"],),
-            ).fetchone()
-            bonus = weapon["b"] if weapon else 0
-            if "skills_json" in character_row.keys() and any(
-                key in ("剑术", "蛮力", "搏斗") for key in json.loads(character_row["skills_json"])
-            ):
-                bonus += 4
-            return bonus
-        charm = connection.execute(
-            """
-            SELECT it.defense_bonus AS b
-            FROM item_instances ii JOIN item_types it ON it.id = ii.item_type_id
-            WHERE ii.container_id = ? AND ii.container_type = 'character_equipment'
-              AND it.category = 'charm'
-            """,
-            (character_row["id"],),
-        ).fetchone()
-        return charm["b"] if charm else 0
 
     def _use(
         self,
@@ -629,15 +580,9 @@ class ActionService:
         ) > 5.0:
             raise ActionRuleError("人物当前不在该地点的可交互范围内")
 
-    @staticmethod
-    def _current_location_id(actor: sqlite3.Row) -> str | None:
-        if "current_location_id" in actor.keys():
-            return actor["current_location_id"]
-        return actor["location_id"]
-
     @classmethod
     def _require_current_location(cls, actor: sqlite3.Row) -> str:
-        location_id = cls._current_location_id(actor)
+        location_id = current_location_id(actor)
         if not location_id:
             raise ActionRuleError("人物当前不在任何已知地点范围内")
         return location_id
@@ -713,37 +658,20 @@ class ActionService:
         payload: dict[str, object],
         importance: str | None = None,
     ) -> str:
-        event_id = str(uuid4())
-        connection.execute(
-            """
-            INSERT INTO world_events(
-                id, world_id, tick_id, occurred_at, event_type, actor_id, target_id,
-                location_id, summary, importance, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_id,
-                world_id,
-                tick_id,
-                to_iso(occurred_at),
-                event_type,
-                actor_id,
-                target_id,
-                location_id,
-                summary,
-                importance
-                or (
-                    "major"
-                    if event_type == "world.major_death"
-                    else "routine"
-                ),
-                json.dumps(payload, ensure_ascii=False),
-                to_iso(utc_now()),
-            ),
+        """兼容入口，转发到 event_log.record_event（调用点遍布全项目）。"""
+        return record_event(
+            connection,
+            world_id=world_id,
+            tick_id=tick_id,
+            occurred_at=occurred_at,
+            event_type=event_type,
+            actor_id=actor_id,
+            target_id=target_id,
+            location_id=location_id,
+            summary=summary,
+            payload=payload,
+            importance=importance,
         )
-        from world_engine.society import SocietyService
-        SocietyService.observe_event(connection, event_id)
-        return event_id
 
     @staticmethod
     def _record_memory(

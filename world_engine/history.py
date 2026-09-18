@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import time
 from collections.abc import Iterator
@@ -53,11 +53,11 @@ class WorldHistoryLogger:
                     event["history"]=EventHistoryService.view(connection,event["id"])
                     profile=connection.execute("SELECT scope_type,scope_id FROM event_profiles WHERE event_id=?",(event["id"],)).fetchone()
                     event["history_scope"]=dict(profile) if profile else {"scope_type":"interpersonal","scope_id":None}
-                heartbeats = self.repository.list_heartbeats_ascending(
-                    connection, safe_world_id
+                heartbeats = self.repository.list_heartbeats_since(
+                    connection, safe_world_id, 0
                 )
-                state_updates = self.repository.list_state_updates_ascending(
-                    connection, safe_world_id
+                state_updates = self.repository.list_state_updates_since(
+                    connection, safe_world_id, 0
                 )
 
             tick_groups = self._group_ticks(events)
@@ -110,9 +110,13 @@ class WorldHistoryLogger:
             )
             self._write_state_logs(
                 world_directory,
-                snapshot,
-                heartbeats,
-                state_updates,
+                world_id=safe_world_id,
+                world_name=snapshot.world.name,
+                character_names={item.id: item.name for item in snapshot.characters},
+                heartbeats=heartbeats,
+                state_updates=state_updates,
+                totals=(len(heartbeats), len(state_updates)),
+                rebuild=True,
             )
             manifest = {
                 "schema_version": 1,
@@ -145,52 +149,137 @@ class WorldHistoryLogger:
         )
 
     def sync_state_logs(self, world_id: str) -> tuple[int, int]:
-        """分钟心跳只同步技术状态日志，不重建世界编年史。"""
+        """分钟心跳只同步技术状态日志，不重建世界编年史。
+
+        用 rowid 水位线做增量追加：每次只读取并写入上次导出之后的新记录，
+        避免每 tick 重写整个 JSONL（旧实现随历史增长呈 O(n²) 的 I/O）。
+        清单或日志缺失时回退为一次全量重建，因此旧存档可自愈。
+        """
 
         safe_world_id = self._safe_uuid(world_id)
         world_directory = self.root_directory / safe_world_id
         world_directory.mkdir(parents=True, exist_ok=True)
         with self._export_lock(world_directory):
+            watermark = self._load_state_watermark(
+                world_directory / "state_manifest.json",
+                world_directory / "heartbeats.jsonl",
+                world_directory / "state_updates.jsonl",
+            )
             with self.database.read() as connection:
-                snapshot = self.repository.get_snapshot(connection, safe_world_id)
-                heartbeats = self.repository.list_heartbeats_ascending(
-                    connection, safe_world_id
+                world_row = connection.execute(
+                    'SELECT id, name FROM worlds WHERE id = ?', (safe_world_id,)
+                ).fetchone()
+                if world_row is None:
+                    raise ValueError("世界不存在")
+                character_names = {
+                    row["id"]: row["name"]
+                    for row in connection.execute(
+                        "SELECT id, name FROM characters WHERE world_id = ?",
+                        (safe_world_id,),
+                    ).fetchall()
+                }
+                heartbeats = self.repository.list_heartbeats_since(
+                    connection, safe_world_id, watermark["heartbeat_rowid"]
                 )
-                state_updates = self.repository.list_state_updates_ascending(
-                    connection, safe_world_id
+                state_updates = self.repository.list_state_updates_since(
+                    connection, safe_world_id, watermark["state_update_rowid"]
                 )
+                totals = self.repository.state_log_totals(connection, safe_world_id)
+
             self._write_state_logs(
                 world_directory,
-                snapshot,
-                heartbeats,
-                state_updates,
+                world_id=world_row["id"],
+                world_name=world_row["name"],
+                character_names=character_names,
+                heartbeats=heartbeats,
+                state_updates=state_updates,
+                totals=totals,
+                rebuild=bool(watermark["rebuild"]),
+                previous_watermark=(
+                    int(watermark["heartbeat_rowid"]),
+                    int(watermark["state_update_rowid"]),
+                ),
             )
-        return len(heartbeats), len(state_updates)
+        return totals
 
     def _write_state_logs(
         self,
         world_directory: Path,
-        snapshot,
-        heartbeats: list[dict[str, object]],
-        state_updates: list[dict[str, object]],
-    ) -> None:
-        self._atomic_write(
-            world_directory / "heartbeats.jsonl",
-            self._records_to_jsonl(heartbeats),
+        *,
+        world_id: str,
+        world_name: str,
+        character_names: dict[str, str],
+        heartbeats: list[tuple[int, dict[str, object]]],
+        state_updates: list[tuple[int, dict[str, object]]],
+        totals: tuple[int, int],
+        rebuild: bool,
+        previous_watermark: tuple[int, int] = (0, 0),
+    ) -> tuple[int, int]:
+        """写入心跳与状态差值：重建时覆盖写，增量时追加写；返回新水位线。"""
+
+        heartbeat_path = world_directory / "heartbeats.jsonl"
+        state_update_path = world_directory / "state_updates.jsonl"
+        heartbeat_records = [item for _, item in heartbeats]
+        state_update_records = [item for _, item in state_updates]
+
+        if rebuild:
+            self._atomic_write(heartbeat_path, self._records_to_jsonl(heartbeat_records))
+            self._atomic_write(
+                state_update_path, self._records_to_jsonl(state_update_records)
+            )
+        else:
+            self._append_records(heartbeat_path, heartbeat_records)
+            self._append_records(state_update_path, state_update_records)
+
+        heartbeat_watermark = (
+            heartbeats[-1][0] if heartbeats else (0 if rebuild else previous_watermark[0])
         )
-        self._atomic_write(
-            world_directory / "state_updates.jsonl",
-            self._records_to_jsonl(state_updates),
+        state_update_watermark = (
+            state_updates[-1][0]
+            if state_updates
+            else (0 if rebuild else previous_watermark[1])
         )
+
+        character_directory = world_directory / "characters"
+        character_directory.mkdir(parents=True, exist_ok=True)
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for _, item in state_updates:
+            grouped.setdefault(str(item["character_id"]), []).append(item)
+        if rebuild:
+            # 全量重建：先清掉可能属于已删除角色的残留档案，再为当前角色各写一份。
+            for stale in character_directory.glob("*.state.jsonl"):
+                stale.unlink()
+            for character_id, character_name in character_names.items():
+                self._atomic_write(
+                    character_directory / f"{self._safe_uuid(character_id)}.state.jsonl",
+                    self._records_to_jsonl(
+                        [
+                            {"character_name": character_name, **item}
+                            for item in grouped.get(character_id, [])
+                        ]
+                    ),
+                )
+        else:
+            for character_id, items in grouped.items():
+                self._append_records(
+                    character_directory / f"{self._safe_uuid(character_id)}.state.jsonl",
+                    [
+                        {"character_name": character_names.get(character_id, ""), **item}
+                        for item in items
+                    ],
+                )
+
         self._atomic_write(
             world_directory / "state_manifest.json",
             json.dumps(
                 {
-                    "schema_version": 1,
-                    "world_id": snapshot.world.id,
-                    "world_name": snapshot.world.name,
-                    "heartbeat_count": len(heartbeats),
-                    "state_update_count": len(state_updates),
+                    "schema_version": 2,
+                    "world_id": world_id,
+                    "world_name": world_name,
+                    "heartbeat_count": totals[0],
+                    "state_update_count": totals[1],
+                    "heartbeat_rowid": heartbeat_watermark,
+                    "state_update_rowid": state_update_watermark,
                     "exported_at": to_iso(utc_now()),
                 },
                 ensure_ascii=False,
@@ -198,19 +287,37 @@ class WorldHistoryLogger:
             )
             + "\n",
         )
-        character_names = {item.id: item.name for item in snapshot.characters}
-        character_directory = world_directory / "characters"
-        character_directory.mkdir(parents=True, exist_ok=True)
-        for character_id, character_name in character_names.items():
-            records = [
-                item for item in state_updates if item["character_id"] == character_id
-            ]
-            self._atomic_write(
-                character_directory / f"{self._safe_uuid(character_id)}.state.jsonl",
-                self._records_to_jsonl(
-                    [{"character_name": character_name, **item} for item in records]
-                ),
-            )
+        return heartbeat_watermark, state_update_watermark
+
+    @staticmethod
+    def _load_state_watermark(
+        manifest_path: Path, heartbeat_path: Path, state_update_path: Path
+    ) -> dict[str, object]:
+        """读取增量水位线；清单或日志缺失、损坏时要求全量重建以自愈。"""
+        present = (
+            manifest_path.exists() and heartbeat_path.exists() and state_update_path.exists()
+        )
+        if not present:
+            return {"rebuild": True, "heartbeat_rowid": 0, "state_update_rowid": 0}
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            return {
+                "rebuild": False,
+                "heartbeat_rowid": int(manifest["heartbeat_rowid"]),
+                "state_update_rowid": int(manifest["state_update_rowid"]),
+            }
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError):
+            # 旧版清单没有水位线字段：重建一次即可完成升级。
+            return {"rebuild": True, "heartbeat_rowid": 0, "state_update_rowid": 0}
+
+    @staticmethod
+    def _append_records(path: Path, records: list[dict[str, object]]) -> None:
+        if not records:
+            return
+        with path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(WorldHistoryLogger._records_to_jsonl(records))
+            handle.flush()
+            os.fsync(handle.fileno())
 
     @staticmethod
     def _group_ticks(

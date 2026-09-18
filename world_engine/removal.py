@@ -12,6 +12,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.elements import ElementLifecycleState, WorldElementCatalog
+from world_engine.event_log import record_event
 from world_engine.repository import from_iso, to_iso, utc_now
 
 LOGGER = logging.getLogger("virtual-world.removal")
@@ -209,7 +210,7 @@ class WorldElementRemover:
                 world_time=from_iso(world["current_time"]),
                 now=now,
             )
-            event_id = self._record_event(
+            event_id = self._record_removal_event(
                 connection,
                 world_id=world_id,
                 removal_id=removal_id,
@@ -558,7 +559,7 @@ class WorldElementRemover:
             )
 
     @staticmethod
-    def _record_event(
+    def _record_removal_event(
         connection: sqlite3.Connection,
         *,
         world_id: str,
@@ -570,37 +571,25 @@ class WorldElementRemover:
         request: ElementRemovalSubmit,
         now: object,
     ) -> str:
-        event_id = str(uuid4())
+        """元素移除事件的特化封装，底层仍走统一事件入口。"""
         label = "毁灭" if request.reason is RemovalReason.DESTROYED else "退役"
-        connection.execute(
-            """
-            INSERT INTO world_events(
-                id, world_id, tick_id, occurred_at, event_type, actor_id,
-                location_id, summary, importance, payload_json, created_at
-            ) VALUES (?, ?, ?, ?, 'world.element_removed', ?, ?, ?, 'routine', ?, ?)
-            """,
-            (
-                event_id,
-                world_id,
-                removal_id,
-                to_iso(world_time),
-                actor_id,
-                location_id,
-                f"世界元素“{target_name}”已被{label}：{request.details.strip()}",
-                json.dumps(
-                    {
-                        "removal_id": removal_id,
-                        "source_event_id": request.source_event_id,
-                        "target_element_type": request.target_element_type,
-                        "target_entity_id": request.target_entity_id,
-                        "reason": request.reason.value,
-                    },
-                    ensure_ascii=False,
-                ),
-                to_iso(now),
-            ),
+        return record_event(
+            connection,
+            world_id=world_id,
+            tick_id=removal_id,
+            occurred_at=world_time,
+            event_type="world.element_removed",
+            actor_id=actor_id,
+            location_id=location_id,
+            summary=f"世界元素“{target_name}”已被{label}：{request.details.strip()}",
+            payload={
+                "removal_id": removal_id,
+                "source_event_id": request.source_event_id,
+                "target_element_type": request.target_element_type,
+                "target_entity_id": request.target_entity_id,
+                "reason": request.reason.value,
+            },
         )
-        return event_id
 
     @staticmethod
     def _persist_effects(

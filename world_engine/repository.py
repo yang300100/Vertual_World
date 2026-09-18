@@ -33,7 +33,7 @@ def from_iso(value: str) -> datetime:
     return parse_datetime(value)
 
 
-def _movement_route_or_none(row: sqlite3.Row) -> dict[str, object] | None:
+def movement_route_or_none(row: sqlite3.Row) -> dict[str, object] | None:
     """route_json 可能是空折线(合法)，此时解析为空列表，应视为无路线。"""
     raw = row["route_json"] if "route_json" in row.keys() else None
     if not isinstance(raw, str) or not raw:
@@ -401,6 +401,17 @@ class WorldRepository:
         )
         return self._character_from_row(row)
 
+    def bump_version(self, connection: sqlite3.Connection, world_id: str) -> None:
+        """推进世界修订号并刷新更新时间。
+
+        修订号是跨进程乐观并发控制的依据，任何改动世界状态的事务都应调用它。
+        此处统一携带 updated_at —— 早期有若干调用点漏掉了该列，导致时间戳停更。
+        """
+        connection.execute(
+            "UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?",
+            (to_iso(utc_now()), world_id),
+        )
+
     def list_worlds(self, connection: sqlite3.Connection) -> list[WorldState]:
         rows = connection.execute(
             """
@@ -535,7 +546,7 @@ class WorldRepository:
             map_features=[self._map_feature_from_row(row) for row in feature_rows],
             characters=characters,
             vehicles=[self._vehicle_from_row(row) for row in vehicle_rows],
-            movements=[self._movement_from_row(row) for row in movement_rows],
+            movements=[self.movement_from_row(row) for row in movement_rows],
             relationships=relationships,
         )
 
@@ -587,20 +598,6 @@ class WorldRepository:
         ).fetchall()
         return [self._event_dict(row) for row in rows]
 
-    def list_heartbeats_ascending(
-        self, connection: sqlite3.Connection, world_id: str
-    ) -> list[dict[str, object]]:
-        self._ensure_world(connection, world_id)
-        rows = connection.execute(
-            """
-            SELECT * FROM world_heartbeats
-            WHERE world_id = ?
-            ORDER BY created_at ASC, id ASC
-            """,
-            (world_id,),
-        ).fetchall()
-        return [dict(row) for row in rows]
-
     def list_state_updates_ascending(
         self, connection: sqlite3.Connection, world_id: str
     ) -> list[dict[str, object]]:
@@ -619,6 +616,63 @@ class WorldRepository:
             item["changes"] = json.loads(item.pop("changes_json"))
             items.append(item)
         return items
+
+    def list_heartbeats_since(
+        self, connection: sqlite3.Connection, world_id: str, after_rowid: int = 0
+    ) -> list[tuple[int, dict[str, object]]]:
+        """读取水位线之后的新心跳，返回 (rowid, 记录)。
+
+        `rowid` 是 SQLite 隐式插入顺序，比 `created_at` 更适合做增量水位线：
+        同一时刻写入的多条记录不会互相覆盖。
+        """
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT rowid AS _watermark, * FROM world_heartbeats
+            WHERE world_id = ? AND rowid > ?
+            ORDER BY rowid ASC
+            """,
+            (world_id, after_rowid),
+        ).fetchall()
+        items: list[tuple[int, dict[str, object]]] = []
+        for row in rows:
+            item = dict(row)
+            items.append((int(item.pop("_watermark")), item))
+        return items
+
+    def list_state_updates_since(
+        self, connection: sqlite3.Connection, world_id: str, after_rowid: int = 0
+    ) -> list[tuple[int, dict[str, object]]]:
+        """读取水位线之后的新人物状态差值，返回 (rowid, 记录)。"""
+        self._ensure_world(connection, world_id)
+        rows = connection.execute(
+            """
+            SELECT rowid AS _watermark, * FROM character_state_updates
+            WHERE world_id = ? AND rowid > ?
+            ORDER BY rowid ASC
+            """,
+            (world_id, after_rowid),
+        ).fetchall()
+        items: list[tuple[int, dict[str, object]]] = []
+        for row in rows:
+            item = dict(row)
+            rowid = int(item.pop("_watermark"))
+            item["changes"] = json.loads(item.pop("changes_json"))
+            items.append((rowid, item))
+        return items
+
+    def state_log_totals(
+        self, connection: sqlite3.Connection, world_id: str
+    ) -> tuple[int, int]:
+        """返回 (心跳总数, 状态差值总数)，用于状态清单的累计计数。"""
+        self._ensure_world(connection, world_id)
+        heartbeats = connection.execute(
+            "SELECT COUNT(*) FROM world_heartbeats WHERE world_id = ?", (world_id,)
+        ).fetchone()[0]
+        state_updates = connection.execute(
+            "SELECT COUNT(*) FROM character_state_updates WHERE world_id = ?", (world_id,)
+        ).fetchone()[0]
+        return int(heartbeats), int(state_updates)
 
     def list_adjudication_runs(
         self, connection: sqlite3.Connection, world_id: str, limit: int = 100
@@ -822,7 +876,8 @@ class WorldRepository:
         )
 
     @staticmethod
-    def _movement_from_row(row: sqlite3.Row) -> MovementState:
+    def movement_from_row(row: sqlite3.Row) -> MovementState:
+        """把移动记录行映射为领域状态；ActionService 的移动路径共用此实现。"""
         return MovementState(
             id=row["id"],
             world_id=row["world_id"],
@@ -838,7 +893,7 @@ class WorldRepository:
             total_distance_km=row["total_distance_km"],
             distance_travelled_km=row["distance_travelled_km"],
             destination_location_id=row["destination_location_id"],
-            route=_movement_route_or_none(row),
+            route=movement_route_or_none(row),
             route_index=(row["route_index"] if "route_index" in row.keys() else 0),
             route_distance_km=(
                 row["route_distance_km"] if "route_distance_km" in row.keys() else 0

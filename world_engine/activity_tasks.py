@@ -13,26 +13,6 @@ from world_engine.inventory import InventoryService
 from world_engine.life import LifeActivityError, LifeActivityService
 from world_engine.repository import to_iso, utc_now
 
-TASK_SCHEMA = """
-CREATE TABLE IF NOT EXISTS activity_recipes (
- id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id),
- registration_id TEXT NOT NULL REFERENCES element_registration_requests(id),
- name TEXT NOT NULL, spec_json TEXT NOT NULL, UNIQUE(world_id,name)
-);
-CREATE TABLE IF NOT EXISTS activity_task_details (
- activity_id TEXT PRIMARY KEY REFERENCES character_life_activities(id),
- room_id TEXT REFERENCES life_rooms(id), spec_json TEXT NOT NULL,
- before_json TEXT NOT NULL DEFAULT '{}', energy_paid INTEGER NOT NULL DEFAULT 0,
- satiety_paid INTEGER NOT NULL DEFAULT 0, result_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE TABLE IF NOT EXISTS activity_time_skips (
- request_id TEXT NOT NULL, world_id TEXT NOT NULL REFERENCES worlds(id),
- activity_id TEXT NOT NULL REFERENCES character_life_activities(id),
- input_version INTEGER NOT NULL, response_json TEXT NOT NULL,
- PRIMARY KEY(world_id,request_id)
-);
-"""
-
 
 class RecipeIngredient(BaseModel):
     model_config = ConfigDict(extra="forbid")

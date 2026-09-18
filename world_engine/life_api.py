@@ -10,11 +10,12 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.actions import ActionService
+from world_engine.api_deps import require_player_and_time
 from world_engine.domain import ActionProposal, ActionType
 from world_engine.food import FoodService
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeActivityError, LifeActivityService, LifeSceneService
-from world_engine.repository import from_iso, to_iso, utc_now
+from world_engine.repository import to_iso, utc_now
 
 
 class LifeStartRequest(BaseModel):
@@ -38,19 +39,7 @@ def build_life_router(database) -> APIRouter:
     router = APIRouter(prefix="/api/worlds/{world_id}/player", tags=["生活"])
 
     def player_and_time(connection, world_id):
-        world = connection.execute(
-            'SELECT "current_time" FROM worlds WHERE id=?',
-            (world_id,),
-        ).fetchone()
-        if world is None:
-            raise HTTPException(404, "世界不存在")
-        player = connection.execute(
-            "SELECT * FROM characters WHERE world_id=? AND is_player=1",
-            (world_id,),
-        ).fetchone()
-        if player is None:
-            raise HTTPException(404, "当前世界尚无玩家")
-        return player, from_iso(world["current_time"])
+        return require_player_and_time(connection, world_id)
 
     def bump(connection, world_id):
         connection.execute(

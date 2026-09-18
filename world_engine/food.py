@@ -5,24 +5,6 @@ from datetime import timedelta
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.repository import from_iso, to_iso
 
-FOOD_SCHEMA = """
-CREATE TABLE IF NOT EXISTS food_storage_rules (
- item_type_id TEXT PRIMARY KEY REFERENCES item_types(id),
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- shelf_life_hours INTEGER NOT NULL CHECK(shelf_life_hours BETWEEN 1 AND 8760)
-);
-CREATE TABLE IF NOT EXISTS character_food_discomfort (
- character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
- expires_world_time TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS food_eat_requests (
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,request_id TEXT NOT NULL,
- payload_json TEXT NOT NULL,response_json TEXT NOT NULL,PRIMARY KEY(world_id,request_id)
-);
-"""
-
 
 class FoodService:
     @staticmethod

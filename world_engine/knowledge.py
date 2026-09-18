@@ -299,7 +299,8 @@ def _parse_markdown(path: Path, source: str) -> list[KnowledgeChunk]:
     for label, raw_time in (("valid_from", valid_from), ("valid_until", valid_until)):
         if raw_time:
             try:
-                datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+                # Python 3.11+ 的 fromisoformat 原生接受 "Z" 后缀，无需手工替换。
+                datetime.fromisoformat(raw_time)
             except ValueError as exc:
                 raise ValueError(f"{source} 的RAG {label}不是ISO时间：{raw_time}") from exc
     if metadata_match:
@@ -370,15 +371,15 @@ def _matches_scope(
     current = (
         at_time
         if isinstance(at_time, datetime)
-        else datetime.fromisoformat(at_time.replace("Z", "+00:00"))
+        else datetime.fromisoformat(at_time)
     )
     if chunk.valid_from:
-        start = datetime.fromisoformat(chunk.valid_from.replace("Z", "+00:00"))
+        start = datetime.fromisoformat(chunk.valid_from)
         current, start = _align_datetime_awareness(current, start)
         if current < start:
             return False
     if chunk.valid_until:
-        end = datetime.fromisoformat(chunk.valid_until.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(chunk.valid_until)
         current, end = _align_datetime_awareness(current, end)
         if current > end:
             return False

@@ -16,16 +16,7 @@ from world_engine.interiors import InteriorService
 from world_engine.life import LifeActivityError, LifeActivityService, parse_life_activity
 from world_engine.player_activities import PlayerActivityService, native_action
 from world_engine.proximity import VOICE_RADIUS_KM, same_room
-from world_engine.repository import from_iso, to_iso, utc_now
-
-SEQUENCE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS player_action_sequences (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id),player_id TEXT NOT NULL REFERENCES characters(id),
- request_key TEXT NOT NULL,payload_json TEXT NOT NULL,status TEXT NOT NULL,next_index INTEGER NOT NULL DEFAULT 0,
- results_json TEXT NOT NULL DEFAULT '[]',claim_token TEXT,claim_time TEXT,error TEXT,
- UNIQUE(world_id,request_key)
-);
-"""
+from world_engine.repository import WorldRepository, from_iso, to_iso, utc_now
 
 
 class SequenceStep(BaseModel):
@@ -310,7 +301,7 @@ def execute_sequence(engine, wid, request):
                         sid,
                     ),
                 )
-                c.execute("UPDATE worlds SET version=version+1 WHERE id=?", (wid,))
+                WorldRepository().bump_version(c, wid)
                 if status != "running":
                     return {"id": sid, "status": status, "results": results}
         except Exception as exc:

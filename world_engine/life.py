@@ -12,35 +12,6 @@ from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import from_iso, to_iso, utc_now
 
-LIFE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS character_life_activities (
-    id TEXT PRIMARY KEY,
-    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
-    character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('rest','wait','work','craft','repair','map_review')),
-    status TEXT NOT NULL CHECK(status IN ('running','completed','cancelled','interrupted')),
-    location_id TEXT REFERENCES locations(id) ON DELETE SET NULL,
-    longitude REAL NOT NULL,
-    latitude REAL NOT NULL,
-    initial_health INTEGER NOT NULL,
-    started_world_time TEXT NOT NULL,
-    ends_world_time TEXT NOT NULL,
-    last_processed_world_time TEXT NOT NULL,
-    finished_world_time TEXT,
-    energy_steps INTEGER NOT NULL DEFAULT 0,
-    reason TEXT NOT NULL DEFAULT '',
-    source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
-    finish_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_life_one_running
-    ON character_life_activities(character_id) WHERE status='running';
-CREATE INDEX IF NOT EXISTS idx_life_world_status
-    ON character_life_activities(world_id,status);
-CREATE INDEX IF NOT EXISTS idx_state_updates_heartbeat
-    ON character_state_updates(heartbeat_id);
-"""
-
 
 class LifeActivityError(ValueError):
     pass
@@ -431,8 +402,8 @@ class LifeSceneService:
                     + (["pickup" if ground else "drop"] if owned and near else []),
                 }
             )
-        from world_engine.activity_tasks import TaskService
         from world_engine.action_checks import CheckService
+        from world_engine.activity_tasks import TaskService
         from world_engine.interiors import InteriorService
 
         workplace = cls.ground_location(connection, actor)

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from world_engine.config import PROJECT_ROOT
 from world_engine.geo import great_circle_distance_km
 from world_engine.repository import to_iso
 
@@ -348,9 +349,7 @@ class NavigationDatasetImporter:
                 dataset_id,
                 world_id,
                 name,
-                str(self.asset_root.relative_to(Path(__file__).resolve().parents[1])).replace(
-                    "\\", "/"
-                ),
+                str(self.asset_root.relative_to(PROJECT_ROOT)).replace("\\", "/"),
                 source_sha256,
                 json.dumps(metadata["bounds"], ensure_ascii=False),
                 now,

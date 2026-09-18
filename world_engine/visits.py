@@ -7,26 +7,6 @@ from world_engine.interiors import InteriorError, InteriorService
 from world_engine.life import LifeActivityService
 from world_engine.repository import from_iso, to_iso
 
-VISIT_SCHEMA = """
-CREATE TABLE IF NOT EXISTS life_door_policies (
- room_id TEXT PRIMARY KEY REFERENCES life_rooms(id) ON DELETE CASCADE,
- key_item_type_id TEXT REFERENCES item_types(id),
- visitor_policy TEXT NOT NULL CHECK(visitor_policy IN ('manual','authorized_only','trusted_contacts'))
-);
-CREATE TABLE IF NOT EXISTS life_visits (
- id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- room_id TEXT NOT NULL REFERENCES life_rooms(id) ON DELETE CASCADE,
- visitor_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- host_id TEXT REFERENCES characters(id) ON DELETE SET NULL,request_id TEXT NOT NULL,
- created_world_time TEXT NOT NULL,expires_world_time TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('pending','invited','entered','declined','cancelled','expired')),
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- response_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- UNIQUE(world_id,visitor_id,request_id)
-);
-CREATE INDEX IF NOT EXISTS idx_life_visits_pending ON life_visits(world_id,status,expires_world_time);
-"""
-
 
 class VisitService:
     @staticmethod

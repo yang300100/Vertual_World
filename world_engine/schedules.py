@@ -8,30 +8,6 @@ from uuid import uuid4
 from world_engine.geo import great_circle_distance_km
 from world_engine.repository import from_iso, to_iso, utc_now
 
-SCHEDULE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS appointment_windows (
- contract_id TEXT PRIMARY KEY REFERENCES contract_fulfillments(request_id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- starts_world_time TEXT NOT NULL, ends_world_time TEXT NOT NULL,
- revision INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS appointment_revisions (
- id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- contract_id TEXT NOT NULL REFERENCES contract_fulfillments(request_id) ON DELETE CASCADE,
- amendment_id TEXT REFERENCES long_term_operation_requests(id) ON DELETE SET NULL,
- revision INTEGER NOT NULL, old_start TEXT, old_end TEXT NOT NULL,
- new_start TEXT NOT NULL,new_end TEXT NOT NULL, changed_world_time TEXT NOT NULL,
- UNIQUE(contract_id,revision)
-);
-CREATE TABLE IF NOT EXISTS npc_schedule_assessments (
- character_id TEXT PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- signature TEXT NOT NULL, contract_id TEXT REFERENCES contract_fulfillments(request_id) ON DELETE SET NULL,
- reason TEXT NOT NULL, checked_world_time TEXT NOT NULL,
- source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL
-);
-"""
-
 
 class ScheduleError(ValueError):
     pass
@@ -44,7 +20,8 @@ class ScheduleService:
         if not isinstance(raw, str):
             raise ScheduleError("请提供带时区的明确见面时间")
         try:
-            start = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            # Python 3.11+ 的 fromisoformat 原生接受 "Z" 后缀。
+            start = datetime.fromisoformat(raw)
         except ValueError as exc:
             raise ScheduleError("见面时间格式无效") from exc
         if start.tzinfo is None or start.utcoffset() is None:

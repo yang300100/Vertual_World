@@ -3,23 +3,7 @@
 import json
 from uuid import uuid4
 
-CHARACTER_GROWTH_SCHEMA = """
-CREATE TABLE IF NOT EXISTS character_traits (
- character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- trait TEXT NOT NULL, intensity INTEGER NOT NULL CHECK(intensity BETWEEN 0 AND 100),
- origin_type TEXT NOT NULL CHECK(origin_type IN ('initial','acquired')),
- origin_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- updated_world_time TEXT NOT NULL, PRIMARY KEY(character_id,trait)
-);
-CREATE TABLE IF NOT EXISTS character_trait_changes (
- id TEXT PRIMARY KEY,character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
- world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
- trait TEXT NOT NULL,event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
- before_value INTEGER NOT NULL,after_value INTEGER NOT NULL,world_day TEXT NOT NULL,
- occurred_at TEXT NOT NULL,reason TEXT NOT NULL,UNIQUE(character_id,trait,event_id)
-);
-"""
+from world_engine.repository import to_iso, utc_now
 
 
 class CharacterGrowthService:
@@ -102,6 +86,40 @@ class CharacterGrowthService:
                     reason,
                 ),
             )
+
+    @staticmethod
+    def gain_skill_proficiency(
+        c,
+        *,
+        character_id,
+        world_id,
+        skill_name,
+        amount,
+        event_id=None,
+        initial_proficiency=None,
+    ):
+        """提升技能熟练度（上限 100），并用来源事件覆盖追溯依据。
+
+        此前有四处各写一份 UPSERT，增量值 5/10/amount 散落在调用点。
+        `initial_proficiency` 用于首次入库：检定路径会用检定快照里的技能值起算，
+        其余路径从增量本身起算。
+        """
+        if amount <= 0:
+            return
+        now = to_iso(utc_now())
+        start = amount if initial_proficiency is None else initial_proficiency
+        c.execute(
+            """
+            INSERT INTO character_skill_proficiencies(
+                character_id, world_id, skill_name, proficiency, source_event_id, updated_at
+            ) VALUES (?, ?, ?, MIN(100, ?), ?, ?)
+            ON CONFLICT(character_id, skill_name) DO UPDATE SET
+                proficiency = MIN(100, character_skill_proficiencies.proficiency + ?),
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            """,
+            (character_id, world_id, skill_name, start, event_id, now, amount),
+        )
 
     @staticmethod
     def level(c, cid, trait):

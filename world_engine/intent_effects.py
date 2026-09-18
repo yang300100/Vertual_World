@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from uuid import uuid4
 
+from world_engine.character_growth import CharacterGrowthService
 from world_engine.inventory import InventoryError, InventoryService
 from world_engine.repository import to_iso, utc_now
 
@@ -97,7 +98,15 @@ class IntentEffectService:
     def _practice(self, connection, world_id, event_id, actor_id, target_id, match):  # type: ignore[no-untyped-def]
         skill=match["skill"].strip(); actor,_=self._participants(connection,world_id,actor_id,target_id)
         if skill not in set(json.loads(actor["skills_json"] or "[]")) or int(actor["energy"])<5: return self._record(connection,world_id,event_id,"practice_skill",actor_id,target_id,"rejected",{"skill":skill},"技能或精力条件不满足")
-        connection.execute("UPDATE characters SET energy=energy-5 WHERE id=?",(actor_id,)); connection.execute("INSERT INTO character_skill_proficiencies(character_id,world_id,skill_name,proficiency,source_event_id,updated_at) VALUES (?,?,?,5,?,?) ON CONFLICT(character_id,skill_name) DO UPDATE SET proficiency=MIN(100,character_skill_proficiencies.proficiency+5),source_event_id=excluded.source_event_id,updated_at=excluded.updated_at",(actor_id,world_id,skill,event_id,to_iso(utc_now())))
+        connection.execute("UPDATE characters SET energy=energy-5 WHERE id=?",(actor_id,))
+        CharacterGrowthService.gain_skill_proficiency(
+            connection,
+            character_id=actor_id,
+            world_id=world_id,
+            skill_name=skill,
+            amount=5,
+            event_id=event_id,
+        )
         return self._record(connection,world_id,event_id,"practice_skill",actor_id,target_id,"applied",{"skill":skill},f"练习{skill}，熟练度提升5点")
 
     def _repair(self, connection, world_id, event_id, actor_id, target_id, match):  # type: ignore[no-untyped-def]
@@ -159,7 +168,14 @@ class IntentEffectService:
         if fee:
             connection.execute("UPDATE characters SET money = money - ? WHERE id = ?", (fee, actor_id))
             connection.execute("UPDATE characters SET money = money + ? WHERE id = ?", (fee, teacher_id))
-        connection.execute("""INSERT INTO character_skill_proficiencies(character_id, world_id, skill_name, proficiency, source_event_id, updated_at) VALUES (?, ?, ?, 10, ?, ?) ON CONFLICT(character_id, skill_name) DO UPDATE SET proficiency = MIN(100, character_skill_proficiencies.proficiency + 10), source_event_id = excluded.source_event_id, updated_at = excluded.updated_at""", (actor_id, world_id, skill, event_id, to_iso(utc_now())))
+        CharacterGrowthService.gain_skill_proficiency(
+            connection,
+            character_id=actor_id,
+            world_id=world_id,
+            skill_name=skill,
+            amount=10,
+            event_id=event_id,
+        )
         return self._record(connection, world_id, event_id, "learn_skill", actor_id, teacher_id, "applied", {"skill": skill, "fee": fee}, f"学会{skill}，熟练度提升10点")
 
     @staticmethod

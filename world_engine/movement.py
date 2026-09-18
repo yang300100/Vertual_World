@@ -8,23 +8,11 @@ from uuid import uuid4
 from world_engine.contracts import ContractService
 from world_engine.domain import MovementState
 from world_engine.geo import great_circle_distance_km
-from world_engine.repository import from_iso, to_iso, utc_now
+from world_engine.repository import WorldRepository, from_iso, to_iso, utc_now
 from world_engine.routing import RoutePlan, RoutePlanner
 from world_engine.spatial import SpatialContextService
 
 ENCOUNTER_RADIUS_KM = 3.0
-
-
-def _route_or_none(row: sqlite3.Row) -> dict[str, object] | None:
-    """route_json 可能是空折线(合法)，此时解析为空列表，应视为无路线。"""
-    raw = row["route_json"] if "route_json" in row.keys() else None
-    if not isinstance(raw, str) or not raw:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
 
 
 def interpolate_coordinate(
@@ -237,7 +225,7 @@ class MovementService:
                     "destination_latitude": latitude,
                 },
             )
-        return self._movement_from_row(
+        return WorldRepository.movement_from_row(
             connection.execute(
                 "SELECT * FROM character_movements WHERE id = ?", (movement_id,)
             ).fetchone()
@@ -326,7 +314,7 @@ class MovementService:
             summary=f"{row['name']}取消了当前移动，并停留在途中。",
             payload={"movement_id": row["id"]},
         )
-        return self._movement_from_row(
+        return WorldRepository.movement_from_row(
             connection.execute(
                 "SELECT * FROM character_movements WHERE id = ?", (row["id"],)
             ).fetchone()
@@ -723,35 +711,3 @@ class MovementService:
             ),
         )
         return event_id
-
-    @staticmethod
-    def _movement_from_row(row: sqlite3.Row) -> MovementState:
-        return MovementState(
-            id=row["id"],
-            world_id=row["world_id"],
-            character_id=row["character_id"],
-            status=row["status"],
-            movement_type=row["movement_type"],
-            vehicle_id=row["vehicle_id"],
-            speed_kmh=row["speed_kmh"],
-            origin_longitude=row["origin_longitude"],
-            origin_latitude=row["origin_latitude"],
-            destination_longitude=row["destination_longitude"],
-            destination_latitude=row["destination_latitude"],
-            total_distance_km=row["total_distance_km"],
-            distance_travelled_km=row["distance_travelled_km"],
-            destination_location_id=row["destination_location_id"],
-            route=_route_or_none(row),
-            route_index=(row["route_index"] if "route_index" in row.keys() else 0),
-            route_distance_km=(
-                row["route_distance_km"] if "route_distance_km" in row.keys() else 0
-            ),
-            navigation_dataset_id=(
-                row["navigation_dataset_id"] if "navigation_dataset_id" in row.keys() else None
-            ),
-            replan_reason=(row["replan_reason"] if "replan_reason" in row.keys() else None),
-            started_at_world=from_iso(row["started_at_world"]),
-            updated_at_world=from_iso(row["updated_at_world"]),
-            estimated_arrival_world=from_iso(row["estimated_arrival_world"]),
-            encountered_character_ids=json.loads(row["encountered_character_ids_json"]),
-        )

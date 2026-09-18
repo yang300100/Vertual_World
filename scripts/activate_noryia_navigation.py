@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
-from pathlib import Path
 
-from world_engine.config import Settings
+from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.database import Database
 from world_engine.navigation import NavigationDatasetImporter
 from world_engine.repository import from_iso, to_iso
 from world_engine.routing import RoutePlanner
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ASSET_ROOT = PROJECT_ROOT / "docs/worldbuilding/maps/navigation/noryia"
 
 
