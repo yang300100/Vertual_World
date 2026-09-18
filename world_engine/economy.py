@@ -134,8 +134,10 @@ class EconomyService:
             (wid, spec.name),
         ).fetchone():
             raise ValueError("当前世界已登记同名物品类型")
-        if bool(spec.resource_location_id) != bool(spec.resource_key):
-            raise ValueError("资源来源地点与资源名需要同时填写")
+        # 通用资源：resource_key 有值而 resource_location_id 为 None，表示任何地点均可采集。
+        # 两者同时为空是合法的「无资源来源」物品。
+        if spec.resource_location_id and not spec.resource_key:
+            raise ValueError("指定资源地点时必须同时填写资源名")
         if spec.initial_resource > spec.resource_capacity:
             raise ValueError("初始资源不能超过储量上限")
         if (
