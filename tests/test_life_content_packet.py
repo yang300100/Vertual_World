@@ -112,6 +112,47 @@ def test_draft_rejects_reinitializing_wages_and_resource_sources(town, tmp_path)
         )
 
 
+def test_draft_accepts_generic_resource_without_location(town, tmp_path):
+    """通用资源（只填 resource_key、地点为 null）应通过校验，与引擎语义一致。"""
+    assert (
+        validate_draft(
+            draft(
+                town,
+                {
+                    "element_type": "commodity",
+                    "name": "野地浆果",
+                    "category": "food",
+                    "nutrition": 20,
+                    "price": 3,
+                    "resource_key": "forage",
+                    "initial_resource": 0,
+                    "daily_growth": 5,
+                    "resource_capacity": 200,
+                },
+            ),
+            packet(town, tmp_path),
+        )
+        == 1
+    )
+
+
+def test_draft_rejects_location_without_resource_key(town, tmp_path):
+    """有地点却没给资源名仍应被拦截——这是引擎唯一仍拒绝的组合。"""
+    with pytest.raises(ValueError, match="资源名"):
+        validate_draft(
+            draft(
+                town,
+                {
+                    "element_type": "commodity",
+                    "name": "缺资源名物品",
+                    "category": "material",
+                    "resource_location_id": town.loc["id"],
+                },
+            ),
+            packet(town, tmp_path),
+        )
+
+
 def test_export_requires_explicit_existing_location_and_never_creates_database(town, tmp_path):
     e = town
     with pytest.raises(ValueError):

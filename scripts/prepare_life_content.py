@@ -188,15 +188,18 @@ def validate_draft(draft, catalogue):
                 raise ValueError(f"第 {index} 项只有食物能登记保鲜期限")
             if spec.name in existing_items:
                 raise ValueError(f"第 {index} 项物品类型已存在，应复用目录 ID")
-            if bool(spec.resource_location_id) != bool(spec.resource_key):
-                raise ValueError(f"第 {index} 项资源地点和资源名必须同时填写")
+            # 与引擎的 register_item 保持一致的宽松校验：只拦截「有地点但无资源名」。
+            # resource_key 有值而 resource_location_id 为 null 是合法的「通用资源」
+            # （任何地点均可采集）；两者同时为 null 则是「无资源来源」的普通物品。
+            if spec.resource_location_id and not spec.resource_key:
+                raise ValueError(f"第 {index} 项指定资源地点时必须同时填写资源名")
             if spec.resource_owner_id and spec.resource_owner_id not in people:
                 raise ValueError(f"第 {index} 项引用了目录外的资源所有者")
-            if spec.resource_owner_id and not spec.resource_location_id:
-                raise ValueError(f"第 {index} 项没有资源来源却指定所有者")
             if spec.initial_resource > spec.resource_capacity:
                 raise ValueError(f"第 {index} 项初始储量超过容量")
             if spec.resource_location_id:
+                # 重复来源只对「地点专属资源」有意义：通用资源没有地点，
+                # 引擎侧也不会把它们互相去重（同一地点可从多份 profile 采集）。
                 source = (spec.resource_location_id, spec.resource_key)
                 if source in sources:
                     raise ValueError(f"第 {index} 项重复定义已有资源来源")
