@@ -342,6 +342,26 @@ def test_initialize_backfills_food_supply(database, world) -> None:
     assert stock > 0
 
 
+def test_noryia_world_gets_food_supply_on_creation(database) -> None:
+    """新建的 Noryia 世界应自带食物供给，无需依赖迁移。"""
+    from world_engine.noryia_seeder import create_noryia_world
+
+    world_id = create_noryia_world(database)
+    with database.read() as connection:
+        profiles = connection.execute(
+            "SELECT COUNT(*) FROM world_item_profiles "
+            "WHERE world_id=? AND resource_key='food' AND resource_location_id IS NULL",
+            (world_id,),
+        ).fetchone()[0]
+        with_food = connection.execute(
+            "SELECT COUNT(*) FROM locations WHERE world_id=? "
+            "AND COALESCE(json_extract(resources_json,'$.food'),0) > 0",
+            (world_id,),
+        ).fetchone()[0]
+    assert profiles == 1
+    assert with_food > 0
+
+
 def test_seed_is_idempotent(database, world) -> None:
     """重复播种不产生重复 profile，也不改变已有存量。"""
     from world_engine.food_supply import seed_food_supply

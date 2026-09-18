@@ -11,6 +11,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from world_engine.config import PROJECT_ROOT
 from world_engine.database import Database
+from world_engine.migrations import ensure_noryia_city_detail_maps
 from world_engine.repository import WorldRepository, to_iso
 
 BURGS_CSV = PROJECT_ROOT / "docs/worldbuilding/maps/map_new/data/Noryia Burgs 2026-08-29-11-38.csv"
@@ -28,7 +29,11 @@ def create_noryia_world(database: Database, name: str = WORLD_NAME) -> str:
         )
         _seed_settlements(connection, world_id)
         _seed_capital_features(connection, world_id)
-        Database._ensure_noryia_city_detail_maps(connection)
+        ensure_noryia_city_detail_maps(connection)
+        # 新建世界即刻就位食物供给，避免依赖后续的迁移补种。
+        from world_engine.food_supply import seed_food_supply
+
+        seed_food_supply(connection, world_id)
     return world_id
 
 
