@@ -302,3 +302,37 @@ def test_food_places_include_generic_resource_locations(database, world) -> None
             connection, world, [place_id], actor_id=actor_id
         )
     assert places == [place_id]
+
+
+def test_seed_writes_food_stock_to_every_town(database, world) -> None:
+    """播种后每个 city/town 都应有 food 存量。"""
+    from world_engine.food_supply import seed_food_supply
+
+    with database.write() as connection:
+        stats = seed_food_supply(connection, world)
+        without = connection.execute(
+            "SELECT COUNT(*) FROM locations WHERE world_id=? AND kind IN ('city','town') "
+            "AND COALESCE(json_extract(resources_json,'$.food'),0) <= 0",
+            (world,),
+        ).fetchone()[0]
+    assert stats.locations_seeded > 0
+    assert without == 0
+
+
+def test_seed_is_idempotent(database, world) -> None:
+    """重复播种不产生重复 profile，也不改变已有存量。"""
+    from world_engine.food_supply import seed_food_supply
+
+    with database.write() as connection:
+        seed_food_supply(connection, world)
+        first = connection.execute(
+            "SELECT COUNT(*) FROM world_item_profiles WHERE world_id=? AND resource_key='food'",
+            (world,),
+        ).fetchone()[0]
+    with database.write() as connection:
+        seed_food_supply(connection, world)
+        second = connection.execute(
+            "SELECT COUNT(*) FROM world_item_profiles WHERE world_id=? AND resource_key='food'",
+            (world,),
+        ).fetchone()[0]
+    assert first == second == 1
