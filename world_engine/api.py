@@ -13,23 +13,18 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
-from world_engine.api_deps import require_world_time_text
 from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.conversations import ConversationService, NpcCharacterCard
 from world_engine.database import Database
 from world_engine.decisions import DecisionProviderError
 from world_engine.domain import (
-    ClockUpdateResult,
-    HeartbeatResult,
     MovementState,
     PlayerActionResult,
-    TickResult,
     WorldSnapshot,
     WorldState,
 )
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
 from world_engine.food_supply import seed_food_supply
-from world_engine.history import HistoryExportResult
 from world_engine.intent_parser import IntentPreview
 from world_engine.navigation import TerrainService
 from world_engine.photos import (
@@ -318,9 +313,6 @@ def create_app(
     element_remover = WorldElementRemover()
     construction_projects = ConstructionProjectService()
     photo_service = photo_service_override or PhotoService(resolved_settings)
-
-    # 待办等路由按原始 ISO 文本读取世界时间，与 api_dialogue 共用同一实现。
-    _world_time = require_world_time_text
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -978,29 +970,6 @@ def create_app(
             "dataset_status": "approved",
         }
 
-    @application.get("/api/worlds/{world_id}/todos")
-    def list_todos(
-        world_id: str,
-        character_id: str | None = None,
-        limit: Annotated[int, Query(ge=1, le=500)] = 200,
-        offset: Annotated[int, Query(ge=0)] = 0,
-    ) -> list[dict[str, object]]:
-        with database.read() as connection:
-            _world_time(connection, world_id)
-            sql = "SELECT t.*, c.name AS character_name FROM npc_todos t JOIN characters c ON c.id = t.character_id WHERE t.world_id = ?"
-            args: list[object] = [world_id]
-            if character_id:
-                sql += " AND t.character_id = ?"
-                args.append(character_id)
-            args.extend((limit, offset))
-            return [
-                dict(row)
-                for row in connection.execute(
-                    sql + " ORDER BY t.status, t.due_world_time, t.created_at LIMIT ? OFFSET ?",
-                    args,
-                ).fetchall()
-            ]
-
     @application.post(
         "/api/worlds/{world_id}/player/move/cancel",
         response_model=MovementState,
@@ -1026,105 +995,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="世界不存在") from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/tick",
-        response_model=TickResult,
-        deprecated=True,
-    )
-    def tick_world(world_id: str) -> TickResult:
-        try:
-            return engine.tick(world_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ConcurrentWorldUpdateError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程结算") from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/heartbeat",
-        response_model=HeartbeatResult,
-    )
-    def heartbeat_world(world_id: str) -> HeartbeatResult:
-        try:
-            return engine.heartbeat(world_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
-
-    @application.patch(
-        "/api/worlds/{world_id}/clock",
-        response_model=ClockUpdateResult,
-    )
-    def update_clock(world_id: str, payload: ClockUpdateRequest) -> ClockUpdateResult:
-        try:
-            return engine.set_time_scale(
-                world_id,
-                payload.time_scale,
-                operator=payload.operator,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/adjudicate",
-        response_model=TickResult,
-    )
-    def adjudicate_world(world_id: str, payload: AdjudicationRequest) -> TickResult:
-        try:
-            return engine.adjudicate(
-                world_id,
-                trigger=payload.trigger,
-                character_ids=payload.character_ids,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ConcurrentWorldUpdateError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @application.get("/api/worlds/{world_id}/events")
-    def list_events(
-        world_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-        scope: Annotated[str, Query(pattern="^(all|chronicle|log)$")] = "all",
-        participant_id: str | None = Query(default=None, min_length=1, max_length=100),
-    ) -> list[dict[str, object]]:
-        try:
-            with database.read() as connection:
-                return repository.list_events(
-                    connection, world_id, limit, scope=scope, participant_id=participant_id
-                )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/history/sync",
-        response_model=HistoryExportResult,
-    )
-    def sync_history(world_id: str) -> HistoryExportResult:
-        try:
-            return engine.sync_history(world_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    @application.get("/api/worlds/{world_id}/adjudications")
-    def list_adjudications(
-        world_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[dict[str, object]]:
-        try:
-            with database.read() as connection:
-                return repository.list_adjudication_runs(connection, world_id, limit)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
 
     @application.get("/api/worlds/{world_id}/characters/{character_id}/memories")
     def list_memories(
@@ -1216,26 +1086,17 @@ def create_app(
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail="世界不存在") from exc
 
-    @application.get("/api/worlds/{world_id}/combat/encounters")
-    def list_combat_encounters(
-        world_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[dict[str, object]]:
-        try:
-            with database.read() as connection:
-                return repository.list_combat_encounters(connection, world_id, limit)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-
     from world_engine.api_dialogue import (
         DialogueContextServices,
         build_dialogue_router,
     )
+    from world_engine.api_world import build_world_router
     from world_engine.interior_api import build_interior_router
     from world_engine.life_api import build_life_router
     from world_engine.living_api import build_living_router
     from world_engine.task_api import build_task_router
 
+    application.include_router(build_world_router(database, engine, repository))
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))
     application.include_router(build_task_router(database, engine))
