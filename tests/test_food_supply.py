@@ -309,13 +309,8 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
     from world_engine.food_supply import seed_food_supply
 
     with database.write() as connection:
-        # 先抹掉「本世界已播种」的痕迹，才有可播种的存量；否则幂等播种
-        # 会正确地什么都不做，这个测试就测不到「写存量」这条路径。
-        connection.execute(
-            "DELETE FROM element_registration_requests WHERE world_id=? "
-            "AND idempotency_key=?",
-            (world, f"system:food-supply:{world}"),
-        )
+        # 新建的世界尚未播种（「已播种」判据是通用 profile 是否存在）；
+        # 这里清空存量是为稳妥起见，确保能走到「写存量」那条路径。
         connection.execute(
             "UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,)
         )
@@ -332,13 +327,8 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
 def test_initialize_backfills_food_supply(database, world) -> None:
     """已存在的世界在 initialize 后应自动获得食物供给。"""
     with database.write() as connection:
-        # 模拟一个从未获得过食物供给的旧存档：既要抹掉 profile 与存量，
-        # 也要抹掉播种登记——登记记录才是「本世界已播种」的判据。
-        connection.execute(
-            "DELETE FROM element_registration_requests WHERE world_id=? "
-            "AND idempotency_key=?",
-            (world, f"system:food-supply:{world}"),
-        )
+        # 模拟一个从未获得过食物供给的旧存档。「已播种」的判据是
+        # 通用 profile 是否存在，所以抹掉 profile 即可让它重新播种。
         connection.execute("UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,))
         connection.execute(
             "DELETE FROM world_item_profiles WHERE world_id=? AND resource_key='food'", (world,)
