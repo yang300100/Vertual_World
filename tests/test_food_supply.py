@@ -362,6 +362,19 @@ def test_noryia_world_gets_food_supply_on_creation(database) -> None:
     assert with_food > 0
 
 
+def test_cli_registers_seed_food_supply_command() -> None:
+    """CLI 应注册 seed-food-supply 子命令并接收 world_id。
+
+    播种逻辑本身已由 Task 6 的单元测试覆盖，此处只验证命令可被正确解析，
+    避免为一个薄封装去 mock 整个 CLI 运行时。
+    """
+    from world_engine.cli import build_parser
+
+    args = build_parser().parse_args(["seed-food-supply", "some-world-id"])
+    assert args.command == "seed-food-supply"
+    assert args.world_id == "some-world-id"
+
+
 def test_seed_is_idempotent(database, world) -> None:
     """重复播种不产生重复 profile，也不改变已有存量。"""
     from world_engine.food_supply import seed_food_supply

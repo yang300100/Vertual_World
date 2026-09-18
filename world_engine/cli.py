@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     adjudications.add_argument("world_id")
     adjudications.add_argument("--limit", type=int, default=50)
 
+    food = subparsers.add_parser(
+        "seed-food-supply", help="为世界补齐通用食物资源与各城镇食物存量"
+    )
+    food.add_argument("world_id")
+
     knowledge_search = subparsers.add_parser(
         "knowledge-search",
         help="本地检索世界设定，不调用模型",
@@ -250,6 +255,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                     connection, args.world_id, args.limit
                 )
             )
+        return 0
+    if args.command == "seed-food-supply":
+        from world_engine.food_supply import seed_food_supply
+
+        with database.write() as connection:
+            stats = seed_food_supply(connection, args.world_id)
+        _print_json(
+            {
+                "world_id": args.world_id,
+                "item_type_id": stats.item_type_id,
+                "profile_created": stats.profile_created,
+                "locations_seeded": stats.locations_seeded,
+            }
+        )
         return 0
     return 1
 
