@@ -14,18 +14,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from world_engine.config import PROJECT_ROOT, Settings
-from world_engine.conversations import ConversationService, NpcCharacterCard
+from world_engine.conversations import NpcCharacterCard
 from world_engine.database import Database
-from world_engine.decisions import DecisionProviderError
 from world_engine.domain import (
     MovementState,
-    PlayerActionResult,
     WorldSnapshot,
     WorldState,
 )
-from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
+from world_engine.engine import WorldEngine
 from world_engine.food_supply import seed_food_supply
-from world_engine.intent_parser import IntentPreview
 from world_engine.navigation import TerrainService
 from world_engine.photos import (
     PhotoCaptureRequest,
@@ -485,141 +482,6 @@ def create_app(
                 raise HTTPException(status_code=404, detail="世界不存在")
             return photo_service.list_captures(connection, world_id=world_id, limit=limit)
 
-    @application.post(
-        "/api/worlds/{world_id}/player",
-        response_model=WorldSnapshot,
-        status_code=201,
-    )
-    def create_player(world_id: str, payload: CreatePlayerRequest) -> WorldSnapshot:
-        try:
-            with database.write() as connection:
-                repository.create_player_character(
-                    connection,
-                    world_id=world_id,
-                    name=payload.name,
-                    identity=payload.identity,
-                    location_id=payload.location_id,
-                    traits=payload.traits,
-                    goal=payload.goal,
-                )
-                return repository.get_snapshot(connection, world_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except LookupError as exc:
-            raise HTTPException(status_code=400, detail="起始地点不属于当前世界") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except sqlite3.IntegrityError as exc:
-            raise HTTPException(status_code=409, detail="角色名称已存在") from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/player/act",
-        response_model=PlayerActionResult,
-        status_code=201,
-    )
-    def player_act(world_id: str, payload: PlayerIntentRequest) -> PlayerActionResult:
-        try:
-            return engine.submit_player_intent(
-                world_id,
-                payload.intent,
-                target_character_id=payload.target_character_id,
-                delivery=payload.delivery,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except ConcurrentWorldUpdateError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except DecisionProviderError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程结算") from exc
-
-    @application.get("/api/worlds/{world_id}/player/activities")
-    def player_activities(world_id: str) -> list[dict[str, object]]:
-        from world_engine.player_activities import PlayerActivityService
-
-        with database.read() as connection:
-            snapshot = repository.get_snapshot(connection, world_id)
-            player = next((item for item in snapshot.characters if item.is_player), None)
-            if player is None:
-                raise HTTPException(status_code=404, detail="玩家角色不存在")
-            return PlayerActivityService.recent_records(connection, world_id, player.id)
-
-    @application.post("/api/worlds/{world_id}/player/actions/{event_id}/reaction")
-    def retry_action_reaction(world_id: str, event_id: str) -> dict[str, object]:
-        from world_engine.player_action_flow import react_to_action
-
-        result = react_to_action(engine, world_id, event_id)
-        engine._sync_history_safely(world_id)
-        return result
-
-    @application.post(
-        "/api/worlds/{world_id}/player/group-dialogue",
-        status_code=201,
-    )
-    def player_group_dialogue(
-        world_id: str, payload: GroupDialogueRequest
-    ) -> dict[str, object]:
-        try:
-            return engine.submit_group_dialogue(
-                world_id,
-                payload.intent,
-                participant_ids=payload.participant_ids,
-                max_speakers=payload.max_speakers,
-                delivery=payload.delivery,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except ConcurrentWorldUpdateError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except DecisionProviderError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程结算") from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/player/intents/preview",
-        response_model=IntentPreview,
-    )
-    def preview_player_intent(world_id: str, payload: PlayerIntentRequest) -> IntentPreview:
-        try:
-            return engine.preview_player_intent(
-                world_id,
-                payload.intent,
-                target_character_id=payload.target_character_id,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/player/move",
-        response_model=PlayerMoveResponse,
-        status_code=201,
-    )
-    def start_player_movement(world_id: str, payload: PlayerMoveRequest) -> PlayerMoveResponse:
-        try:
-            movement = engine.start_player_movement(
-                world_id,
-                destination_longitude=payload.destination_longitude,
-                destination_latitude=payload.destination_latitude,
-                vehicle_id=payload.vehicle_id,
-            )
-            return PlayerMoveResponse(
-                movement=movement,
-                route=movement.route,
-            )
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except (LookupError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
 
     @application.get(
         "/api/worlds/{world_id}/terrain",
@@ -775,76 +637,6 @@ def create_app(
             "dataset_status": "approved",
         }
 
-    @application.post(
-        "/api/worlds/{world_id}/player/move/cancel",
-        response_model=MovementState,
-    )
-    def cancel_player_movement(world_id: str) -> MovementState:
-        try:
-            return engine.cancel_player_movement(world_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
-
-    @application.patch(
-        "/api/worlds/{world_id}/player/transport",
-        response_model=WorldSnapshot,
-    )
-    def select_player_transport(world_id: str, payload: PlayerTransportRequest) -> WorldSnapshot:
-        try:
-            return engine.select_player_transport(world_id, payload.vehicle_id)
-        except WorldNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="世界不存在") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @application.get("/api/worlds/{world_id}/characters/{character_id}/memories")
-    def list_memories(
-        world_id: str,
-        character_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[dict[str, object]]:
-        try:
-            with database.read() as connection:
-                return repository.list_memories(connection, world_id, character_id, limit)
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail="世界或人物不存在") from exc
-
-    @application.get("/api/worlds/{world_id}/characters/{character_id}/character-card")
-    def get_character_card(world_id: str, character_id: str) -> dict[str, object]:
-        """读取 NPC 角色卡；旧存档首次读取会安全补齐确定性默认卡。"""
-        with database.write() as connection:
-            snapshot = repository.get_snapshot(connection, world_id)
-            character = snapshot.character_by_id(character_id)
-            if character is None or character.is_player:
-                raise HTTPException(status_code=404, detail="NPC不存在")
-            card = engine.conversations.get_card(
-                connection, world_id=world_id, npc=character, persist_default=True
-            )
-            return card.to_dict()
-
-    @application.put("/api/worlds/{world_id}/characters/{character_id}/character-card")
-    def update_character_card(
-        world_id: str,
-        character_id: str,
-        payload: CharacterCardRequest,
-    ) -> dict[str, object]:
-        """更新角色卡，不改变角色属性、关系、记忆或任何世界事实。"""
-        with database.write() as connection:
-            row = connection.execute(
-                "SELECT is_player FROM characters WHERE id = ? AND world_id = ?",
-                (character_id, world_id),
-            ).fetchone()
-            if row is None or row["is_player"]:
-                raise HTTPException(status_code=404, detail="NPC不存在")
-            ConversationService.save_card(
-                connection, world_id=world_id, npc_id=character_id, card=payload.to_card()
-            )
-        return payload.to_card().to_dict()
-
     @application.post("/api/worlds/{world_id}/agents/memory-jobs/{job_id}/retry")
     def retry_memory_job(world_id: str, job_id: str) -> dict[str, object]:
         with database.write() as connection:
@@ -896,6 +688,7 @@ def create_app(
         build_dialogue_router,
     )
     from world_engine.api_elements import build_elements_router
+    from world_engine.api_player import build_player_router
     from world_engine.api_world import build_world_router
     from world_engine.interior_api import build_interior_router
     from world_engine.life_api import build_life_router
@@ -903,6 +696,7 @@ def create_app(
     from world_engine.task_api import build_task_router
 
     application.include_router(build_elements_router(database))
+    application.include_router(build_player_router(database, engine, repository, photo_service))
     application.include_router(build_world_router(database, engine, repository))
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))
