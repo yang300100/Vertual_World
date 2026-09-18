@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from world_engine.database import Database
+from world_engine.food_supply import seed_food_supply
 from world_engine.repository import WorldRepository, to_iso
 
 # 引擎硬编码起始世界时间(见 repository.create_world):H 24816 年 1 月 1 日 08:00。
@@ -529,6 +530,9 @@ def create_iserra_world(database: Database, name: str = _WORLD_NAME) -> str:
         event_id = _seed_initial_event(connection, world_id, character_ids)
         _seed_memories(connection, world_id, character_ids, event_id)
         _seed_accumulators(connection, world_id)
+        # 与 Noryia 世界、API 端点、CLI create 一致：新建世界即刻就位食物供给，
+        # 不依赖后续 Database.initialize() 的迁移补种。
+        seed_food_supply(connection, world_id)
     return world_id
 
 

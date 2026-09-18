@@ -101,9 +101,12 @@ def test_history_sync_api_returns_generated_log_paths(settings, tmp_path) -> Non
         client.post(f"/api/worlds/{world_id}/tick")
         response = client.post(f"/api/worlds/{world_id}/history/sync")
 
+    # POST /api/worlds 现在会在建世界时就地播种食物供给（见 food_supply），
+    # 因此日志里除本次 tick 之外还包含一条建世界阶段的食物供给事件，
+    # tick 分组与事件总数都相应 +1。
     assert response.status_code == 200
-    assert response.json()["tick_count"] == 1
-    assert response.json()["event_count"] == 3
+    assert response.json()["tick_count"] == 2
+    assert response.json()["event_count"] == 4
 
 
 def test_heartbeat_and_character_state_logs_are_separate(database, settings, tmp_path) -> None:

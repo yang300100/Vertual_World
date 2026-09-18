@@ -157,7 +157,7 @@ def _empty_location(connection, world: str) -> str:
 
 
 def _regenerate_one_day(database, world: str, place_ids: list[str]) -> list[int]:
-    """把给定地点的所有已知资源清零后推进一天，返回各地点的 food 再生结果。
+    """把给定地点的所有已知资源清零后推进一天，返回各地点的 resources_json。
 
     只清零 key、保留 key 本身，这样同一地点的专属资源也能被本函数一起测量。
     """
@@ -193,8 +193,19 @@ def _regenerate_one_day(database, world: str, place_ids: list[str]) -> list[int]
         ]
 
 
+def _isolate_profiles(connection, world: str) -> None:
+    """清掉世界自带的所有资源 profile，让本用例注册的 profile 成为唯一来源。
+
+    伊瑟拉的 seed 阶段会自带一个通用 food profile；若不清掉，tick 会同时
+    按两个 profile 给同一资源池再生，测得的数值会翻倍。
+    """
+    connection.execute("DELETE FROM world_item_profiles WHERE world_id=?", (world,))
+    connection.execute("DELETE FROM food_storage_rules WHERE world_id=?", (world,))
+
+
 def _register_generic_food(connection, world: str, *, name: str, daily_growth: int,
                            capacity: int = 200) -> None:
+    _isolate_profiles(connection, world)
     EconomyService.register_item(
         connection,
         world,
@@ -280,6 +291,7 @@ def test_location_bound_resource_ignores_population(database, world) -> None:
             f"WHERE id IN ({','.join('?' for _ in actor_ids)})",
             (place_id, place_id, *actor_ids),
         )
+        _isolate_profiles(connection, world)
         EconomyService.register_item(
             connection,
             world,
@@ -372,11 +384,12 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
     from world_engine.food_supply import seed_food_supply
 
     with database.write() as connection:
-        # 新建的世界尚未播种（「已播种」判据是通用 profile 是否存在）；
-        # 这里清空存量是为稳妥起见，确保能走到「写存量」那条路径。
+        # 新建世界已在创建时播种过；这里按「已播种」判据（通用 profile 是否存在）
+        # 复位成未播种状态，让本用例真正走到「写存量」那条路径。
         connection.execute(
             "UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,)
         )
+        _isolate_profiles(connection, world)
         stats = seed_food_supply(connection, world)
         without = connection.execute(
             "SELECT COUNT(*) FROM locations WHERE world_id=? AND kind IN ('city','town') "
@@ -444,6 +457,74 @@ def test_noryia_world_gets_food_supply_on_creation(database) -> None:
         ).fetchone()[0]
     assert profiles == 1
     assert with_food > 0
+
+
+def _assert_world_has_food_supply(database, world_id: str) -> None:
+    """断言世界自带通用食物 profile（这是解除饥饿死锁的根本保证）。
+
+    存量只写在 city/town 地点上，因此仅当世界确实存在这类地点时才额外断言存量。
+    """
+    with database.read() as connection:
+        profiles = connection.execute(
+            "SELECT COUNT(*) FROM world_item_profiles "
+            "WHERE world_id=? AND resource_key='food' AND resource_location_id IS NULL",
+            (world_id,),
+        ).fetchone()[0]
+        towns = connection.execute(
+            "SELECT COUNT(*) FROM locations WHERE world_id=? AND kind IN ('city','town')",
+            (world_id,),
+        ).fetchone()[0]
+        stock = connection.execute(
+            "SELECT COUNT(*) FROM locations WHERE world_id=? "
+            "AND COALESCE(json_extract(resources_json,'$.food'),0) > 0",
+            (world_id,),
+        ).fetchone()[0]
+    assert profiles == 1
+    if towns:
+        assert stock > 0
+
+
+def test_cli_create_seeds_food_supply(database, settings, monkeypatch) -> None:
+    """`cli.py create` 建出的世界应自带食物供给，无需等下一次迁移补种。
+
+    `--empty` 会跳过演示地点，所以这里建的世界没有 city/town；关键是通用
+    food profile 必须在创建时就位，否则新世界会一直卡在饥饿死锁里。
+    """
+    from dataclasses import replace
+
+    from world_engine import cli
+
+    # CLI 的 main() 会自行以 Settings.from_env() 建库，这里把它指到测试库上。
+    monkeypatch.setattr(
+        cli.Settings, "from_env", classmethod(lambda cls: replace(settings, decision_provider="rules"))
+    )
+    assert cli.main(["create", "--name", "CLI世界"]) == 0
+    with database.read() as connection:
+        world_id = connection.execute(
+            "SELECT id FROM worlds WHERE name=? ORDER BY id LIMIT 1", ("CLI世界",)
+        ).fetchone()["id"]
+    _assert_world_has_food_supply(database, world_id)
+
+
+def test_api_create_world_seeds_food_supply(settings) -> None:
+    """`POST /api/worlds` 建出的世界应即刻播种食物供给，不必等进程重启。"""
+    from fastapi.testclient import TestClient
+
+    from world_engine.api import create_app
+    from world_engine.database import Database
+
+    app = create_app(settings)
+    with TestClient(app) as client:
+        created = client.post("/api/worlds", json={"name": "API世界", "seed_demo": False})
+        assert created.status_code == 201
+        world_id = created.json()["world"]["id"]
+    database = Database(settings.database_path)
+    _assert_world_has_food_supply(database, world_id)
+
+
+def test_iserra_world_gets_food_supply_on_creation(database, world) -> None:
+    """新建的伊瑟拉世界也应自带食物供给（它包含 city 地点，存量也须就位）。"""
+    _assert_world_has_food_supply(database, world)
 
 
 def test_cli_registers_seed_food_supply_command() -> None:

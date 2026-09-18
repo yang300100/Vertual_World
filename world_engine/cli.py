@@ -9,6 +9,7 @@ from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
 from world_engine.engine import WorldEngine
+from world_engine.food_supply import seed_food_supply
 from world_engine.iserra_time import to_era
 from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
@@ -158,6 +159,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 adjudication_interval_minutes=settings.adjudication_interval_minutes,
                 seed_demo=not args.empty,
             )
+            # 与 API 端点一致：新建世界立刻播种食物供给，不等下一次迁移补种。
+            seed_food_supply(connection, world_id)
             _print_json(repository.get_snapshot(connection, world_id))
         return 0
     if args.command == "seed-isera":
@@ -257,8 +260,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return 0
     if args.command == "seed-food-supply":
-        from world_engine.food_supply import seed_food_supply
-
         with database.write() as connection:
             stats = seed_food_supply(connection, args.world_id)
         _print_json(

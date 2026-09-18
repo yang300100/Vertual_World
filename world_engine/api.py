@@ -32,6 +32,7 @@ from world_engine.domain import (
     WorldState,
 )
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
+from world_engine.food_supply import seed_food_supply
 from world_engine.geo import great_circle_distance_km
 from world_engine.history import HistoryExportResult
 from world_engine.intent_parser import IntentPreview
@@ -722,6 +723,11 @@ def create_app(
                     adjudication_interval_minutes=(resolved_settings.adjudication_interval_minutes),
                     seed_demo=payload.seed_demo,
                 )
+                # 新建世界必须即刻播种食物供给，否则 API 进程长驻期间新建的世界
+                # 会一直停留在「无任何可采集资源」的饥饿死锁状态，直到进程重启
+                # 触发 Database.initialize() 的补种。播种放在调用方而非 repository，
+                # 是为了不让数据访问层依赖业务层的 food_supply。
+                seed_food_supply(connection, world_id)
                 return repository.get_snapshot(connection, world_id)
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="世界初始数据存在冲突") from exc
