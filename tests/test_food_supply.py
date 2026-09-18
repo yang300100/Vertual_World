@@ -95,3 +95,51 @@ def test_location_without_key_is_rejected(database, world) -> None:
                 ),
                 utc_now(),
             )
+
+
+def test_harvest_works_at_any_town(database, world) -> None:
+    """通用 profile 应让任意有 food 存量的地点都能采集。"""
+    with database.write() as connection:
+        registration_id = make_registration(connection, world)
+        EconomyService.register_item(
+            connection,
+            world,
+            registration_id,
+            CommoditySpec(
+                name="通用粮食", category="food", nutrition=20,
+                resource_key="food", initial_resource=0,
+                daily_growth=5, resource_capacity=200,
+            ),
+            utc_now(),
+        )
+        # 固定取两个不同地点，并记下坐标（harvest 要求角色与该地点相距够近）
+        places = [
+            dict(row)
+            for row in connection.execute(
+                "SELECT id, longitude, latitude FROM locations WHERE world_id=? ORDER BY id LIMIT 2",
+                (world,),
+            ).fetchall()
+        ]
+        assert len(places) == 2
+        for place in places:
+            connection.execute(
+                "UPDATE locations SET resources_json=? WHERE id=?",
+                ('{"food": 20}', place["id"]),
+            )
+        actor_id = connection.execute(
+            "SELECT id FROM characters WHERE world_id=? LIMIT 1", (world,)
+        ).fetchone()["id"]
+
+    for place in places:
+        with database.write() as connection:
+            # 把角色放进该地点：坐标随之对齐，current_room_id 置空表示站在室外地面
+            connection.execute(
+                "UPDATE characters SET location_id=?, current_location_id=?, current_room_id=NULL, "
+                "energy=100, longitude=?, latitude=? WHERE id=?",
+                (place["id"], place["id"], place["longitude"], place["latitude"], actor_id),
+            )
+            actor = connection.execute(
+                "SELECT * FROM characters WHERE id=?", (actor_id,)
+            ).fetchone()
+            assert EconomyService.harvest(connection, actor, utc_now(), food_only=True) is True
+

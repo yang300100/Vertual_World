@@ -271,7 +271,9 @@ class EconomyService:
         if loc is None or actor["current_room_id"]:
             return False
         for profile in c.execute(
-            "SELECT p.*,t.name,t.stack_limit,t.slot_size FROM world_item_profiles p JOIN item_types t ON t.id=p.item_type_id WHERE p.world_id=? AND p.resource_location_id=?",
+            "SELECT p.*,t.name,t.stack_limit,t.slot_size FROM world_item_profiles p JOIN item_types t ON t.id=p.item_type_id "
+            "WHERE p.world_id=? AND (p.resource_location_id=? OR p.resource_location_id IS NULL) "
+            "ORDER BY p.resource_location_id IS NULL",
             (actor["world_id"], loc["id"]),
         ).fetchall():
             if item_type_ids is not None and profile["item_type_id"] not in item_type_ids:
