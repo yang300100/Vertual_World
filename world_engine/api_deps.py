@@ -24,6 +24,21 @@ def require_world_time(connection: sqlite3.Connection, world_id: str) -> datetim
     return from_iso(world["current_time"])
 
 
+def require_world_time_text(connection: sqlite3.Connection, world_id: str) -> str:
+    """读取世界当前时间的原始 ISO 文本；世界不存在时返回 404。
+
+    `require_world_time` 返回 datetime，供需要做时间运算的端点使用；这里返回
+    字符串，供需要原样写回数据库（如事件、信笺均以文本列存储世界时间）的端点
+    使用。两者都查同一列，只是返回值类型不同，不要把前者当后者的替代。
+    """
+    world = connection.execute(
+        'SELECT "current_time" AS current_time FROM worlds WHERE id = ?', (world_id,)
+    ).fetchone()
+    if world is None:
+        raise HTTPException(status_code=404, detail="世界不存在")
+    return str(world["current_time"])
+
+
 def require_player(connection: sqlite3.Connection, world_id: str) -> sqlite3.Row:
     """读取玩家角色；世界中没有玩家时返回 404。"""
     player = connection.execute(
