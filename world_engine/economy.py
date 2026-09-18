@@ -11,6 +11,9 @@ from world_engine.inventory import InventoryError, InventoryService
 from world_engine.life import LifeSceneService
 from world_engine.repository import from_iso, to_iso
 
+# 一个 NPC 每日维持基本生存所需的资源份数（按饱食度消耗 72 点/日、每份恢复 42 点折算）。
+NPC_DAILY_RESOURCE_NEED = 2
+
 
 class CommoditySpec(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -336,6 +339,14 @@ class EconomyService:
             "SELECT * FROM world_item_profiles WHERE world_id=? AND daily_growth>0",
             (wid,),
         ).fetchall()
+        # 各地点在场的 NPC 数：通用资源的再生量据此缩放，避免多人聚集的城镇被采空。
+        in_place = dict(
+            c.execute(
+                "SELECT location_id, COUNT(*) FROM characters "
+                "WHERE world_id=? AND is_player=0 GROUP BY location_id",
+                (wid,),
+            ).fetchall()
+        )
         for row in rows:
             elapsed = (at - from_iso(row["last_growth_world_time"])).days
             if elapsed <= 0:
@@ -357,7 +368,16 @@ class EconomyService:
             for loc in targets:
                 resources = json.loads(loc["resources_json"] or "{}")
                 before = int(resources.get(row["resource_key"], 0))
-                after = min(row["resource_capacity"], before + elapsed * row["daily_growth"])
+                if row["resource_location_id"] is None:
+                    # 通用资源：按该地点的实际人口缩放。一个 NPC 每天约需 2 份
+                    # （消耗 72 点饱食度、每份恢复 42 点）。取 daily_growth 与需求量
+                    # 的较大者，保证稀疏地区仍有基础再生，而聚集城镇不会被采空。
+                    demand = in_place.get(loc["id"], 0) * NPC_DAILY_RESOURCE_NEED
+                    growth = max(row["daily_growth"], demand)
+                else:
+                    # 地点专属资源（如某个矿点的木材）与人口无关，保持原有再生速度。
+                    growth = row["daily_growth"]
+                after = min(row["resource_capacity"], before + elapsed * growth)
                 if after == before:
                     continue
                 resources[row["resource_key"]] = after

@@ -145,92 +145,155 @@ def test_harvest_works_at_any_town(database, world) -> None:
             assert EconomyService.harvest(connection, actor, utc_now(), food_only=True) is True
 
 
-def test_generic_resource_regenerates_all_locations(database, world) -> None:
-    """通用资源应在每个活跃地点各自再生，且不超过 resource_capacity。"""
+def _empty_location(connection, world: str) -> str:
+    """造一个没有任何 NPC 在场的空地点，返回其 id（ORDER BY 保证结果稳定）。"""
+    place_id = str(uuid4())
+    connection.execute(
+        "INSERT INTO locations(id, world_id, name, kind, resources_json, longitude, latitude, "
+        "area_radius_km, area_priority) VALUES (?,?,?,'town',?,0,0,3.0,5)",
+        (place_id, world, f"无人镇-{place_id}", '{"food": 0}'),
+    )
+    return place_id
+
+
+def _regenerate_one_day(database, world: str, place_ids: list[str]) -> list[int]:
+    """把给定地点的所有已知资源清零后推进一天，返回各地点的 food 再生结果。
+
+    只清零 key、保留 key 本身，这样同一地点的专属资源也能被本函数一起测量。
+    """
     from datetime import timedelta
 
     from world_engine.repository import to_iso
 
     with database.write() as connection:
-        registration_id = make_registration(connection, world)
-        EconomyService.register_item(
-            connection,
-            world,
-            registration_id,
-            CommoditySpec(
-                name="再生粮食", category="food", nutrition=20,
-                resource_key="food", initial_resource=0,
-                daily_growth=5, resource_capacity=12,
-            ),
-            utc_now(),
-        )
-        place_ids = [
-            row["id"]
-            for row in connection.execute(
-                "SELECT id FROM locations WHERE world_id=? ORDER BY id LIMIT 2", (world,)
-            ).fetchall()
-        ]
-        assert len(place_ids) == 2
         for place_id in place_ids:
+            resources = json.loads(
+                connection.execute(
+                    "SELECT resources_json FROM locations WHERE id=?", (place_id,)
+                ).fetchone()["resources_json"]
+                or "{}"
+            )
             connection.execute(
-                "UPDATE locations SET resources_json=? WHERE id=?", ('{"food": 0}', place_id)
+                "UPDATE locations SET resources_json=? WHERE id=?",
+                (json.dumps({key: 0 for key in resources}), place_id),
             )
         start = utc_now()
         connection.execute(
-            "UPDATE world_item_profiles SET last_growth_world_time=? WHERE resource_key='food'",
+            "UPDATE world_item_profiles SET last_growth_world_time=?",
             (to_iso(start),),
         )
         EconomyService.tick(connection, world, start + timedelta(days=1))
-        values = [
+        return [
             json.loads(
                 connection.execute(
                     "SELECT resources_json FROM locations WHERE id=?", (place_id,)
                 ).fetchone()["resources_json"]
-            ).get("food")
+            )
             for place_id in place_ids
         ]
-    # 一天 × 每天 5 份 = 5，未触及上限 12
-    assert values == [5, 5]
+
+
+def _register_generic_food(connection, world: str, *, name: str, daily_growth: int,
+                           capacity: int = 200) -> None:
+    EconomyService.register_item(
+        connection,
+        world,
+        make_registration(connection, world),
+        CommoditySpec(
+            name=name, category="food", nutrition=20,
+            resource_key="food", initial_resource=0,
+            daily_growth=daily_growth, resource_capacity=capacity,
+        ),
+        utc_now(),
+    )
+
+
+def test_generic_resource_regenerates_all_locations(database, world) -> None:
+    """通用资源应在每个活跃地点各自再生（无人地点不缩放，保持 daily_growth）。"""
+    with database.write() as connection:
+        _register_generic_food(connection, world, name="再生粮食", daily_growth=5)
+        # 覆盖「该地点无 NPC」与「该地点有 N 个 NPC」两种情形：前者是 daily_growth 基线，
+        # 后者按人口缩放（见 test_generic_resource_scales_with_local_population）。
+        empty_id = _empty_location(connection, world)
+        populated_id, populated_count = connection.execute(
+            "SELECT location_id, COUNT(*) FROM characters "
+            "WHERE world_id=? AND is_player=0 GROUP BY location_id ORDER BY location_id LIMIT 1",
+            (world,),
+        ).fetchone()
+    values = [row.get("food") for row in _regenerate_one_day(database, world, [empty_id, populated_id])]
+    # 无人地点：一天 × 每天 5 份 = 5；有人地点：max(5, 人口 × 2)。
+    assert values == [5, max(5, populated_count * 2)]
 
 
 def test_generic_resource_respects_capacity(database, world) -> None:
-    """再生不得超过 resource_capacity。"""
-    from datetime import timedelta
-
-    from world_engine.repository import to_iso
-
+    """再生不得超过 resource_capacity（上限优先于人口缩放，故断言与人口无关）。"""
     with database.write() as connection:
-        registration_id = make_registration(connection, world)
-        EconomyService.register_item(
-            connection,
-            world,
-            registration_id,
-            CommoditySpec(
-                name="上限粮食", category="food", nutrition=20,
-                resource_key="food", initial_resource=0,
-                daily_growth=100, resource_capacity=7,
-            ),
-            utc_now(),
-        )
+        _register_generic_food(connection, world, name="上限粮食", daily_growth=100, capacity=7)
         place_id = connection.execute(
             "SELECT id FROM locations WHERE world_id=? ORDER BY id LIMIT 1", (world,)
         ).fetchone()["id"]
-        connection.execute(
-            "UPDATE locations SET resources_json=? WHERE id=?", ('{"food": 0}', place_id)
-        )
-        start = utc_now()
-        connection.execute(
-            "UPDATE world_item_profiles SET last_growth_world_time=? WHERE resource_key='food'",
-            (to_iso(start),),
-        )
-        EconomyService.tick(connection, world, start + timedelta(days=1))
-        value = json.loads(
-            connection.execute(
-                "SELECT resources_json FROM locations WHERE id=?", (place_id,)
-            ).fetchone()["resources_json"]
-        )["food"]
+    value = _regenerate_one_day(database, world, [place_id])[0]["food"]
     assert value == 7
 
+
+def test_generic_resource_scales_with_local_population(database, world) -> None:
+    """聚集城镇的通用资源再生量应随在场 NPC 数上浮，而非固定 daily_growth。"""
+    with database.write() as connection:
+        _register_generic_food(connection, world, name="聚集粮食", daily_growth=5)
+        place_id = _empty_location(connection, world)
+        # 4 个 NPC 集中到同一地点：需求 4 × 2 = 8 份/天 > daily_growth 5。
+        actor_ids = [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM characters WHERE world_id=? AND is_player=0 "
+                "ORDER BY id LIMIT 4",
+                (world,),
+            ).fetchall()
+        ]
+        assert len(actor_ids) == 4
+        connection.execute(
+            "UPDATE characters SET location_id=?, current_location_id=? "
+            f"WHERE id IN ({','.join('?' for _ in actor_ids)})",
+            (place_id, place_id, *actor_ids),
+        )
+    value = _regenerate_one_day(database, world, [place_id])[0]["food"]
+    # 断言实际值：4 人 × 2 份 = 8 份/天（旧行为是固定 5 份）。
+    assert value == 8
+    assert value >= 8
+
+
+def test_location_bound_resource_ignores_population(database, world) -> None:
+    """地点专属资源不按人口缩放，保持 daily_growth。"""
+    with database.write() as connection:
+        place_id = _empty_location(connection, world)
+        # 让该地点先有 4 个 NPC，若误按人口缩放就会变成 8 份。
+        actor_ids = [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM characters WHERE world_id=? AND is_player=0 ORDER BY id LIMIT 4",
+                (world,),
+            ).fetchall()
+        ]
+        assert len(actor_ids) == 4
+        connection.execute(
+            "UPDATE characters SET location_id=?, current_location_id=? "
+            f"WHERE id IN ({','.join('?' for _ in actor_ids)})",
+            (place_id, place_id, *actor_ids),
+        )
+        EconomyService.register_item(
+            connection,
+            world,
+            make_registration(connection, world),
+            CommoditySpec(
+                name="本地木材", category="material", price=3,
+                resource_location_id=place_id, resource_key="timber",
+                initial_resource=0, daily_growth=5, resource_capacity=200,
+            ),
+            utc_now(),
+        )
+    value = _regenerate_one_day(database, world, [place_id])[0]["timber"]
+    # 专属资源恒定每天 5 份，与人口无关。
+    assert value == 5
 
 
 def test_eat_rejects_free_pickup_when_generic_profile_exists(database, world) -> None:
