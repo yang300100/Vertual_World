@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -142,4 +143,91 @@ def test_harvest_works_at_any_town(database, world) -> None:
                 "SELECT * FROM characters WHERE id=?", (actor_id,)
             ).fetchone()
             assert EconomyService.harvest(connection, actor, utc_now(), food_only=True) is True
+
+
+def test_generic_resource_regenerates_all_locations(database, world) -> None:
+    """通用资源应在每个活跃地点各自再生，且不超过 resource_capacity。"""
+    from datetime import timedelta
+
+    from world_engine.repository import to_iso
+
+    with database.write() as connection:
+        registration_id = make_registration(connection, world)
+        EconomyService.register_item(
+            connection,
+            world,
+            registration_id,
+            CommoditySpec(
+                name="再生粮食", category="food", nutrition=20,
+                resource_key="food", initial_resource=0,
+                daily_growth=5, resource_capacity=12,
+            ),
+            utc_now(),
+        )
+        place_ids = [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM locations WHERE world_id=? ORDER BY id LIMIT 2", (world,)
+            ).fetchall()
+        ]
+        assert len(place_ids) == 2
+        for place_id in place_ids:
+            connection.execute(
+                "UPDATE locations SET resources_json=? WHERE id=?", ('{"food": 0}', place_id)
+            )
+        start = utc_now()
+        connection.execute(
+            "UPDATE world_item_profiles SET last_growth_world_time=? WHERE resource_key='food'",
+            (to_iso(start),),
+        )
+        EconomyService.tick(connection, world, start + timedelta(days=1))
+        values = [
+            json.loads(
+                connection.execute(
+                    "SELECT resources_json FROM locations WHERE id=?", (place_id,)
+                ).fetchone()["resources_json"]
+            ).get("food")
+            for place_id in place_ids
+        ]
+    # 一天 × 每天 5 份 = 5，未触及上限 12
+    assert values == [5, 5]
+
+
+def test_generic_resource_respects_capacity(database, world) -> None:
+    """再生不得超过 resource_capacity。"""
+    from datetime import timedelta
+
+    from world_engine.repository import to_iso
+
+    with database.write() as connection:
+        registration_id = make_registration(connection, world)
+        EconomyService.register_item(
+            connection,
+            world,
+            registration_id,
+            CommoditySpec(
+                name="上限粮食", category="food", nutrition=20,
+                resource_key="food", initial_resource=0,
+                daily_growth=100, resource_capacity=7,
+            ),
+            utc_now(),
+        )
+        place_id = connection.execute(
+            "SELECT id FROM locations WHERE world_id=? ORDER BY id LIMIT 1", (world,)
+        ).fetchone()["id"]
+        connection.execute(
+            "UPDATE locations SET resources_json=? WHERE id=?", ('{"food": 0}', place_id)
+        )
+        start = utc_now()
+        connection.execute(
+            "UPDATE world_item_profiles SET last_growth_world_time=? WHERE resource_key='food'",
+            (to_iso(start),),
+        )
+        EconomyService.tick(connection, world, start + timedelta(days=1))
+        value = json.loads(
+            connection.execute(
+                "SELECT resources_json FROM locations WHERE id=?", (place_id,)
+            ).fetchone()["resources_json"]
+        )["food"]
+    assert value == 7
 

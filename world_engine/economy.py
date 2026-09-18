@@ -332,34 +332,38 @@ class EconomyService:
     def tick(c, wid, at):
         from world_engine.actions import ActionService
 
-        for row in c.execute(
-            "SELECT * FROM world_item_profiles WHERE world_id=? AND daily_growth>0 AND resource_location_id IS NOT NULL",
+        rows = c.execute(
+            "SELECT * FROM world_item_profiles WHERE world_id=? AND daily_growth>0",
             (wid,),
-        ).fetchall():
+        ).fetchall()
+        for row in rows:
             elapsed = (at - from_iso(row["last_growth_world_time"])).days
             if elapsed <= 0:
                 continue
-            loc = c.execute(
-                "SELECT * FROM locations WHERE id=? AND is_active=1", (row["resource_location_id"],)
-            ).fetchone()
-            if loc is None:
-                continue
-            resources = json.loads(loc["resources_json"] or "{}")
-            before = int(resources.get(row["resource_key"], 0))
-            after = min(row["resource_capacity"], before + elapsed * row["daily_growth"])
-            resources[row["resource_key"]] = after
-            c.execute(
-                "UPDATE locations SET resources_json=? WHERE id=?",
-                (json.dumps(resources, ensure_ascii=False), loc["id"]),
-            )
-            c.execute(
-                "UPDATE world_item_profiles SET last_growth_world_time=? WHERE item_type_id=?",
-                (
-                    to_iso(from_iso(row["last_growth_world_time"]) + timedelta(days=elapsed)),
-                    row["item_type_id"],
-                ),
-            )
-            if after > before:
+            if row["resource_location_id"] is None:
+                # 通用资源：对每个活跃地点各自再生（上限按单点计算）。
+                targets = c.execute(
+                    "SELECT id, name, resources_json FROM locations WHERE is_active=1"
+                ).fetchall()
+            else:
+                found = c.execute(
+                    "SELECT id, name, resources_json FROM locations WHERE id=? AND is_active=1",
+                    (row["resource_location_id"],),
+                ).fetchone()
+                targets = [found] if found is not None else []
+            grew_anywhere = False
+            for loc in targets:
+                resources = json.loads(loc["resources_json"] or "{}")
+                before = int(resources.get(row["resource_key"], 0))
+                after = min(row["resource_capacity"], before + elapsed * row["daily_growth"])
+                if after == before:
+                    continue
+                resources[row["resource_key"]] = after
+                c.execute(
+                    "UPDATE locations SET resources_json=? WHERE id=?",
+                    (json.dumps(resources, ensure_ascii=False), loc["id"]),
+                )
+                grew_anywhere = True
                 ActionService._record_event(
                     c,
                     world_id=wid,
@@ -376,4 +380,12 @@ class EconomyService:
                         "after": after,
                         "registration_id": row["registration_id"],
                     },
+                )
+            if grew_anywhere:
+                c.execute(
+                    "UPDATE world_item_profiles SET last_growth_world_time=? WHERE item_type_id=?",
+                    (
+                        to_iso(from_iso(row["last_growth_world_time"]) + timedelta(days=elapsed)),
+                        row["item_type_id"],
+                    ),
                 )
