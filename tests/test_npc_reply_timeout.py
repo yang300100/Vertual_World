@@ -20,12 +20,22 @@ from world_engine.seeder import create_iserra_world
 
 
 class HangingProvider:
-    """模拟一个永远不返回的对话模型（比超时预算长得多）。"""
+    """模拟一个永远不返回的对话模型（比超时预算长得多）。
+
+    注意：`plan_player_action` 与 `respond_to_player` **都要**挂起。
+    前者把玩家意图转成行动提案，在流程中先于后者执行；若只挂起后者，
+    测试会因为前者抛 AttributeError 被降级到规则引擎而「假通过」。
+    """
 
     name = "hanging"
 
     def propose(self, snapshot, characters):  # noqa: ANN001
         return []
+
+    def plan_player_action(self, snapshot, player, intent):  # noqa: ANN001
+        del snapshot, player, intent
+        time.sleep(30)
+        raise AssertionError("不应执行到这里：调用方应已按超时放弃")
 
     def respond_to_player(self, *, npc, player, context):  # noqa: ANN001
         del npc, player, context
