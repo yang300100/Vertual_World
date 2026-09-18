@@ -6,17 +6,12 @@ import time
 from typing import Any
 
 import httpx
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from world_engine.config import Settings
-from world_engine.roleplay import build_npc_reply_messages
+from world_engine.roleplay import build_npc_reply_messages, salvage_npc_reply
 
 LOGGER = logging.getLogger("virtual-world.agent-llm")
-
-# NPC 社交动作枚举；模型给不出合法值时退回 answer，不因此丢掉整条台词。
-_SOCIAL_MOVES = frozenset(
-    {"answer", "question", "evade", "boundary", "refuse", "offer"}
-)
 
 
 class AgentLLMError(RuntimeError):
@@ -115,7 +110,7 @@ class AgentModelBackend:
                 if not isinstance(content, str) or not content.strip():
                     raise AgentLLMError(f"Agent[{label}]返回了空的决策内容")
                 parsed = (
-                    self._salvage_npc_reply(content, schema)
+                    salvage_npc_reply(content, schema)
                     if roleplay
                     else self._parse(content, schema)
                 )
@@ -144,39 +139,6 @@ class AgentModelBackend:
 
     def close(self) -> None:
         self.client.close()
-
-    @staticmethod
-    def _salvage_npc_reply(content: str, schema: TypeAdapter[Any]) -> Any:
-        """把一次 NPC 回复整理成结构化结果，优先保住台词本身。
-
-        模型在自由文本下常常直接说出台词，也可能惯性输出 {"reply": ...}，或被
-        ``` 围栏包住。两种都接受：认得出 reply 就取它（顺带保留 social_move），
-        认不出就把整段正文当作台词。**降级而不是报错**——不要为格式牺牲内容。
-        """
-        text = content.strip()
-        if text.startswith("```"):
-            text = "\n".join(
-                line for line in text.splitlines() if not line.strip().startswith("```")
-            ).strip()
-        start, end = text.find("{"), text.rfind("}")
-        if 0 <= start < end:
-            try:
-                raw = json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                raw = None
-            if isinstance(raw, dict) and isinstance(raw.get("reply"), str) and raw["reply"].strip():
-                # 只挑出 schema 认识的字段：NpcReply 是 extra="forbid"，
-                # 模型多写一个 topic 就会让整段 JSON 掉进下面的降级分支。
-                move = raw.get("social_move")
-                if move not in _SOCIAL_MOVES:
-                    move = "answer"
-                try:
-                    return schema.validate_python(
-                        {"reply": raw["reply"].strip(), "social_move": move}
-                    )
-                except ValidationError:
-                    pass
-        return schema.validate_python({"reply": text[:500], "social_move": "answer"})
 
     @staticmethod
     def _parse(content: str, schema: TypeAdapter[Any]) -> Any:

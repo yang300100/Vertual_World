@@ -10,7 +10,11 @@ from pydantic import TypeAdapter
 from world_engine.agent_llm import AgentModelBackend
 from world_engine.conversations import ConversationService, NpcCharacterCard
 from world_engine.decisions import NpcReply
-from world_engine.roleplay import build_npc_reply_messages, npc_reply_system_prompt
+from world_engine.roleplay import (
+    build_npc_reply_messages,
+    npc_reply_system_prompt,
+    salvage_npc_reply,
+)
 
 
 def _exchange(index: int, size: int = 100) -> list[str]:
@@ -138,12 +142,14 @@ def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(setting
         ('{"reply":"非法动作","social_move":"随便写的"}', "非法动作", "answer"),
         # 认不出 reply 就整段降级为台词，而不是报错
         ('{"answer":"没有reply字段"}', '{"answer":"没有reply字段"}', "answer"),
+        # 超长台词截断到上限(500)，而不是整句丢弃
+        ("很长的台词。" * 200, ("很长的台词。" * 200)[:500], "answer"),
     ],
 )
 def test_npc_reply_salvage_keeps_the_line(
     content: str, expected_reply: str, expected_move: str
 ) -> None:
     """宽容解析优先保住台词本身：认得出 reply 就取它，认不出就把整段当台词。"""
-    parsed = AgentModelBackend._salvage_npc_reply(content, TypeAdapter(NpcReply))
+    parsed = salvage_npc_reply(content, TypeAdapter(NpcReply))
     assert parsed.reply == expected_reply
     assert parsed.social_move == expected_move

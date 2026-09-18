@@ -18,7 +18,11 @@ from world_engine.domain import (
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import KnowledgeHit, WorldKnowledgeBase
 from world_engine.proximity import same_room
-from world_engine.roleplay import build_npc_reply_messages, npc_reply_system_prompt
+from world_engine.roleplay import (
+    build_npc_reply_messages,
+    npc_reply_system_prompt,
+    salvage_npc_reply,
+)
 
 _FORBIDDEN_CHARACTER_TERMS = (
     "纳米机器人",
@@ -414,7 +418,10 @@ class DeepSeekDecisionProvider:
         payload = {
             "model": self.model,
             "messages": build_npc_reply_messages(self._npc_reply_system_prompt(), context),
-            "response_format": {"type": "json_object"},
+            # 刻意不发 response_format=json_object：带推理的模型在该模式下会概率性
+            # 把正文吐成空白或裸文本（实测约 1/6），空正文要连中三次重试才会失败，
+            # 玩家看到的是「NPC 对话模型暂时不可用」。台词改由 salvage_npc_reply
+            # 宽容解析，与 agent_llm 的 roleplay 路径保持一致。
             "max_tokens": min(self.max_output_tokens, 1200),
             "stream": False,
         }
@@ -426,7 +433,7 @@ class DeepSeekDecisionProvider:
         if not isinstance(content, str) or not content.strip():
             raise DecisionProviderError("DeepSeek返回了空的NPC对话内容")
         try:
-            reply = TypeAdapter(NpcReply).validate_json(self._extract_json(content))
+            reply = salvage_npc_reply(content, TypeAdapter(NpcReply))
         except (ValidationError, ValueError) as exc:
             raise DecisionProviderError("DeepSeek的NPC对话未通过结构化校验") from exc
         forbidden_term = next(

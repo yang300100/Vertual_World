@@ -4,8 +4,60 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 _TURN = re.compile(r"^\[([^\]\r\n]+)\] (玩家行动|玩家|NPC)：([\s\S]*)$")
+
+# NPC 社交动作枚举；模型给不出合法值时退回 answer，不因此丢掉整条台词。
+SOCIAL_MOVES = frozenset({"answer", "question", "evade", "boundary", "refuse", "offer"})
+
+# 台词长度上限，与 NpcReply.reply 的 max_length 保持一致。
+REPLY_MAX_CHARS = 500
+
+
+def _strip_code_fence(text: str) -> str:
+    """去掉 ``` 围栏；模型经常把结构化输出包一层。"""
+    if not text.startswith("```"):
+        return text
+    return "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("```")
+    ).strip()
+
+
+def salvage_npc_reply(content: str, schema: TypeAdapter[Any]) -> Any:
+    """把一次 NPC 回复整理成结构化结果，**优先保住台词本身**。
+
+    带推理的模型在 `response_format=json_object` 契约下会概率性把正文吐成空白或
+    裸文本（实测约 1/6），此时严格 JSON 校验会整句丢弃。宽容做法：认得出
+    `{"reply": ...}` 就取它（顺带保留 social_move），认不出就把整段正文当作台词，
+    超长则截断到上限。**降级而不是报错——不要为格式牺牲内容。**
+
+    调用方负责在正文真为空时自行报错（本函数对空串会抛 ValueError）。
+    """
+    text = _strip_code_fence(content.strip()).strip()
+    if not text:
+        raise ValueError("NPC 台词为空")
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        try:
+            raw = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            raw = None
+        if isinstance(raw, dict) and isinstance(raw.get("reply"), str) and raw["reply"].strip():
+            # 只挑出 schema 认识的字段：NpcReply 是 extra="forbid"，
+            # 模型多写一个 topic 就会让整段 JSON 掉进下面的降级分支。
+            move = raw.get("social_move")
+            if move not in SOCIAL_MOVES:
+                move = "answer"
+            try:
+                return schema.validate_python(
+                    {"reply": raw["reply"].strip()[:REPLY_MAX_CHARS], "social_move": move}
+                )
+            except ValidationError:
+                pass
+    return schema.validate_python({"reply": text[:REPLY_MAX_CHARS], "social_move": "answer"})
 
 
 def npc_reply_system_prompt(*, include_topic: bool = False) -> str:
