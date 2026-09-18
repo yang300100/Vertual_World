@@ -9,6 +9,7 @@ import json
 import logging
 from uuid import uuid4
 
+from world_engine.bounded_calls import submit_call
 from world_engine.decisions import DecisionProviderError
 from world_engine.domain import (
     ActionOutcome,
@@ -151,7 +152,14 @@ class PlayerIntentMixin:
                             interaction="当面交谈；双方必须在100米可见范围内",
                             decision_details={"action": "socialize", "delivery":delivery},
                         )
-                    npc_reply = responder(npc=target, player=player, context=reply_context)
+                    # 必须施加超时预算：respond_to_player 内部是
+                    # (deepseek_max_retries + 1) 次、每次 deepseek_timeout_seconds 的重试，
+                    # 直接同步调用会让本请求最长阻塞约 3 分钟，前端表现为
+                    # 「世界正在回应你的行动」一直转圈。submit_call 超时后丢弃结果、
+                    # 不等待后台线程退出，与信件（api_dialogue）和行动反应路径一致。
+                    npc_reply = submit_call(
+                        responder, npc=target, player=player, context=reply_context
+                    ).result(timeout=self.settings.world_agent_timeout_seconds)
                 except Exception as exc:
                     LOGGER.info("NPC 独立回应失败，本次对话不写入预设台词", exc_info=True)
                     raise DecisionProviderError("NPC 对话模型暂时不可用，请稍后重试") from exc
