@@ -270,3 +270,35 @@ def test_eat_rejects_free_pickup_when_generic_profile_exists(database, world) ->
         actor = connection.execute("SELECT * FROM characters WHERE id=?", (actor_id,)).fetchone()
         with pytest.raises(ActionRuleError, match="登记库存"):
             ActionService()._eat(connection, actor, utc_now())
+
+
+def test_food_places_include_generic_resource_locations(database, world) -> None:
+    """存在通用 food profile 时，所有有存量的地点都应被视为可用餐地点。"""
+    from world_engine.daily_life import DailyLifeService
+
+    with database.write() as connection:
+        registration_id = make_registration(connection, world)
+        EconomyService.register_item(
+            connection,
+            world,
+            registration_id,
+            CommoditySpec(
+                name="通用粮食", category="food", nutrition=20,
+                resource_key="food", initial_resource=0,
+                daily_growth=5, resource_capacity=200,
+            ),
+            utc_now(),
+        )
+        place_id = connection.execute(
+            "SELECT id FROM locations WHERE world_id=? ORDER BY id LIMIT 1", (world,)
+        ).fetchone()["id"]
+        connection.execute(
+            "UPDATE locations SET resources_json=? WHERE id=?", ('{"food": 30}', place_id)
+        )
+        actor_id = connection.execute(
+            "SELECT id FROM characters WHERE world_id=? LIMIT 1", (world,)
+        ).fetchone()["id"]
+        places = DailyLifeService.food_places(
+            connection, world, [place_id], actor_id=actor_id
+        )
+    assert places == [place_id]

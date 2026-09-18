@@ -136,6 +136,50 @@ class DailyLifeService:
         return name
 
     @staticmethod
+    def food_places(
+        c, world_id: str, candidate_ids: list[str], *, actor_id: str
+    ) -> list[str]:
+        """从候选地点里筛出当前可获得食物的地点，返回地点 id。
+
+        判定规则与原实现一致，额外支持通用资源：
+        - 地点绑定了 food profile（`resource_location_id` 精确匹配，或属于该角色）
+        - 或存在通用 food profile（`resource_location_id IS NULL`，任何地点可采）
+        两种情况都还要求该地点当前 `resources_json.food > 0`。
+        """
+        if not candidate_ids:
+            return []
+        placeholders = ",".join("?" for _ in candidate_ids)
+        bound_rows = c.execute(
+            f"SELECT resource_location_id FROM world_item_profiles "
+            f"WHERE world_id=? AND resource_key='food' AND nutrition>0 "
+            f"AND (resource_owner_id IS NULL OR resource_owner_id=?) "
+            f"AND resource_location_id IS NOT NULL "
+            f"AND resource_location_id IN ({placeholders})",  # noqa: S608 - 占位符按候选数生成
+            (world_id, actor_id, *candidate_ids),
+        ).fetchall()
+        has_generic = bool(
+            c.execute(
+                "SELECT 1 FROM world_item_profiles WHERE world_id=? AND resource_key='food' "
+                "AND nutrition>0 AND (resource_owner_id IS NULL OR resource_owner_id=?) "
+                "AND resource_location_id IS NULL",
+                (world_id, actor_id),
+            ).fetchone()
+        )
+        bound = {row["resource_location_id"] for row in bound_rows}
+        result: list[str] = []
+        for place_id in candidate_ids:
+            if place_id not in bound and not has_generic:
+                continue
+            row = c.execute(
+                "SELECT resources_json FROM locations WHERE id=?", (place_id,)
+            ).fetchone()
+            if row is None:
+                continue
+            if int(json.loads(row["resources_json"] or "{}").get("food", 0)) > 0:
+                result.append(place_id)
+        return result
+
+    @staticmethod
     def _travel(c, actor, at, location):
         from world_engine.interiors import InteriorService
         from world_engine.movement import MovementService
@@ -286,22 +330,11 @@ class DailyLifeService:
                                 else cls._find_work(c, npc, at, local_places, plan)
                             )
                         food_places = [
-                            loc
-                            for loc in local_places
-                            if json.loads(loc["resources_json"] or "{}").get("food", 0) > 0
-                        ]
-                        food_ids = {
-                            row[0]
-                            for row in c.execute(
-                                "SELECT resource_location_id FROM world_item_profiles WHERE world_id=? AND nutrition>0 AND (resource_owner_id IS NULL OR resource_owner_id=?)",
-                                (wid, npc["id"]),
+                            by_id[place_id]
+                            for place_id in cls.food_places(
+                                c, wid, [loc["id"] for loc in local_places], actor_id=npc["id"]
                             )
-                        }
-                        food_places.extend(
-                            loc
-                            for loc in local_places
-                            if loc["id"] in food_ids and loc not in food_places
-                        )
+                        ]
                         if food_places and intention == "处理自己的事务":
                             destination = min(
                                 food_places,
