@@ -309,6 +309,16 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
     from world_engine.food_supply import seed_food_supply
 
     with database.write() as connection:
+        # 先抹掉「本世界已播种」的痕迹，才有可播种的存量；否则幂等播种
+        # 会正确地什么都不做，这个测试就测不到「写存量」这条路径。
+        connection.execute(
+            "DELETE FROM element_registration_requests WHERE world_id=? "
+            "AND idempotency_key=?",
+            (world, f"system:food-supply:{world}"),
+        )
+        connection.execute(
+            "UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,)
+        )
         stats = seed_food_supply(connection, world)
         without = connection.execute(
             "SELECT COUNT(*) FROM locations WHERE world_id=? AND kind IN ('city','town') "
@@ -322,6 +332,13 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
 def test_initialize_backfills_food_supply(database, world) -> None:
     """已存在的世界在 initialize 后应自动获得食物供给。"""
     with database.write() as connection:
+        # 模拟一个从未获得过食物供给的旧存档：既要抹掉 profile 与存量，
+        # 也要抹掉播种登记——登记记录才是「本世界已播种」的判据。
+        connection.execute(
+            "DELETE FROM element_registration_requests WHERE world_id=? "
+            "AND idempotency_key=?",
+            (world, f"system:food-supply:{world}"),
+        )
         connection.execute("UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,))
         connection.execute(
             "DELETE FROM world_item_profiles WHERE world_id=? AND resource_key='food'", (world,)
@@ -347,6 +364,20 @@ def test_noryia_world_gets_food_supply_on_creation(database) -> None:
     from world_engine.noryia_seeder import create_noryia_world
 
     world_id = create_noryia_world(database)
+    with database.write() as connection:
+        # 复现「一个全新世界」的播种路径：清掉 profile 与已写下的存量，
+        # 让播种重新执行一次。此时仍能正确补齐，说明播种不依赖任何
+        # 一次性的初始状态。
+        connection.execute(
+            "UPDATE locations SET resources_json='{}' WHERE world_id=?", (world_id,)
+        )
+        connection.execute(
+            "DELETE FROM world_item_profiles WHERE world_id=? AND resource_key='food'",
+            (world_id,),
+        )
+        from world_engine.food_supply import seed_food_supply
+
+        seed_food_supply(connection, world_id)
     with database.read() as connection:
         profiles = connection.execute(
             "SELECT COUNT(*) FROM world_item_profiles "
@@ -376,7 +407,7 @@ def test_cli_registers_seed_food_supply_command() -> None:
 
 
 def test_seed_is_idempotent(database, world) -> None:
-    """重复播种不产生重复 profile，也不改变已有存量。"""
+    """重复播种不产生重复 profile，也不重置已被消耗的存量。"""
     from world_engine.food_supply import seed_food_supply
 
     with database.write() as connection:
@@ -385,10 +416,25 @@ def test_seed_is_idempotent(database, world) -> None:
             "SELECT COUNT(*) FROM world_item_profiles WHERE world_id=? AND resource_key='food'",
             (world,),
         ).fetchone()[0]
+        # 模拟 NPC 采集：把某个城镇的食物消耗掉一部分
+        place_id = connection.execute(
+            "SELECT id FROM locations WHERE world_id=? AND kind IN ('city','town') ORDER BY id LIMIT 1",
+            (world,),
+        ).fetchone()["id"]
+        connection.execute(
+            "UPDATE locations SET resources_json='{\"food\": 1}' WHERE id=?", (place_id,)
+        )
+
     with database.write() as connection:
         seed_food_supply(connection, world)
         second = connection.execute(
             "SELECT COUNT(*) FROM world_item_profiles WHERE world_id=? AND resource_key='food'",
             (world,),
         ).fetchone()[0]
+        after = connection.execute(
+            "SELECT resources_json FROM locations WHERE id=?", (place_id,)
+        ).fetchone()["resources_json"]
+
     assert first == second == 1
+    # 关键：已消耗的存量不得被播种重置回满仓
+    assert json.loads(after)["food"] == 1

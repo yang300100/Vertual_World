@@ -98,6 +98,16 @@ def _ensure_registration(connection: sqlite3.Connection, world_id: str) -> str:
     return registration_id
 
 
+def _has_generic_profile(connection: sqlite3.Connection, world_id: str) -> bool:
+    """世界是否已存在通用食物 profile。"""
+    row = connection.execute(
+        "SELECT 1 FROM world_item_profiles "
+        "WHERE world_id=? AND resource_key=? AND resource_location_id IS NULL",
+        (world_id, FOOD_RESOURCE_KEY),
+    ).fetchone()
+    return row is not None
+
+
 def _ensure_generic_profile(connection: sqlite3.Connection, world_id: str) -> tuple[str, bool]:
     """确保存在通用食物 profile，返回 (item_type_id, 是否新建)。"""
     existing = connection.execute(
@@ -133,8 +143,25 @@ def _ensure_generic_profile(connection: sqlite3.Connection, world_id: str) -> tu
 
 
 def seed_food_supply(connection: sqlite3.Connection, world_id: str) -> FoodSupplyStats:
-    """幂等地为世界补齐通用食物 profile 与各城镇的食物存量。"""
+    """幂等地为世界补齐通用食物 profile 与各城镇的食物存量。
+
+    存量只在「本世界从未播种过」时写入一次；之后完全交由 NPC 采集与
+    `EconomyService.tick` 的每日再生管理。这一点至关重要：本函数会被
+    `backfill_food_supply()` 在每次 `Database.initialize()`（即每次服务启动）
+    调用，如果每次都把 stock 写回去，就等于每次重启都把全世界的食物拉满，
+    直接抹掉「采集 → 消耗」的经济机制。
+
+    「已播种」的判据是「通用 profile 是否已存在」，必须在 `_ensure_generic_profile`
+    之前取——后者会顺带写下 `system:food-supply:<world_id>` 登记，若拿登记记录
+    当判据，首次播种自己就会把自己判成「已播种」，存量永远写不进去。
+    """
+    already_seeded = _has_generic_profile(connection, world_id)
     item_type_id, created = _ensure_generic_profile(connection, world_id)
+    if already_seeded:
+        # 已播种过：既不重复写 profile，也不碰任何存量。
+        return FoodSupplyStats(
+            item_type_id=item_type_id, locations_seeded=0, profile_created=created
+        )
     seeded = 0
     rows = connection.execute(
         "SELECT id, resources_json FROM locations "
