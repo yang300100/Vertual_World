@@ -67,49 +67,47 @@ satiety 继续为 0 ────────────────────
 | **经济基调** | 基本保障：NPC 不会饿死 | 采集只消耗精力、不消耗金钱，身无分文也能维持生存 |
 | **目标系统** | 以 B 为引擎，C 做展示 | 启用 `npc_life_goals` 作为状态机，`npc_todos` 退化为其可见投影 |
 
-## 3. 核心方案：不修改既有业务逻辑
+## 3. 核心方案：引入「通用资源」语义
 
-> 措辞澄清：本方案需要**新增**迁移函数与 seeder 产出逻辑，但**不修改** `harvest` /
-> `tick` / `_eat` / `daily_life.py` 的任何既有分支。风险面因此限于「新增数据是否正确」，
-> 而非「既有行为是否被改坏」。
+### 3.1 三条候选路线的探测结果
 
-### 3.1 为什么不需要改既有逻辑
+| 路线 | 结论 | 否决/采纳依据 |
+|---|---|---|
+| ① 每地点一条 profile，复用同一 `item_type` | ❌ 不可行 | `world_item_profiles.item_type_id` 是 **PRIMARY KEY**（`schema.py:90`），一个 item_type 只允许一条 profile |
+| ② 改 schema 为复合主键，实现「一物多产地」 | ❌ 危险 | 有 **7+ 处** `JOIN world_item_profiles p ON p.item_type_id = i.item_type_id` 用于查价格/营养（`economy.py:85,221`、`interiors.py:130`、`life_api.py:83`、`living_api.py:357,394,444`）。一物多 profile 会让这些 JOIN **笛卡尔积爆炸** |
+| ③ 每地点一个独立 item_type（名字带地名） | ⚠️ 可行但劣 | 零代码改动，但产生 618 个 item_type + 618 条 registration；NPC 背包里会出现「粮食（澜誓城）」这类冗长物品名 |
+| ④ **引入「通用资源」语义** | ✅ **采纳** | 5 处小改动，数据干净，语义正确 |
 
-现有 `_eat` 逻辑已经包含了完整的四分支（`actions.py:213-238`）：
+### 3.2 方案 ④ 的语义定义
+
+> `resource_key` 有值、`resource_location_id` 为 `NULL`
+> ⇒ 该资源在**任何地点**都可采集。
+
+这解决了既有模型无法表达「一类地点都有某资源」的根本缺陷，且不触碰 `item_type_id` 的唯一性。
+
+### 3.3 改动清单（5 处）
+
+| # | 位置 | 现状 | 改后 |
+|---|---|---|---|
+| 1 | `economy.py:137` | `bool(location_id) != bool(key)` 即报错 | 允许 `key` 有值而 `location_id` 为 `NULL`（表示通用） |
+| 2 | `economy.py:272` | `AND p.resource_location_id=?` | `AND (p.resource_location_id=? OR p.resource_location_id IS NULL)` |
+| 3 | `economy.py:332` | 排除 `resource_location_id IS NULL` | 通用资源对**每个活跃地点**再生 |
+| 4 | `actions.py:226` | 只查该地点的 food profile | 同时匹配通用 profile（否则 `_eat` ④ 会绕过采集直接免费拿） |
+| 5 | `daily_life.py:296` | 收集 `resource_location_id` 集合 | 集合含 `NULL` 时视为「所有地点均可」 |
+
+**改动 3 的实现要点**：`last_growth_world_time` 存在 profile 上，通用 profile 只有一个时间戳，
+因此再生需遍历所有活跃地点、对每个地点的 `resource_key` 存量做上限封顶增长：
 
 ```python
-① EconomyService.food(...)              # 背包有食物 → 直接吃
-② if actor["money"] < 3: raise          # ← 死锁在此（27 人 money=0）
-③ if 该地点有 food profile: raise       # 要求走购买/采集
-④ if resources.food <= 0: raise
-   resources.food -= 1; satiety += 42   # 免费拿，但扣 3 元
+if row["resource_location_id"] is None:
+    targets = c.execute("SELECT id, resources_json FROM locations WHERE is_active=1").fetchall()
+else:
+    targets = [c.execute("SELECT id, resources_json FROM locations WHERE id=? AND is_active=1",
+                         (row["resource_location_id"],)).fetchone()]
+    targets = [t for t in targets if t is not None]
 ```
 
-绕开死锁的关键是**走采集路径而非直接拿**：
-
-```
-NPC 饿 → _eat ① 背包空 → ② 有 profile 被拒 → 抛错
-      → daily_life.py:280 harvest(food_only=True)
-            → profile 精确匹配当前地点     ✓ (economy.py:272)
-            → resources_json.food > 0      ✓ (economy.py:286)
-            → energy >= 3                  ✓ (economy.py:288) 只花精力，不花钱
-      → 食物进背包 → 下个 tick _eat ① 成功 → satiety +42
-```
-
-`harvest` **不要求金钱**，因此 27 个身无分文的 NPC 同样能存活。
-
-### 3.2 被否决的方案
-
-**方案 α（已否决）**：将 `resource_location_id` 语义扩展为「`NULL` = 任意地点可采集」。
-否决原因：破坏两处既有契约——
-- `economy.py:137` 要求 `resource_location_id` 与 `resource_key` 必须同时有值或同时为空
-- `economy.py:332` 的再生查询显式排除 `resource_location_id IS NULL`
-且波及 `harvest` / `tick` / `_eat` / `daily_life.py:296` 共 5 个调用点。
-
-**方案 γ（已否决）**：仅写 `resources_json.food` 而不建 profile。
-否决原因：`_eat` ④ 仍要求 `money >= 3`（`actions.py:218`），27 个零资产 NPC 依旧死锁。
-
-### 3.3 实施内容
+### 3.4 数据播种
 
 **资源数值的推导依据**（实测得出，勿凭感觉调整）：
 
@@ -118,40 +116,34 @@ NPC 饿 → _eat ① 背包空 → ② 有 profile 被拒 → 抛错
 - 每天消耗 `3 × 24 = 72` 点；一份食物恢复 **42** 点（`actions.py:235`）
 - ⇒ **单个 NPC 每天需要约 1.7 份食物**
 
-对每个 `kind IN ('city','town')` 的地点：
+播种内容：
 
-1. **写资源存量**
-   在 `locations.resources_json` 增加 `food` 键：
-   `food = clamp(round(population / 100), 10, 100)`
+1. **一个通用食物 item_type**（如「粮食」，`category='food'`, `nutrition=20`, `price=3`）
+2. **一条对应的通用 profile**：`resource_location_id = NULL`、`resource_key = 'food'`、
+   `daily_growth = 5`、`resource_capacity = 200`，并附带一条 `element_registration_requests`
+   记录（`registration_id` 为 NOT NULL 外键）
+3. **每个 `kind IN ('city','town')` 地点的资源存量**：
+   `resources_json.food = clamp(round(population / 100), 10, 100)`
    （人口 1,163 → 12 份；6,155 → 62 份）
 
-2. **建食物 profile**（复用同一 `item_type_id`）
-   直接 SQL 写入 `world_item_profiles`，参数：
-   - `resource_location_id` = 该地点 id
-   - `resource_key` = `'food'`
-   - `initial_resource` = 上述存量
-   - `resource_capacity` = 存量 × 2
-   - `daily_growth` = `clamp(round(population / 500), 3, 20)`
-     即每城每天再生 3–20 份，可支撑约 **2–12 个 NPC** 的日常消耗
+> **数值校准**：`daily_growth=5` 是按「单城常驻少量 NPC」估算的全局下限。
+> 实施后应实测 NPC 的实际聚集分布，若出现「某城资源被采空后长期不恢复」，
+> 再按该城常驻 NPC 数调整。
 
-   > 必须绕过 `EconomyService.register_item`：它每次调用都新建 `item_types` 记录，
-   > 而 `economy.py:132-136` 禁止世界内同名 item_type。618 条 profile 复用同一个
-   > `item_type_id` 即可。
+4. **幂等**：迁移函数可重复执行；已存在该 `resource_key` 的通用 profile 时跳过。
 
-   > **数值校准**：上述系数按「NPC 均匀分布」估算。实施后应实测 NPC 的实际聚集分布，
-   > 若出现「某城资源被采空后长期不恢复」，则按该城常驻 NPC 数提高 `daily_growth`。
-
-3. **幂等**：迁移函数可重复执行；已存在 `(world_id, location_id, 'food')` 组合时跳过。
-
-### 3.4 数据流
+### 3.5 数据流
 
 ```
-locations.resources_json.food ──┐
-                                 ├─→ harvest() ─→ NPC 背包 ─→ EAT ─→ satiety ↑
-world_item_profiles(resource_key)┘   (耗 3 精力)                      │
+每个城镇 resources_json.food ─┐
+                               ├─→ harvest(food_only=True) ─→ NPC 背包
+通用 profile(location=NULL) ───┘        (耗 3 精力，零金钱)        │
+                                                                  ↓
+                                                   下个 tick  _eat ① 成功
+                                                       satiety += 42  │
                                                                       ↓
-EconomyService.tick ─→ daily_growth 每日再生             脱离危急 → 工作跑满 → 工资到账
-                    (受 resource_capacity 上限约束)
+EconomyService.tick ─→ 通用资源逐地点再生          脱离危急 → 工作跑满 60 分钟 → 工资到账
+                     (受 resource_capacity 封顶)
 ```
 
 ## 4. 分阶段实施
@@ -160,10 +152,12 @@ EconomyService.tick ─→ daily_growth 每日再生             脱离危急 �
 
 | 步骤 | 内容 | 文件 |
 |---|---|---|
-| 1.1 | 写资源存量与 profile 的迁移函数 | `world_engine/migrations.py` |
-| 1.2 | 让 Noryia seeder 同步产出资源（新世界一致） | `world_engine/noryia_seeder.py` |
-| 1.3 | CLI 增加维护入口，可对已有世界补资源 | `world_engine/cli.py` |
-| 1.4 | 重启服务触发 `initialize()`，补齐 4 张缺失表 | — |
+| 1.1 | 新增通用资源播种模块（三处共用，DRY） | 新建 `world_engine/food_supply.py` |
+| 1.2 | 5 处代码改动，支持通用资源语义 | `economy.py`、`actions.py`、`daily_life.py` |
+| 1.3 | 接入迁移，使已有世界自动补齐 | `world_engine/migrations.py` |
+| 1.4 | 接入 Noryia seeder，使新世界一致 | `world_engine/noryia_seeder.py` |
+| 1.5 | CLI 增加手动维护入口 | `world_engine/cli.py` |
+| 1.6 | 重启服务触发 `initialize()`，补齐 4 张缺失表 | — |
 
 **验收指标**（全部可量化）：
 
@@ -200,11 +194,13 @@ EconomyService.tick ─→ daily_growth 每日再生             脱离危急 �
 
 | 层级 | 测试 | 断言 |
 |---|---|---|
-| 单元 | `test_city_locations_get_food_resource` | 迁移后每个 city/town 有 `food > 0` |
-| 单元 | `test_food_profile_reused_single_item_type` | 618 条 profile 指向同一 `item_type_id` |
-| 单元 | `test_harvest_works_at_any_town` | 任意城镇地点 harvest 成功 |
-| 单元 | `test_resource_regenerates_with_cap` | 再生生效且不超过 `resource_capacity` |
-| 单元 | `test_migration_is_idempotent` | 重复执行不产生重复 profile |
+| 单元 | `test_general_profile_registers_without_location` | 允许 `resource_key` 有值而 `resource_location_id` 为 NULL |
+| 单元 | `test_city_locations_get_food_resource` | 播种后每个 city/town 有 `food > 0` |
+| 单元 | `test_harvest_works_at_any_town` | 任意城镇地点 harvest 成功（通用 profile 命中） |
+| 单元 | `test_harvest_prefers_location_specific_profile` | 专属 profile 仍优先于通用 profile |
+| 单元 | `test_generic_resource_regenerates_all_locations` | 通用资源在每个活跃地点都再生，且单点不超 `resource_capacity` |
+| 单元 | `test_eat_rejects_free_pickup_when_generic_profile_exists` | 有通用 profile 时 `_eat` 不绕过采集 |
+| 单元 | `test_seeding_is_idempotent` | 重复播种不产生重复 profile |
 | **端到端** | `test_impoverished_npc_survives` | `money=0` 的 NPC 推进 N 轮后 `satiety > 0` |
 | 回归 | 现有 396 个测试 | 全绿 |
 
@@ -212,10 +208,11 @@ EconomyService.tick ─→ daily_growth 每日再生             脱离危急 �
 
 | 风险 | 影响 | 缓解 |
 |---|---|---|
-| 资源被采空 | NPC 重新陷入饥饿 | `daily_growth` 再生 + `resource_capacity` 上限；再生量随人口缩放 |
+| 通用资源被采空 | NPC 重新陷入饥饿 | `daily_growth` 逐地点再生 + `resource_capacity` 封顶 |
+| **通用 profile 影响 7+ 处 JOIN** | 价格/营养查询出现歧义 | 通用 profile 仍是**独立 item_type**（「粮食」），不与既有物品类型共用 `item_type_id`，因此 JOIN 保持唯一 |
 | NPC 行为剧变 | 原有平衡被打破 | 指标化验收，先小规模观察再全量 |
 | 迁移污染已有世界 | 数据损坏 | 幂等、只增不删；实施前备份 `data/world.db` |
-| 618 条 profile 与地点脱节 | 新增地点无资源 | 迁移函数可重复执行；seeder 同步产出 |
+| 新地点无资源 | 局部无法采集 | 播种函数可重复执行；seeder 同步产出 |
 | 室内无法采集 | NPC 在家采不到 | `harvest` 要求户外（`economy.py:269`）——NPC 会自行走到户外，属预期行为 |
 
 ## 7. 不在本设计范围
