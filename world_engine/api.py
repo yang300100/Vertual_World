@@ -35,23 +35,6 @@ from world_engine.photos import (
     PortraitUploadRequest,
     PortraitView,
 )
-from world_engine.registration import (
-    ConstructionProjectService,
-    ElementRegistrationSubmit,
-    ElementRegistrationView,
-    ElementType,
-    RegistrationConflict,
-    RegistrationNotFound,
-    RegistrationStatus,
-    WorldElementRegistry,
-)
-from world_engine.removal import (
-    ElementRemovalConflict,
-    ElementRemovalNotFound,
-    ElementRemovalSubmit,
-    ElementRemovalView,
-    WorldElementRemover,
-)
 from world_engine.repository import WorldNotFoundError, WorldRepository, to_iso, utc_now
 from world_engine.routing import RoutePlanner
 
@@ -309,9 +292,6 @@ def create_app(
     database = Database(resolved_settings.database_path)
     repository = WorldRepository()
     engine = WorldEngine(database, resolved_settings)
-    element_registry = WorldElementRegistry()
-    element_remover = WorldElementRemover()
-    construction_projects = ConstructionProjectService()
     photo_service = photo_service_override or PhotoService(resolved_settings)
 
     @asynccontextmanager
@@ -440,150 +420,6 @@ def create_app(
         except WorldNotFoundError as exc:
             raise HTTPException(status_code=404, detail="世界不存在") from exc
 
-    @application.post(
-        "/api/worlds/{world_id}/registrations",
-        response_model=ElementRegistrationView,
-        status_code=201,
-    )
-    def submit_element_registration(
-        world_id: str, payload: ElementRegistrationSubmit
-    ) -> ElementRegistrationView:
-        """提交严格类型的世界元素注册请求；重复幂等键不会重复应用。"""
-
-        try:
-            with database.write() as connection:
-                return element_registry.submit(
-                    connection,
-                    world_id=world_id,
-                    request=payload,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except RegistrationConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
-
-    @application.get(
-        "/api/worlds/{world_id}/registrations",
-        response_model=list[ElementRegistrationView],
-    )
-    def list_element_registrations(
-        world_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-        element_type: ElementType | None = None,
-        status: RegistrationStatus | None = None,
-    ) -> list[ElementRegistrationView]:
-        try:
-            with database.read() as connection:
-                return element_registry.list(
-                    connection,
-                    world_id=world_id,
-                    limit=limit,
-                    element_type=element_type,
-                    status=status,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @application.get(
-        "/api/worlds/{world_id}/registrations/{registration_id}",
-        response_model=ElementRegistrationView,
-    )
-    def get_element_registration(
-        world_id: str, registration_id: str
-    ) -> ElementRegistrationView:
-        try:
-            with database.read() as connection:
-                return element_registry.get(
-                    connection,
-                    world_id=world_id,
-                    registration_id=registration_id,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/registrations/{registration_id}/confirm",
-        response_model=ElementRegistrationView,
-    )
-    def confirm_element_registration(
-        world_id: str, registration_id: str
-    ) -> ElementRegistrationView:
-        try:
-            with database.write() as connection:
-                return element_registry.confirm(
-                    connection,
-                    world_id=world_id,
-                    registration_id=registration_id,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except RegistrationConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/registrations/{registration_id}/reject",
-        response_model=ElementRegistrationView,
-    )
-    def reject_element_registration(
-        world_id: str,
-        registration_id: str,
-        payload: RegistrationReviewRequest,
-    ) -> ElementRegistrationView:
-        try:
-            with database.write() as connection:
-                return element_registry.reject(
-                    connection,
-                    world_id=world_id,
-                    registration_id=registration_id,
-                    reason=payload.reason,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except RegistrationConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @application.post(
-        "/api/worlds/{world_id}/removals",
-        response_model=ElementRemovalView,
-        status_code=201,
-    )
-    def submit_element_removal(
-        world_id: str, payload: ElementRemovalSubmit
-    ) -> ElementRemovalView:
-        """按来源事件执行可审计墓碑删除，永不绕过领域规则物理删行。"""
-
-        try:
-            with database.write() as connection:
-                return element_remover.submit(
-                    connection,
-                    world_id=world_id,
-                    request=payload,
-                )
-        except ElementRemovalNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ElementRemovalConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except sqlite3.OperationalError as exc:
-            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
-
-    @application.get(
-        "/api/worlds/{world_id}/removals",
-        response_model=list[ElementRemovalView],
-    )
-    def list_element_removals(
-        world_id: str,
-        limit: Annotated[int, Query(ge=1, le=500)] = 100,
-    ) -> list[ElementRemovalView]:
-        with database.read() as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM worlds WHERE id = ?", (world_id,)
-            ).fetchone()
-            if exists is None:
-                raise HTTPException(status_code=404, detail="世界不存在")
-            return element_remover.list(connection, world_id=world_id, limit=limit)
-
     @application.put(
         "/api/worlds/{world_id}/characters/{character_id}/portrait",
         response_model=PortraitView,
@@ -648,37 +484,6 @@ def create_app(
             if exists is None:
                 raise HTTPException(status_code=404, detail="世界不存在")
             return photo_service.list_captures(connection, world_id=world_id, limit=limit)
-
-    @application.get("/api/worlds/{world_id}/construction-projects")
-    def list_construction_projects(world_id: str) -> list[dict[str, object]]:
-        with database.read() as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM worlds WHERE id = ?", (world_id,)
-            ).fetchone()
-            if exists is None:
-                raise HTTPException(status_code=404, detail="世界不存在")
-            return construction_projects.list(connection, world_id=world_id)
-
-    @application.patch(
-        "/api/worlds/{world_id}/registrations/{registration_id}/construction"
-    )
-    def update_construction_project(
-        world_id: str,
-        registration_id: str,
-        payload: ConstructionProjectStatusUpdate,
-    ) -> dict[str, object]:
-        try:
-            with database.write() as connection:
-                return construction_projects.set_status(
-                    connection,
-                    world_id=world_id,
-                    registration_id=registration_id,
-                    status=payload.status,
-                )
-        except RegistrationNotFound as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except RegistrationConflict as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @application.post(
         "/api/worlds/{world_id}/player",
@@ -1090,12 +895,14 @@ def create_app(
         DialogueContextServices,
         build_dialogue_router,
     )
+    from world_engine.api_elements import build_elements_router
     from world_engine.api_world import build_world_router
     from world_engine.interior_api import build_interior_router
     from world_engine.life_api import build_life_router
     from world_engine.living_api import build_living_router
     from world_engine.task_api import build_task_router
 
+    application.include_router(build_elements_router(database))
     application.include_router(build_world_router(database, engine, repository))
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))
