@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from pydantic import TypeAdapter
 
 from world_engine.agent_llm import AgentModelBackend
@@ -118,6 +119,31 @@ def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(setting
         )
     assert result.data.reply == "本轮回复"
     assert requests[0]["max_tokens"] == 900
-    assert requests[0]["response_format"] == {"type": "json_object"}
+    # 刻意不发 response_format：带推理的模型在 json_object 模式下会概率性把正文吐成
+    # 空白（finish_reason 仍是 stop、token 远未用尽），台词改由宽容解析保住。
+    assert "response_format" not in requests[0]
     assert requests[0]["messages"][3]["role"] == "assistant"
     assert json.loads(requests[0]["messages"][-1]["content"])["player_text"] == "继续"
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_reply", "expected_move"),
+    [
+        ('{"reply":"本轮回复","social_move":"evade"}', "本轮回复", "evade"),
+        ('```json\n{"reply":"围栏内","social_move":"answer"}\n```', "围栏内", "answer"),
+        ("我记的是路，不是景致。", "我记的是路，不是景致。", "answer"),
+        # NpcReply 是 extra="forbid"，模型多写字段不能让整段掉进降级分支
+        ('{"reply":"多字段","social_move":"answer","topic":"路"}', "多字段", "answer"),
+        # social_move 非法时退回 answer，但台词必须保住
+        ('{"reply":"非法动作","social_move":"随便写的"}', "非法动作", "answer"),
+        # 认不出 reply 就整段降级为台词，而不是报错
+        ('{"answer":"没有reply字段"}', '{"answer":"没有reply字段"}', "answer"),
+    ],
+)
+def test_npc_reply_salvage_keeps_the_line(
+    content: str, expected_reply: str, expected_move: str
+) -> None:
+    """宽容解析优先保住台词本身：认得出 reply 就取它，认不出就把整段当台词。"""
+    parsed = AgentModelBackend._salvage_npc_reply(content, TypeAdapter(NpcReply))
+    assert parsed.reply == expected_reply
+    assert parsed.social_move == expected_move

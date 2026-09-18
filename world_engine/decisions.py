@@ -50,7 +50,11 @@ class NpcReply(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reply: str = Field(min_length=1, max_length=500)
-    social_move: Literal["answer", "question", "evade", "boundary", "refuse", "offer"]
+    # 该字段全项目只写不读（只落进事件 metadata，没有消费方），因此给它默认值：
+    # 模型自由说台词时不必为它额外输出结构化字段。
+    social_move: Literal[
+        "answer", "question", "evade", "boundary", "refuse", "offer"
+    ] = "answer"
 
 
 class DecisionProvider(Protocol):
