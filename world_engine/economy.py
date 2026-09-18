@@ -343,7 +343,9 @@ class EconomyService:
             if row["resource_location_id"] is None:
                 # 通用资源：对每个活跃地点各自再生（上限按单点计算）。
                 targets = c.execute(
-                    "SELECT id, name, resources_json FROM locations WHERE is_active=1"
+                    "SELECT id, name, resources_json FROM locations "
+                    "WHERE world_id=? AND is_active=1",
+                    (wid,),
                 ).fetchall()
             else:
                 found = c.execute(
