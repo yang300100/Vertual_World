@@ -223,7 +223,11 @@ class ActionService:
         ).fetchone()
         self._assert_near_location(actor, location)
         resources = json.loads(location["resources_json"])
-        if connection.execute("SELECT 1 FROM world_item_profiles WHERE world_id=? AND resource_location_id=? AND resource_key='food'",(actor["world_id"],self._require_current_location(actor))).fetchone():
+        if connection.execute(
+            "SELECT 1 FROM world_item_profiles WHERE world_id=? "
+            "AND (resource_location_id=? OR resource_location_id IS NULL) AND resource_key='food'",
+            (actor["world_id"], self._require_current_location(actor)),
+        ).fetchone():
             raise ActionRuleError("这里的食物按登记库存经营，请购买或合法收取后食用")
         if int(resources.get("food", 0)) <= 0:
             raise ActionRuleError("当前位置没有可获得的食物")
