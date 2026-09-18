@@ -319,6 +319,29 @@ def test_seed_writes_food_stock_to_every_town(database, world) -> None:
     assert without == 0
 
 
+def test_initialize_backfills_food_supply(database, world) -> None:
+    """已存在的世界在 initialize 后应自动获得食物供给。"""
+    with database.write() as connection:
+        connection.execute("UPDATE locations SET resources_json='{}' WHERE world_id=?", (world,))
+        connection.execute(
+            "DELETE FROM world_item_profiles WHERE world_id=? AND resource_key='food'", (world,)
+        )
+    database.initialize()
+    with database.read() as connection:
+        profiles = connection.execute(
+            "SELECT COUNT(*) FROM world_item_profiles "
+            "WHERE world_id=? AND resource_key='food' AND resource_location_id IS NULL",
+            (world,),
+        ).fetchone()[0]
+        stock = connection.execute(
+            "SELECT COUNT(*) FROM locations WHERE world_id=? "
+            "AND COALESCE(json_extract(resources_json,'$.food'),0) > 0",
+            (world,),
+        ).fetchone()[0]
+    assert profiles == 1
+    assert stock > 0
+
+
 def test_seed_is_idempotent(database, world) -> None:
     """重复播种不产生重复 profile，也不改变已有存量。"""
     from world_engine.food_supply import seed_food_supply

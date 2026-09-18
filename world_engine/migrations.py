@@ -1104,3 +1104,15 @@ def ensure_clock_and_accumulator_rows(connection: sqlite3.Connection) -> None:
         SELECT id, world_id, 0, 0, updated_at FROM characters
         """
     )
+
+
+def backfill_food_supply(connection: sqlite3.Connection) -> None:
+    """为所有已有世界补齐食物供给（幂等）。
+
+    世界的食物资源曾在资源供给侧整体缺失，导致 NPC 饿死后无法恢复。
+    此迁移在一次 initialize 内即可修复全部存量世界。
+    """
+    from world_engine.food_supply import seed_food_supply
+
+    for row in connection.execute("SELECT id FROM worlds").fetchall():
+        seed_food_supply(connection, str(row["id"]))

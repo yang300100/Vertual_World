@@ -1003,6 +1003,7 @@ class Database:
             from world_engine.retention import initialize as initialize_retention
 
             initialize_retention(connection)
+            migrations.backfill_food_supply(connection)
 
     @staticmethod
     def _synchronize_world_element_catalog(connection: sqlite3.Connection) -> None:
