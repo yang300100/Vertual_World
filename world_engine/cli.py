@@ -14,6 +14,13 @@ from world_engine.iserra_time import to_era
 from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
 from world_engine.seeder import create_iserra_world
+from world_engine.world_pack import (
+    check_pack_save,
+    ensure_pack_save,
+    ensure_pack_world,
+    resolve_pack_settings,
+    seed_world_from_pack,
+)
 
 
 def _print_json(value: object) -> None:
@@ -116,10 +123,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     configure_console_encoding()
     args = build_parser().parse_args(argv)
     settings = Settings.from_env()
+    settings, world_pack = resolve_pack_settings(settings)
     if args.command == "knowledge-search":
         knowledge_base = WorldKnowledgeBase.from_paths(
             settings.knowledge_paths,
             project_root=PROJECT_ROOT,
+            excluded_filenames=settings.knowledge_excluded_filenames,
         )
         audiences = (
             {"author_hidden", "guardrail", "character_common"}
@@ -139,8 +148,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         )
         return 0
-    database = Database(settings.database_path)
+    database = Database(settings.database_path, legacy_world_defaults=world_pack is None)
+    if world_pack is not None:
+        check_pack_save(database, world_pack)
     database.initialize()
+    if world_pack is not None:
+        ensure_pack_save(database, world_pack)
+        ensure_pack_world(database, settings, world_pack)
     repository = WorldRepository()
     engine = WorldEngine(database, settings)
     atexit.register(engine.close)
@@ -157,13 +171,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                     else settings.default_time_scale
                 ),
                 adjudication_interval_minutes=settings.adjudication_interval_minutes,
-                seed_demo=not args.empty,
+                seed_demo=not args.empty if world_pack is None else False,
+                seed_maps=world_pack is None,
+                start_time=world_pack.start_time if world_pack is not None else None,
             )
+            if world_pack is not None:
+                seed_world_from_pack(connection, world_id, world_pack)
             # 与 API 端点一致：新建世界立刻播种食物供给，不等下一次迁移补种。
             seed_food_supply(connection, world_id)
             _print_json(repository.get_snapshot(connection, world_id))
         return 0
     if args.command == "seed-isera":
+        if world_pack is not None:
+            raise SystemExit("当前已启用世界观包；请使用 create 创建当前世界观的新存档")
         world_id = create_iserra_world(database, name=args.name)
         with database.read() as connection:
             snapshot = repository.get_snapshot(connection, world_id)
@@ -179,6 +199,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "seed-noryia":
+        if world_pack is not None:
+            raise SystemExit("当前已启用世界观包；请使用 create 创建当前世界观的新存档")
         from world_engine.noryia_seeder import WORLD_NAME, create_noryia_world
 
         world_id = create_noryia_world(database, name=args.name or WORLD_NAME)
@@ -204,7 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         with database.read() as connection:
             snapshot = repository.get_snapshot(connection, args.world_id)
         payload = snapshot.model_dump(mode="json")
-        payload["world"]["current_era"] = to_era(snapshot.world.current_time)
+        if world_pack is None or world_pack.id == "iserra-noryia":
+            payload["world"]["current_era"] = to_era(snapshot.world.current_time)
         _print_json(payload)
         return 0
     if args.command == "tick":

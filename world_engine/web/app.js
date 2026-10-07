@@ -6,16 +6,19 @@ const state = {
   worlds: [], worldId: null, snapshot: null, events: [], logs: [], adjudications: [], health: null,
   agentRuns: [], agentProposals: [],
   registrations: [], constructionProjects: [], contacts: [], todos: [], longTermRequests: [], selectedContactId: null, messages: [],
-  busy: false, currentRoom: window.location.hash.slice(1) || "scene", eventFilter: "all",
+  busy: false, responsePending: false, currentRoom: window.location.hash.slice(1) || "scene", eventFilter: "all",
   liveClockBase: null, liveClockCapturedAt: 0, toastTimer: null,
   lastClockPaintAt: 0,
   mapView: { scale: 1, x: 0, y: 0, dragging: false, moved: false, startX: 0, startY: 0, originX: 0, originY: 0 },
   relationshipPositions: new Map(), relationshipKey: "", notebook: [],
   mapTileKey: "", inspectedMap: null, worldMapViewBeforeDetail: null, pendingMapView: null, detailExitArmedUntil: 0, setupMapScale: 1,
-  activeMap: null, mapFiles: [], mapImage: null, manualView: false,
+  activeMap: null, mapFiles: [], mapImage: null, manualView: false, gameScene: null, gameSceneWorldId: null, npcFrames: new Map(), npcSceneCapturedAt: 0, lastNpcPaintAt: 0, sceneRequestPending: false, selectedMapNpcId: null, mapNpcListKey: "",
   conversationTargetId: null,
   groupDialogueMode: false,
+  selectedDialogueIds: [],
   intentPreview: null,
+  cardImportPreview: null,
+  progressReactionEventId: null,
   arrivalSettlementMovementId: null, arrivalSettlementAt: 0, arrivalSettlementInFlight: false,
 };
 
@@ -33,9 +36,12 @@ const elements = {
   playerSatietyBar: $("#player-satiety-bar"), playerMoney: $("#player-money"), sceneNarration: $("#scene-narration"),
   sceneCharacters: $("#scene-characters"), nearbyCharacters: $("#nearby-characters"), storyCards: $("#story-cards"),
   actionResult: $("#action-result"), combatPanel: $("#combat-panel"),
+  responseProgress: $("#response-progress"), responseProgressSummary: $("#response-progress-summary"), responseProgressSteps: $("#response-progress-steps"),
   combatAllies: $("#combat-allies"), combatEnemies: $("#combat-enemies"), playerSkills: $("#player-skills"),
   playerBag: $("#player-bag"), playerGear: $("#player-gear"), playerIntentForm: $("#player-intent-form"),
   playerIntent: $("#player-intent"), suggestedActions: $("#suggested-actions"),
+  dialogueTargetPicker: $("#dialogue-target-picker"), dialogueTargetSummary: $("#dialogue-target-summary"),
+  dialogueTargetOptions: $("#dialogue-target-options"), dialogueTargetAll: $("#dialogue-target-all"),
   intentFormDialog: $("#intent-form-dialog"), intentFormDialogClose: $("#intent-form-dialog-close"),
   intentForm: $("#intent-form"), intentFormTitle: $("#intent-form-title"), intentFormNote: $("#intent-form-note"), intentFormFields: $("#intent-form-fields"), intentFormCancel: $("#intent-form-cancel"),
   playerCreateForm: $("#player-create-form"), playerCreateName: $("#player-create-name"),
@@ -43,7 +49,7 @@ const elements = {
   playerCreateLocationName: $("#player-create-location-name"), playerCreateMapMarkers: $("#player-create-map-markers"), setupMapShell: $("#setup-map-shell"), setupMapCamera: $("#setup-map-camera"),
   playerCreateSecondaryLocations: $("#player-create-secondary-locations"), playerCreateTraits: $("#player-create-traits"),
   playerCreateGoal: $("#player-create-goal"), mapShell: $("#world-map-shell"), mapCamera: $("#map-camera"),
-  mapTileLayer: $("#map-tile-layer"), mapPoints: $("#map-points"), mapCoordinate: $("#map-coordinate"),
+  mapTileLayer: $("#map-tile-layer"), mapPoints: $("#map-points"), mapNpcSelect: $("#map-npc-select"), mapCoordinate: $("#map-coordinate"),
   mapBounds: $("#map-bounds"), mapZoom: $("#map-zoom"), mapHoverCoordinate: $("#map-hover-coordinate"), mapLayerLegend: $("#map-layer-legend"),
   mapRoute: $("#map-route"), mapRoutePolyline: $("#map-route-polyline"),
   mapStyleSelect: $("#map-style"),
@@ -52,6 +58,9 @@ const elements = {
   mapCoordinateForm: $("#map-coordinate-form"), mapLongitudeInput: $("#map-longitude-input"), mapLatitudeInput: $("#map-latitude-input"),
   eventList: $("#event-list"), logList: $("#log-list"), eventFilters: $("#event-filters"), relationshipGraph: $("#relationship-graph"),
   characterDialog: $("#character-dialog"), characterProfile: $("#character-profile"), characterDialogClose: $("#character-dialog-close"),
+  cardImportDialog: $("#card-import-dialog"), cardImportForm: $("#card-import-form"), cardImportMode: $("#card-import-mode"),
+  cardImportFile: $("#card-import-file"), cardImportName: $("#card-import-name"), cardImportIdentity: $("#card-import-identity"),
+  cardImportLocation: $("#card-import-location"), cardImportTarget: $("#card-import-target"),
   playerProfileButton: $("#player-profile-button"), notebookList: $("#notebook-list"), notebookForm: $("#notebook-form"),
   openPhotoDialog: $("#open-photo-dialog"), photoDialog: $("#photo-dialog"), photoDialogClose: $("#photo-dialog-close"),
   photoForm: $("#photo-form"), photoDirection: $("#photo-direction"), photoStyleHint: $("#photo-style-hint"),
@@ -80,7 +89,7 @@ const elements = {
   busyOverlay: $("#busy-overlay"), busyMessage: $("#busy-message"), toast: $("#toast"),
 };
 
-const eventLabels = { "life.routine_changed":"作息调整", "life.workplace_chosen":"工作选择", "life.routine_gap":"未执行时段", "knowledge.observed":"核对见闻", "schedule.at_risk":"约定提醒", interior_open:"打开", interior_close:"关闭", interior_enter:"进入房间", interior_exit:"离开房间", interior_deposit:"存入物品", interior_withdraw:"取出物品", interior_sit:"坐下", interior_stand:"起身", interior_lock:"上锁", interior_unlock:"解锁", trade:"交易", encounter:"初次留意", resource_harvested:"收取资源", stock_collected:"收取成果", npc_activity_started:"开始生活安排", "social.contact_exchange":"交换信笺", "social.long_term_review":"商议事务", "social.long_term_applied":"确认事务", "social.letter_received":"收到来信", "contract.completed":"履约完成", "contract.expired":"约定到期", "contract.overdue":"约定逾期", "contract.cancelled":"结束约定", "life.goal_completed":"目标达成", attack: "战斗", socialize: "交谈", travel: "开始行旅", route_planned: "路径规划", movement_started: "开始移动", movement_cancelled: "取消移动", movement_encounter: "途中相遇", movement_arrived: "抵达目标", rest: "休息", eat: "进食", work: "工作", gather: "采集", use: "使用", idle: "观察", rejected: "未能成立", target_down: "击倒", "world.initial": "世界初启", "world.major_death": "重大死亡", "world.adjudication": "世界裁判", "world.clock_rate_changed": "流速调整", "world.player_defeat": "玩家败北", "world.warden_intervention": "守卫介入", world_created: "世界初启", player_created: "旅人到来" };
+const eventLabels = { "life.routine_changed":"作息调整", "life.workplace_chosen":"工作选择", "life.routine_gap":"未执行时段", "knowledge.observed":"核对见闻", "schedule.at_risk":"约定提醒", interior_open:"打开", interior_close:"关闭", interior_enter:"进入房间", interior_exit:"离开房间", interior_deposit:"存入物品", interior_withdraw:"取出物品", interior_sit:"坐下", interior_stand:"起身", interior_lock:"上锁", interior_unlock:"解锁", trade:"交易", transfer:"赠与", encounter:"初次留意", resource_harvested:"收取资源", stock_collected:"收取成果", npc_activity_started:"开始生活安排", "social.contact_exchange":"交换信笺", "social.long_term_review":"商议事务", "social.long_term_applied":"确认事务", "social.letter_received":"收到来信", "contract.completed":"履约完成", "contract.expired":"约定到期", "contract.overdue":"约定逾期", "contract.cancelled":"结束约定", "life.goal_completed":"目标达成", attack: "战斗", socialize: "交谈", travel: "开始行旅", route_planned: "路径规划", movement_started: "开始移动", movement_cancelled: "取消移动", movement_encounter: "途中相遇", movement_arrived: "抵达目标", rest: "休息", eat: "进食", work: "工作", gather: "采集", use: "使用", idle: "观察", rejected: "未能成立", target_down: "击倒", "world.initial": "世界初启", "world.major_death": "重大死亡", "world.adjudication": "世界裁判", "world.clock_rate_changed": "流速调整", "world.player_defeat": "玩家败北", "world.warden_intervention": "守卫介入", world_created: "世界初启", player_created: "旅人到来" };
 const movementTypeLabels = { land: "陆行", flight: "飞行", ship: "轮船", underground: "钻地", water: "水行" };
 
 async function api(path, options = {}) {
@@ -96,6 +105,53 @@ async function api(path, options = {}) {
 function setBusy(busy, message = "正在处理") {
   state.busy = busy; elements.busyMessage.textContent = message; elements.busyOverlay.hidden = !busy;
   $$('button, input, textarea, select').forEach((node) => { if (!node.closest("#character-dialog")) node.disabled = busy; });
+}
+
+function beginResponse(message) {
+  state.responsePending = true;
+  state.progressReactionEventId = null;
+  elements.responseProgress.hidden = false;
+  elements.responseProgress.open = false;
+  elements.responseProgress.setAttribute("aria-busy", "true");
+  elements.responseProgressSummary.textContent = "正在思考 · 点击查看处理过程";
+  elements.responseProgressSteps.replaceChildren();
+  addResponseStep(message);
+}
+function addResponseStep(message) {
+  const item = document.createElement("li");
+  item.textContent = message;
+  elements.responseProgressSteps.append(item);
+}
+function finishResponse(message, failed = false) {
+  addResponseStep(message);
+  state.responsePending = false;
+  elements.responseProgress.setAttribute("aria-busy", "false");
+  elements.responseProgressSummary.textContent = failed ? "处理未完成 · 点击查看原因" : "处理完成 · 点击查看过程";
+}
+
+let actionResultDismissTimer = null;
+function hideActionResult() {
+  window.clearTimeout(actionResultDismissTimer);
+  actionResultDismissTimer = null;
+  elements.actionResult.hidden = true;
+  $("#retry-action-reaction")?.setAttribute("hidden", "");
+}
+function showActionResult(message, { sticky = false } = {}) {
+  window.clearTimeout(actionResultDismissTimer);
+  elements.actionResult.textContent = message;
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "action-result-close";
+  close.setAttribute("aria-label", "关闭行动结果提示");
+  close.textContent = "×";
+  close.addEventListener("click", hideActionResult);
+  elements.actionResult.append(close);
+  $("#retry-action-reaction")?.setAttribute("hidden", "");
+  elements.actionResult.hidden = false;
+  elements.actionResult.classList.remove("flash");
+  void elements.actionResult.offsetWidth;
+  elements.actionResult.classList.add("flash");
+  if (!sticky) actionResultDismissTimer = window.setTimeout(hideActionResult, 7000);
 }
 
 function showToast(message, error = false) {
@@ -131,15 +187,47 @@ function distanceKm(aLongitude, aLatitude, bLongitude, bLatitude) {
   const value = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
   return 2 * 6371.0088 * Math.asin(Math.min(1, Math.sqrt(value)));
 }
-function nearbyCharacters(character, radiusKm = VISIBLE_PERSON_RADIUS_KM) { return (state.snapshot?.characters || []).filter((item) => item.id !== character.id && (item.current_room_id || null) === (character.current_room_id || null) && distanceKm(character.longitude, character.latitude, item.longitude, item.latitude) <= radiusKm).map((item) => ({...item, name: typeof livingName === "function" ? livingName(item) : item.name, identity: state.living?.people.find((known)=>known.id===item.id)?.known_name ? item.identity : "身份尚未得知"})); }
-function currentMovement() { const player = currentPlayer(); return player ? (state.snapshot?.movements || []).find((item) => item.character_id === player.id && item.status === "moving") || null : null; }
+function nearbyCharacters(character, radiusKm = VISIBLE_PERSON_RADIUS_KM) { return (state.snapshot?.characters || []).filter((item) => item.id !== character.id && (item.current_room_id || null) === (character.current_room_id || null) && (item.space_layer || "ground") === (character.space_layer || "ground") && distanceKm(character.longitude, character.latitude, item.longitude, item.latitude) <= radiusKm).map((item) => ({...item, name: typeof livingName === "function" ? livingName(item) : item.name, identity: state.living?.people.find((known)=>known.id===item.id)?.known_name ? item.identity : "身份尚未得知"})); }
+function dialogueTargetsInRange() {
+  const player = currentPlayer();
+  if (!player) return [];
+  const radius = { normal: 0.02, whisper: 0.003, shout: 0.1 }[$("#player-delivery").value] || 0.02;
+  return nearbyCharacters(player, radius).filter((item) => !item.is_player && item.health > 0);
+}
+function renderDialogueTargets() {
+  const available = dialogueTargetsInRange();
+  const allowed = new Set(available.map((item) => item.id));
+  state.selectedDialogueIds = state.selectedDialogueIds.filter((id) => allowed.has(id));
+  state.conversationTargetId = state.selectedDialogueIds.length === 1 ? state.selectedDialogueIds[0] : null;
+  state.groupDialogueMode = state.selectedDialogueIds.length > 1;
+  const chosen = available.filter((item) => state.selectedDialogueIds.includes(item.id));
+  elements.dialogueTargetPicker.hidden = composerMode === "action";
+  if (composerMode === "action") elements.dialogueTargetPicker.open = false;
+  elements.dialogueTargetSummary.textContent = chosen.length === 0 ? "对谁说话：请选择" : chosen.length === 1 ? `对谁说话：${chosen[0].name}` : `对谁说话：${chosen.map((item) => item.name).slice(0, 2).join("、")}${chosen.length > 2 ? `等${chosen.length}人` : ""}`;
+  elements.dialogueTargetAll.textContent = available.length && chosen.length === available.length ? "取消全选" : "全选";
+  $("#dialogue-target-note").textContent = available.length ? `当前音量可选 ${available.length} 人；多人发言时最多 3 人回应` : "当前音量下没有能听见的人物，请走近或提高音量";
+  elements.dialogueTargetOptions.replaceChildren(...available.map((item) => {
+    const row = document.createElement("label");
+    const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.value = item.id; checkbox.checked = state.selectedDialogueIds.includes(item.id);
+    checkbox.addEventListener("change", () => { state.selectedDialogueIds = checkbox.checked ? [...state.selectedDialogueIds, item.id] : state.selectedDialogueIds.filter((id) => id !== item.id); renderDialogueTargets(); });
+    const name = document.createElement("span"); name.textContent = item.name;
+    const distance = document.createElement("small"); distance.textContent = `${Math.round(distanceKm(currentPlayer().longitude, currentPlayer().latitude, item.longitude, item.latitude) * 1000)} 米`;
+    row.append(checkbox, name, distance); return row;
+  }));
+}
+function currentMovement() { const player = currentPlayer(); if (state.gameSceneWorldId === state.worldId && state.gameScene?.steering?.active) return null; return player ? (state.snapshot?.movements || []).find((item) => item.character_id === player.id && item.status === "moving") || null : null; }
 
 async function refreshAll({ reloadWorlds = false, silent = false } = {}) {
   try {
+    const previousWorldId = state.worldId;
     if (reloadWorlds || !state.worlds.length) {
       state.worlds = await api("/api/worlds"); renderWorldOptions();
       if (!state.worlds.length) { elements.dashboard.hidden = true; elements.emptyState.hidden = false; return; }
       if (!state.worldId || !state.worlds.some((world) => world.id === state.worldId)) state.worldId = state.worlds[0].id;
+    }
+    if (state.worldId !== previousWorldId) {
+      state.mapImage = null; state.mapFiles = []; resetMapView(); loadMapFiles();
+      state.conversationTargetId = null; state.groupDialogueMode = false; state.selectedDialogueIds = [];
     }
     elements.worldSelect.value = state.worldId;
     const [snapshot, events, adjudications, health, agentRuns, agentProposals, registrations, constructionProjects, contacts, todos, longTermRequests] = await Promise.all([
@@ -161,7 +249,13 @@ async function refreshAll({ reloadWorlds = false, silent = false } = {}) {
     state.liveClockBase = liveClockBase; state.liveClockCapturedAt = capturedAt;
     elements.emptyState.hidden = true; elements.dashboard.hidden = false; setConnection(true); renderAll();
     if (typeof refreshLife === "function") await refreshLife(state.worldId);
-  } catch (error) { setConnection(false); if (!silent) showToast(error.message, true); }
+  } catch (error) {
+    if (error.status === 404 && !reloadWorlds) {
+      state.worlds = []; state.worldId = null;
+      return refreshAll({ reloadWorlds: true, silent });
+    }
+    setConnection(false); if (!silent) showToast(error.message, true);
+  }
 }
 
 function renderWorldOptions() {
@@ -171,9 +265,14 @@ function renderWorldOptions() {
 function setConnection(ok) { elements.connectionStatus.dataset.state = ok ? "online" : "offline"; elements.connectionStatus.textContent = ok ? "已同步" : "连接中断"; }
 
 function renderAll() {
+  const worldName = state.snapshot.world.name;
+  document.title = `${worldName} · 旅人之书`;
+  $("#brand-world-name").textContent = worldName;
+  $("#setup-world-heading").textContent = `你会以谁的名字走进${worldName}？`;
+  $(".nav-world").dataset.worldTitle = `${worldName}\n旅人之书`;
   const player = currentPlayer(); elements.playerSetup.hidden = Boolean(player); elements.playerContent.forEach((node) => { node.hidden = !player; });
   if (!player) { renderPlayerCreation(state.snapshot.locations); return; }
-  renderPlayerExperience(state.snapshot); renderClock(state.snapshot.world); renderEvents(); renderLogs(); renderStoryCards(); renderMap(); renderRelationshipGraph(state.snapshot);
+  renderDialogueTargets(); renderPlayerExperience(state.snapshot); renderClock(state.snapshot.world); renderEvents(); renderLogs(); renderStoryCards(); renderSceneConversation(); renderSceneAside(); renderMap(); renderRelationshipGraph(state.snapshot);
   renderNotebookReferences(); loadNotebook(); renderCharacters(state.snapshot.characters); renderInterventionOptions(state.snapshot.characters); renderAdjudications(state.adjudications); renderAgentAudit(); renderRegistrations(); renderSocialSystems(); if (typeof renderLiving === "function") renderLiving(); switchRoom(state.currentRoom, false);
 }
 
@@ -279,10 +378,14 @@ function renderAgentAudit() {
 }
 
 function renderPlayerCreation(locations) {
+  const cover = (state.snapshot?.maps || []).find((item) => item.zoom_level === 0 && item.map_role === "world");
+  const coverImage = elements.setupMapCamera.querySelector("img");
+  coverImage.hidden = !cover;
+  if (cover) { coverImage.src = `/world-assets/${cover.asset_path}`; coverImage.alt = cover.name; }
   const selected = elements.playerCreateLocation.value || locations[0]?.id || "";
   elements.playerCreateLocation.replaceChildren(...locations.map((location) => { const option = document.createElement("option"); option.value = location.id; option.textContent = `${location.name} · ${formatCoordinate(location.longitude, location.latitude, 2)}`; return option; }));
   elements.playerCreateLocation.value = locations.some((item) => item.id === selected) ? selected : locations[0]?.id || "";
-  const markers = locations.map((location) => { const button = document.createElement("button"); button.type = "button"; button.className = "setup-map-marker"; button.dataset.locationId = location.id; button.style.left = `${((location.longitude + 180) / 360) * 100}%`; button.style.top = `${((90 - location.latitude) / 180) * 100}%`; button.title = `${location.name} · 人口 ${Number(location.resources?.population || 0).toLocaleString()} · ${formatCoordinate(location.longitude, location.latitude, 2)}`; button.innerHTML = `<span>${escapeHtml(location.name)}</span>`; return button; });
+  const markers = locations.map((location) => { const button = document.createElement("button"); button.type = "button"; button.className = "setup-map-marker"; button.dataset.locationId = location.id; button.style.left = `${((location.longitude + 180) / 360) * 100}%`; button.style.top = `${((90 - location.latitude) / 180) * 100}%`; const population = location.resources?.population == null ? "" : ` · 人口 ${Number(location.resources.population).toLocaleString()}`; button.title = `${location.name}${population} · ${formatCoordinate(location.longitude, location.latitude, 2)}`; button.innerHTML = `<span>${escapeHtml(location.name)}</span>`; return button; });
   elements.playerCreateMapMarkers.replaceChildren(...markers); updatePlayerCreationMapSelection();
   elements.playerCreateSecondaryLocations.replaceChildren(...locations.slice(0, 9).map((location) => { const button = document.createElement("button"); button.type = "button"; button.textContent = location.name; button.dataset.locationId = location.id; return button; }));
 }
@@ -293,12 +396,14 @@ function updatePlayerCreationMapSelection() {
 }
 
 function renderPlayerExperience(snapshot) {
-  const player = currentPlayer(); if (!player) return; const movement = currentMovement(); const position = movement ? predictedMovementPosition(movement, displayedWorldTime()) : player; const location = movement ? resolveLocationAt(position.longitude, position.latitude) : locationById(player.current_location_id) || resolveLocationAt(player.longitude, player.latitude); const nearby = nearbyCharacters(player);
+  const player = currentPlayer(); if (!player) return; const movement = currentMovement(); const position = movement ? predictedMovementPosition(movement, displayedWorldTime()) : player; const location = movement ? resolveLocationAt(position.longitude, position.latitude, currentPlayer()?.space_layer || "ground") : locationById(player.current_location_id) || resolveLocationAt(player.longitude, player.latitude, player.space_layer || "ground"); const nearby = nearbyCharacters(player);
   elements.sceneLocation.textContent = location?.name || "未命名之地"; elements.navLocation.textContent = location?.name || "未命名之地";
   const coordinate = formatCoordinate(position.longitude, position.latitude); elements.sceneCoordinate.textContent = coordinate; elements.navCoordinate.textContent = coordinate;
   elements.sceneTime.textContent = formatWorldTime(snapshot.world.current_time); elements.sceneSpeed.textContent = formatSpeed(snapshot.world.time_scale);
+  $("#top-world-time").textContent = formatWorldTime(snapshot.world.current_time);
+  $("#top-world-status").textContent = Number(snapshot.world.time_scale) > 0 ? "世界运行中" : "世界已暂停";
   elements.playerName.textContent = player.name; elements.playerIdentity.textContent = player.identity || "旅人"; elements.playerObjective.textContent = player.goals.length ? player.goals.join(" · ") : "自由地经历这个世界"; elements.playerMonogram.textContent = player.name.slice(0, 1);
-  elements.playerProfileButton.dataset.hasPortrait = Boolean(player.portrait_url); elements.playerProfileButton.style.backgroundImage = player.portrait_url ? `url("${player.portrait_url}")` : "";
+  elements.playerProfileButton.dataset.hasPortrait = "true"; elements.playerProfileButton.style.backgroundImage = `url("${avatarSource(player)}")`;
   setMeter(elements.playerHealth, elements.playerHealthBar, player.health); setMeter(elements.playerEnergy, elements.playerEnergyBar, player.energy); setMeter(elements.playerSatiety, elements.playerSatietyBar, player.satiety); elements.playerMoney.textContent = String(player.money);
   elements.sceneNarration.textContent = movement ? `你正在离开${location?.name || "上一处地点"}，沿着选定方向持续前进。道路、天气与途中相遇都可能改变这段旅程。` : nearby.length ? `你在${location?.name || "这里"}停下脚步。${nearby.map((item) => item.name).join("、")}也在近旁，世界仍在你没有注视的地方继续运转。` : `你此刻独自在${location?.name || "这片土地"}。风景与时间仍在缓慢变化，等待你的下一步。`;
   renderNearby(nearby); renderTools(player); renderTransport(player); renderMovement(movement); renderSuggestions(nearby, snapshot.locations, player); renderCombatPanel(snapshot); renderPhotoControls(player);
@@ -307,17 +412,17 @@ function renderPhotoControls(player) {
   if (!elements.portraitCharacter || !elements.photoCharacters) return;
   const portraitValue = elements.portraitCharacter.value; const selectedCharacters = new Set([...elements.photoCharacters.selectedOptions].map((item) => item.value));
   const allCharacters = state.snapshot.characters.filter((item) => item.health > 0);
-  const visible = allCharacters.filter((item) => item.id !== player.id && distanceKm(player.longitude, player.latitude, item.longitude, item.latitude) <= 1.5);
+  const visible = allCharacters.filter((item) => item.id !== player.id && (item.space_layer || "ground") === (player.space_layer || "ground") && (item.current_room_id || null) === (player.current_room_id || null) && distanceKm(player.longitude, player.latitude, item.longitude, item.latitude) <= 1.5);
   elements.portraitCharacter.replaceChildren(...allCharacters.map((item) => new Option(`${item.name}${item.is_player ? "（我）" : ""}`, item.id)));
   if (allCharacters.some((item) => item.id === portraitValue)) elements.portraitCharacter.value = portraitValue; else elements.portraitCharacter.value = player.id;
   elements.photoCharacters.replaceChildren(...visible.map((item) => { const option = new Option(`${item.name} · ${item.identity || "身份未明"}`, item.id, false, selectedCharacters.has(item.id)); return option; }));
-  const image = state.health?.image_generation; const configured = Boolean(image?.configured); elements.photoCaptureButton.disabled = !configured; elements.photoModelStatus.textContent = configured ? `生图模型已就绪：${image.model}` : `尚未配置 IMAGE_API_KEY；可先上传人设图，填写 .env 后重启服务即可使用 ${image?.model || "生图模型"}。`; elements.photoModelStatus.dataset.state = configured ? "ready" : "missing";
+  const image = state.health?.image_generation; const configured = Boolean(image?.configured); elements.photoCaptureButton.disabled = !configured; elements.photoModelStatus.textContent = configured ? `生图模型已就绪：${image.model}` : "照片生成尚未启用，仍可预览当前取景。"; elements.photoModelStatus.dataset.state = configured ? "ready" : "missing";
 }
 function setMeter(label, bar, value) { const normalized = Math.max(0, Math.min(100, Number(value))); label.textContent = String(value); bar.style.width = `${normalized}%`; }
 function renderNearby(nearby) {
   elements.sceneCharacters.replaceChildren(...nearby.map((character) => { const button = document.createElement("button"); button.type = "button"; button.className = `presence-chip ${relationKind(character.id)}`; button.textContent = character.name; button.addEventListener("click", () => openCharacterProfile(character.id)); return button; }));
   if (!nearby.length) elements.sceneCharacters.append(emptyElement("span", "暂时没有别人", "muted-chip"));
-  elements.nearbyCharacters.replaceChildren(...nearby.map((character) => { const item = document.createElement("li"); const rel = relationFor(character.id); const activation = character.activation_state === "active" ? "激活" : "背景"; item.innerHTML = `<button type="button"><span class="avatar">${escapeHtml(character.name.slice(0, 1))}</span><span><strong>${escapeHtml(character.name)}</strong><small>${escapeHtml(character.identity || "身份未明")}${rel ? ` · 亲和 ${rel.affinity}` : ""}</small></span><b>查看 →</b></button>`; item.querySelector("button").addEventListener("click", () => openCharacterProfile(character.id)); return item; }));
+  elements.nearbyCharacters.replaceChildren(...nearby.map((character) => { const item = document.createElement("li"); const rel = relationFor(character.id); item.innerHTML = `<button type="button">${avatarMarkup(character)}<span><strong>${escapeHtml(character.name)}</strong><small>${escapeHtml(character.identity || "身份未明")}${rel ? ` · 亲和 ${rel.affinity}` : ""}</small></span><b>查看 →</b></button>`; item.querySelector("button").addEventListener("click", () => openCharacterProfile(character.id)); return item; }));
   if (!nearby.length) elements.nearbyCharacters.append(emptyElement("li", "视野内暂时没有其他人物", "empty-list"));
 }
 function renderTools(player) {
@@ -329,7 +434,7 @@ function renderTransport(player) {
   const vehicles = (state.snapshot.vehicles || []).filter((item) => (item.owner_character_id === player.id || state.longTermRequests.some((r) => r.fulfillment?.asset_id === item.id && r.fulfillment?.status === "active" && r.fulfillment?.requester_id === player.id)) && item.is_available);
   const selected = player.active_vehicle_id || "";
   elements.playerTransport.replaceChildren(new Option("徒步 · 陆行 · 5 km/h", ""), ...vehicles.map((vehicle) => new Option(`${vehicle.name} · ${movementTypeLabels[vehicle.movement_type] || vehicle.movement_type} · ${Number(vehicle.speed_kmh).toFixed(Number.isInteger(Number(vehicle.speed_kmh)) ? 0 : 1)} km/h`, vehicle.id)));
-  elements.playerTransport.value = selected; elements.playerTransport.disabled = Boolean(currentMovement());
+  elements.playerTransport.value = selected; elements.playerTransport.disabled = Boolean(currentMovement() || state.gameScene?.steering?.active);
   elements.transportType.textContent = movementTypeLabels[player.movement_type] || player.movement_type;
   elements.transportSpeed.textContent = `${Number(player.movement_speed_kmh).toFixed(Number.isInteger(Number(player.movement_speed_kmh)) ? 0 : 1)} km/h`;
   elements.transportHint.textContent = currentMovement() ? "移动中不能更换交通工具。" : vehicles.length ? "切换后下一段移动使用所选交通工具。" : "当前没有其他可用载具，默认徒步。";
@@ -384,7 +489,7 @@ function predictedRoutePosition(movement, elapsedHours) {
 function updatePredictedMovement(shownWorldTime, updateText = true) {
   const movement = currentMovement(); if (!movement) return; const position = predictedMovementPosition(movement, shownWorldTime);
   const displayProgress = displayedMovementProgress(position.progress);
-  if (updateText) { const coordinate = formatCoordinate(position.longitude, position.latitude, 5); const location = resolveLocationAt(position.longitude, position.latitude); elements.sceneCoordinate.textContent = coordinate; elements.navCoordinate.textContent = coordinate; elements.mapCoordinate.textContent = coordinate; elements.sceneLocation.textContent = location?.name || "无名地域"; elements.navLocation.textContent = location?.name || "无名地域"; elements.movementProgressBar.style.width = `${displayProgress * 100}%`; elements.movementProgressText.textContent = `${(displayProgress * 100).toFixed(2)}%${position.progress >= 1 ? " · 正在确认抵达" : ` · ${position.travelled.toFixed(2)} / ${movement.total_distance_km.toFixed(1)} km`}`; }
+  if (updateText) { const coordinate = formatCoordinate(position.longitude, position.latitude, 5); const location = resolveLocationAt(position.longitude, position.latitude, currentPlayer()?.space_layer || "ground"); elements.sceneCoordinate.textContent = coordinate; elements.navCoordinate.textContent = coordinate; elements.mapCoordinate.textContent = coordinate; elements.sceneLocation.textContent = location?.name || "无名地域"; elements.navLocation.textContent = location?.name || "无名地域"; elements.movementProgressBar.style.width = `${displayProgress * 100}%`; elements.movementProgressText.textContent = `${(displayProgress * 100).toFixed(2)}%${position.progress >= 1 ? " · 正在确认抵达" : ` · ${position.travelled.toFixed(2)} / ${movement.total_distance_km.toFixed(1)} km`}`; }
   if (position.progress >= 1 || shownWorldTime >= new Date(movement.estimated_arrival_world)) settlePredictedArrival(movement);
   const desiredMap = selectDisplayMap(position.longitude, position.latitude); if (state.activeMap?.id !== desiredMap.id) { renderMap(position); return; }
   const marker = elements.mapPoints.querySelector(".map-point.player"); if (marker) { const projected = projectToMap(position.longitude, position.latitude, desiredMap); marker.dataset.mapX = String(projected.x / 100); marker.dataset.mapY = String(projected.y / 100); updateMapPointScreenPosition(marker); }
@@ -415,10 +520,10 @@ function renderSuggestions(nearby, locations, player) {
   const suggestions = [{ label: "观察四周", intent: "仔细观察四周" }, { label: "休息片刻", intent: "停下来休息" }];
   if (nearby.length >= 2) suggestions.push({ label: "向在场众人说话", intent: "我想和在场的人谈谈", group: true });
   nearby.slice(0, 2).forEach((item) => suggestions.push({ label: `与${item.name}交谈`, intent: `与${item.name}交谈`, targetId: item.id }));
-  locations.filter((item) => item.id !== player.location_id).slice(0, 2).forEach((item) => suggestions.push({ label: `前往${item.name}`, intent: `前往${item.name}` }));
+  locations.filter((item) => item.id !== player.location_id && (item.space_layer || "ground") === (player.space_layer || "ground")).slice(0, 2).forEach((item) => suggestions.push({ label: `前往${item.name}`, intent: `前往${item.name}` }));
   elements.suggestedActions.replaceChildren(...suggestions.map((suggestion) => { const button = document.createElement("button"); button.type = "button"; button.textContent = suggestion.label; button.addEventListener("click", () => fillIntent(suggestion.intent, suggestion.targetId || null, Boolean(suggestion.group))); return button; }));
 }
-function fillIntent(text, targetCharacterId = null, groupDialogue = false) { state.conversationTargetId = targetCharacterId; state.groupDialogueMode = groupDialogue; elements.playerIntent.value = text; saveIntentDraft(); elements.playerIntent.focus(); }
+function fillIntent(text, targetCharacterId = null, groupDialogue = false) { setComposerMode(targetCharacterId || groupDialogue ? "dialogue" : "action"); state.selectedDialogueIds = groupDialogue ? dialogueTargetsInRange().map((item) => item.id) : targetCharacterId ? [targetCharacterId] : []; renderDialogueTargets(); elements.playerIntent.value = text; elements.playerIntent.dataset.presetValue = text; elements.playerIntentForm.classList.remove("suggestions-open"); $("#suggestion-toggle").setAttribute("aria-expanded", "false"); saveIntentDraft(); elements.playerIntent.focus(); }
 
 function eventCategory(event) { const type = normalizedEventType(event.event_type); if (["world.major_death"].includes(type)) return "conflict"; if (["world.treaty", "world.regime_change"].includes(type)) return "politics"; if (["world.catastrophe"].includes(type)) return "disaster"; return "other"; }
 function knownEvents() { return state.living?.events || []; }
@@ -432,17 +537,36 @@ function renderLogs() {
   elements.logList.replaceChildren(...logs.map(createEventItem));
   if (!logs.length) elements.logList.append(emptyElement("li", "还没有你的日常行动日志", "empty-list"));
 }
+function presentedNpcReply(value, stageDirection = null) {
+  const source = String(value || "");
+  const starts = [...source.matchAll(/\{\s*"reply"\s*:/g)];
+  for (const match of starts.reverse()) {
+    try {
+      const parsed = JSON.parse(source.slice(match.index, source.lastIndexOf("}") + 1));
+      if (typeof parsed.reply === "string" && parsed.reply.trim()) return { reply: parsed.reply.trim(), stage: stageDirection || parsed.stage_direction || null };
+    } catch { /* Yuki 继续寻找已经保存的完整回复。 */ }
+  }
+  if (/(?:^|\n)\s*(?:reply|stage_direction|social_move)\s*:/.test(source)) return { reply: "这条 NPC 回复格式有误", stage: null };
+  return { reply: source, stage: stageDirection };
+}
+function displayEventSummary(event) {
+  const rawReply = event.payload?.reply;
+  const summary = rawReply ? String(event.summary || "").replace(rawReply, presentedNpcReply(rawReply).reply) : event.summary;
+  return humanizeEventSummary(summary);
+}
 function eventDetailText(event) {
   const payload = event.payload || {}; const type = normalizedEventType(event.event_type);
   if (payload.input_kind === "action" || payload.metadata?.input_kind === "action") {
     return `你的动作：${payload.player_action_text || payload.metadata?.player_action_text || ""}\n实际结果：${typeof payload.result === "string" ? payload.result : payload.result?.description || event.summary}`;
   }
-  if (type === "reaction" && payload.reply) return `NPC 对行动回应：“${payload.reply}”`;
+  if (type === "reaction" && payload.reply) { const npc = presentedNpcReply(payload.reply, payload.stage_direction); return `${npc.stage ? `${npc.stage}\n` : ""}NPC 对行动回应：“${npc.reply}”`; }
   if (type === "socialize" && payload.dialogue) {
+    const npc = presentedNpcReply(payload.reply, payload.metadata?.npc_stage_direction);
     const targetName = characterById(event.target_id)?.name || "对方";
     const speaker = event.actor_id === currentPlayer()?.id ? "你" : characterById(event.actor_id)?.name || "对方"; const playerLine = `${speaker}说：“${payload.dialogue}”`;
-    const replyLine = payload.reply ? `\n${targetName}回应：“${payload.reply}”` : "";
-    return `${playerLine}${replyLine}`;
+    const stageLine = npc.stage ? `\n${npc.stage}` : "";
+    const replyLine = npc.reply ? `\n${targetName}回应：“${npc.reply}”` : "";
+    return `${playerLine}${stageLine}${replyLine}`;
   }
   if (event.source_kind === "heard") return `听闻 · 可信度${Math.round(event.confidence * 100)}% · 消息来源：${characterById(event.source_character_id)?.name || "尚未认识的人"}\n${event.summary}`;
   return event.actor_id === currentPlayer()?.id ? payload.reason || payload.dialogue || event.summary : payload.dialogue || event.summary;
@@ -451,31 +575,180 @@ function createEventItem(event) {
   const item = document.createElement("li"); item.className = `event-item event-${eventCategory(event)}`; item.id = `event-${event.id}`;
   const actors = [characterById(event.actor_id)?.name, characterById(event.target_id)?.name].filter(Boolean).join(" · ");
   const type = normalizedEventType(event.event_type);
-  item.innerHTML = `<button class="event-card-button" type="button"><span class="event-meta"><b>${escapeHtml(eventLabels[type] || type)}</b><time>${escapeHtml(formatWorldTime(event.occurred_at, false))}</time></span><strong>${escapeHtml(humanizeEventSummary(event.summary))}</strong>${actors ? `<small>${escapeHtml(actors)}</small>` : ""}<span class="event-detail">${escapeHtml(eventDetailText(event))}${event.history?.causes?.length ? `<br>已知前因：${event.history.causes.map((cause)=>escapeHtml(cause.summary)).join("；")}` : ""}</span></button>`;
+  item.innerHTML = `<button class="event-card-button" type="button"><span class="event-meta"><b>${escapeHtml(eventLabels[type] || type)}</b><time>${escapeHtml(formatWorldTime(event.occurred_at, false))}</time></span><strong>${escapeHtml(displayEventSummary(event))}</strong>${actors ? `<small>${escapeHtml(actors)}</small>` : ""}<span class="event-detail">${escapeHtml(eventDetailText(event))}${event.history?.causes?.length ? `<br>已知前因：${event.history.causes.map((cause)=>escapeHtml(cause.summary)).join("；")}` : ""}</span></button>`;
   item.querySelector("button").addEventListener("click", () => item.classList.toggle("expanded")); return item;
 }
 function renderStoryCards() {
   const player = currentPlayer(); if (!player) return;
   const logs = knownEvents().slice(0, 5);
-  elements.storyCards.replaceChildren(...logs.map((event) => { const item = document.createElement("li"); const type = normalizedEventType(event.event_type); item.innerHTML = `<button type="button"><span>${escapeHtml(eventLabels[type] || type)}</span><strong>${escapeHtml(humanizeEventSummary(event.summary))}</strong><small>${escapeHtml(formatWorldTime(event.occurred_at, false))}</small></button>`; item.querySelector("button").addEventListener("click", () => { switchRoom("log"); requestAnimationFrame(() => $(`#event-${CSS.escape(event.id)}`)?.scrollIntoView({ behavior: "smooth", block: "center" })); }); return item; }));
+  elements.storyCards.replaceChildren(...logs.map((event) => { const item = document.createElement("li"); const type = normalizedEventType(event.event_type); item.innerHTML = `<button type="button"><span>${escapeHtml(eventLabels[type] || type)}</span><strong>${escapeHtml(displayEventSummary(event))}</strong><small>${escapeHtml(formatWorldTime(event.occurred_at, false))}</small></button>`; item.querySelector("button").addEventListener("click", () => { switchRoom("log"); requestAnimationFrame(() => $(`#event-${CSS.escape(event.id)}`)?.scrollIntoView({ behavior: "smooth", block: "center" })); }); return item; }));
   if (!logs.length) elements.storyCards.append(emptyElement("li", "近期还没有旅程日志", "empty-list"));
+}
+function avatarSource(character) {
+  if (character?.portrait_url) return character.portrait_url;
+  if (character?.is_player) return "/ui/assets/avatar-1.svg";
+  const key = String(character?.id || character?.name || "");
+  const hash = [...key].reduce((value, letter) => (value * 31 + letter.codePointAt(0)) >>> 0, 0);
+  return `/ui/assets/avatar-${hash % 4 + 1}.svg`;
+}
+function avatarMarkup(character, className = "avatar") {
+  return `<span class="${className}"><img src="${escapeHtml(avatarSource(character))}" alt="" /></span>`;
+}
+function sceneAvatar(character) {
+  const avatar = document.createElement("span"); avatar.className = "scene-avatar";
+  const image = document.createElement("img"); image.src = avatarSource(character); image.alt = "";
+  avatar.append(image);
+  return avatar;
+}
+function appendDialogueText(bubble, text, kind) {
+  let remaining = String(text || "");
+  if (kind === "npc") {
+    const openingAction = /^（[^）\n]{1,160}）/.exec(remaining);
+    if (openingAction) {
+      const action = document.createElement("span"); action.className = "dialogue-stage";
+      action.textContent = openingAction[0]; bubble.append(action);
+      remaining = remaining.slice(openingAction[0].length).trimStart();
+    }
+  }
+  const marker = /\*([^*\n]{1,160})\*/g;
+  let cursor = 0;
+  for (const match of remaining.matchAll(marker)) {
+    if (match.index > cursor) bubble.append(document.createTextNode(remaining.slice(cursor, match.index)));
+    const action = document.createElement("span"); action.className = "dialogue-stage inline";
+    action.textContent = match[1]; bubble.append(action);
+    cursor = match.index + match[0].length;
+  }
+  bubble.append(document.createTextNode(remaining.slice(cursor)));
+}
+function sceneDialogueRow({ speaker, character, text, stage = null, time, kind = "npc", recipients = [] }) {
+  const row = document.createElement("article"); row.className = `dialogue-row ${kind}`;
+  if (kind !== "system") {
+    const avatar = sceneAvatar(character);
+    if (character?.id) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "dialogue-avatar-button";
+      button.setAttribute("aria-label", `查看${speaker}的档案`); button.append(avatar); button.addEventListener("click", () => openCharacterProfile(character.id)); row.append(button);
+    } else row.append(avatar);
+  }
+  const body = document.createElement("div"); body.className = "dialogue-body";
+  const meta = document.createElement("div"); meta.className = "dialogue-meta";
+  const name = document.createElement("strong"); name.textContent = speaker;
+  const clock = document.createElement("time"); clock.textContent = time;
+  meta.append(name, clock);
+  const bubble = document.createElement("p"); bubble.className = "dialogue-bubble";
+  if (kind === "self" && recipients.length) {
+    const addressed = document.createElement("small"); addressed.className = "dialogue-recipient";
+    addressed.textContent = `对${recipients.join("、")}说`; bubble.append(addressed);
+  }
+  if (stage) { const action = document.createElement("span"); action.className = "dialogue-stage"; action.textContent = stage; bubble.append(action); }
+  const content = document.createElement("span"); content.className = kind === "system" ? "dialogue-narration" : "dialogue-speech";
+  appendDialogueText(content, text, kind); bubble.append(content);
+  body.append(meta, bubble); row.append(body); return row;
+}
+function sceneEventTime(value) {
+  const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("zh-CN", {hour:"2-digit", minute:"2-digit", hour12:false}).format(date);
+}
+function renderSceneConversation() {
+  const feed = $("#scene-dialogue-list"); if (!feed) return;
+  const player = currentPlayer(); if (!player) return;
+  const wasNearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+  const entries = [];
+  const sceneActions = new Set(["travel", "rest", "work", "attack", "use", "transfer", "gather", "eat", "movement_arrived"]);
+  const logs = knownEvents().filter((event) => {
+    const type = normalizedEventType(event.event_type);
+    return ((type === "socialize" || type === "reaction") && (event.actor_id === player.id || event.target_id === player.id))
+      || (event.actor_id === player.id && sceneActions.has(type));
+  }).slice(0, 12).reverse();
+  const renderKey = `${state.worldId}:${logs.map((event) => `${event.id}:${event.summary}:${event.payload?.reply || ""}`).join("|")}:${elements.sceneNarration.textContent}:${state.snapshot?.world.version}`;
+  if (feed.dataset.renderKey === renderKey) return;
+  feed.dataset.renderKey = renderKey;
+  const shownGroupLines = new Set();
+  for (const event of logs) {
+    const payload = event.payload || {}; const type = normalizedEventType(event.event_type);
+    const time = sceneEventTime(event.occurred_at);
+    const actor = characterById(event.actor_id); const target = characterById(event.target_id);
+    if (type === "socialize" && payload.dialogue) {
+      const quoted = /^与.+?交谈[“\"](.+)[”\"]$/.exec(payload.dialogue.trim());
+      const groupId = payload.metadata?.group_dialogue_id;
+      if (!groupId || !shownGroupLines.has(groupId)) {
+        const ids = payload.metadata?.addressed_participant_ids || (groupId
+          ? logs.filter((item) => item.payload?.metadata?.group_dialogue_id === groupId).map((item) => item.target_id)
+          : [event.target_id]);
+        const recipients = [...new Set(ids)].map((id) => characterById(id)?.name).filter(Boolean);
+        entries.push(sceneDialogueRow({ speaker: event.actor_id === player.id ? "你" : actor?.name || "旅人", character: actor, text: quoted ? quoted[1] : payload.dialogue, time, kind: event.actor_id === player.id ? "self" : "npc", recipients }));
+        if (groupId) shownGroupLines.add(groupId);
+      }
+      if (payload.reply) { const npc = presentedNpcReply(payload.reply, payload.metadata?.npc_stage_direction); entries.push(sceneDialogueRow({ speaker: target?.name || "对方", character: target, text: npc.reply, stage: npc.stage, time, kind: "npc" })); }
+    } else if (type === "reaction" && payload.reply) {
+      const npc = presentedNpcReply(payload.reply, payload.stage_direction);
+      entries.push(sceneDialogueRow({ speaker: actor?.name || "对方", character: actor, text: npc.reply, stage: npc.stage, time, kind: "npc" }));
+    } else {
+      entries.push(sceneDialogueRow({ speaker: eventLabels[type] || "经历", text: displayEventSummary(event), time, kind: "system" }));
+    }
+  }
+  if (!entries.length) entries.push(sceneDialogueRow({ speaker: "此刻", text: elements.sceneNarration.textContent, time: sceneEventTime(state.snapshot?.world.current_time), kind: "system" }));
+  feed.replaceChildren(...entries);
+  if (wasNearBottom) feed.scrollTop = feed.scrollHeight;
+}
+function renderSceneAside() {
+  const player = currentPlayer(); if (!player) return;
+  const people = $("#scene-aside-characters"); const vitals = $("#scene-aside-vitals"); const events = $("#scene-aside-events");
+  const nearby = nearbyCharacters(player);
+  people.replaceChildren(...nearby.slice(0, 3).map((character) => {
+    const item = document.createElement("li"); const button = document.createElement("button"); button.type = "button"; button.className = "aside-character";
+    const avatar = sceneAvatar(character); const copy = document.createElement("span"); copy.className = "aside-character-copy";
+    const name = document.createElement("strong"); name.textContent = character.name;
+    const status = document.createElement("small"); status.textContent = character.identity || "身份尚未得知";
+    copy.append(name, status); button.append(avatar, copy); button.addEventListener("click", () => openCharacterProfile(character.id)); item.append(button); return item;
+  }));
+  if (!nearby.length) people.append(emptyElement("li", "此刻没有其他人在身边", "aside-empty"));
+  if (nearby.length > 3) {
+    const item = document.createElement("li"); const button = document.createElement("button"); button.type = "button"; button.className = "aside-more";
+    button.textContent = `还有 ${nearby.length - 3} 位 · 查看全部`;
+    button.addEventListener("click", () => { setSceneView("details"); switchRoom("scene"); $("#encounters")?.scrollIntoView({block:"center"}); });
+    item.append(button); people.append(item);
+  }
+  vitals.replaceChildren(...[["生命", player.health, "health"], ["精力", player.energy, "energy"], ["饱食", player.satiety, "satiety"]].map(([label, value, type]) => {
+    const row = document.createElement("div"); row.className = `aside-vital ${type}`;
+    const title = document.createElement("span"); title.textContent = label;
+    const meter = document.createElement("i"); meter.setAttribute("role", "meter"); meter.setAttribute("aria-label", label); meter.setAttribute("aria-valuemin", "0"); meter.setAttribute("aria-valuemax", "100"); meter.setAttribute("aria-valuenow", String(value));
+    const fill = document.createElement("b"); fill.style.width = `${Math.max(0, Math.min(100, Number(value) || 0))}%`; meter.append(fill);
+    const amount = document.createElement("strong"); amount.textContent = `${value}%`; row.append(title, meter, amount); return row;
+  }));
+  const recent = knownEvents().filter((event) => !["eat", "resource_harvested", "stock_collected", "idle", "npc_activity_started"].includes(normalizedEventType(event.event_type))).slice(0, 3);
+  events.replaceChildren(...recent.map((event) => {
+    const item = document.createElement("li"); const icon = document.createElement("span"); icon.className = "aside-event-icon"; icon.textContent = {socialize:"☷", travel:"⌖", movement_arrived:"⌖", attack:"⚔"}[normalizedEventType(event.event_type)] || "✦";
+    const summary = document.createElement("span"); summary.textContent = displayEventSummary(event);
+    const time = document.createElement("time"); time.textContent = sceneEventTime(event.occurred_at);
+    item.append(icon, summary, time); return item;
+  }));
+  if (!recent.length) events.append(emptyElement("li", "尚无近期事件", "aside-empty"));
 }
 function humanizeEventSummary(summary) { let text = String(summary || ""); state.snapshot?.characters.forEach((character) => { const label = typeof livingName === "function" ? livingName(character) : character.name; text = text.split(character.id).join(label); if (!state.currentRoom.startsWith("observer")) text = text.split(character.name).join(label); }); return text; }
 
 function globalMapDefinition() { return (state.snapshot?.maps || []).find((item) => item.zoom_level === 0 && !item.location_id) || { id: "world", name: "世界地图", map_role: "world", review_status: "approved", min_longitude: -180, max_longitude: 180, min_latitude: -90, max_latitude: 90 }; }
 function mapContains(map, longitude, latitude) { return longitude >= map.min_longitude && longitude <= map.max_longitude && latitude >= map.min_latitude && latitude <= map.max_latitude; }
-function resolveLocationAt(longitude, latitude) { const matches = (state.snapshot?.locations || []).map((location) => ({ location, distance: distanceKm(longitude, latitude, location.longitude, location.latitude) })).filter((item) => item.distance <= Number(item.location.area_radius_km || 0)); matches.sort((first, second) => Number(second.location.area_priority || 0) - Number(first.location.area_priority || 0) || Number(first.location.area_radius_km || 0) - Number(second.location.area_radius_km || 0) || first.distance - second.distance); return matches[0]?.location || null; }
+function resolveLocationAt(longitude, latitude, spaceLayer = "ground") { const matches = (state.snapshot?.locations || []).filter((location) => (location.space_layer || "ground") === spaceLayer).map((location) => ({ location, distance: distanceKm(longitude, latitude, location.longitude, location.latitude) })).filter((item) => item.distance <= Number(item.location.area_radius_km || 0)); matches.sort((first, second) => Number(second.location.area_priority || 0) - Number(first.location.area_priority || 0) || Number(first.location.area_radius_km || 0) - Number(second.location.area_radius_km || 0) || first.distance - second.distance); return matches[0]?.location || null; }
 function locationAndAncestorIds(location) { const byId = new Map((state.snapshot?.locations || []).map((item) => [item.id, item])); const result = new Set(); let current = location; while (current && !result.has(current.id)) { result.add(current.id); current = current.parent_location_id ? byId.get(current.parent_location_id) : null; } return result; }
 function selectDisplayMap(longitude, latitude) {
-  if (state.inspectedMap) return state.inspectedMap;
-  // 城镇详图只通过"放大到详图阈值"(resolveZoomDetailMap 设置 inspectedMap)进入；
-  // 否则不管焦点坐标是否落在城镇范围内都显示世界图。这样缩小后能稳定退出城镇，
-  // 而不会因为焦点仍在城镇内、被重新切回详图导致无法返回世界地图。
+  if (state.gameSceneWorldId === state.worldId && state.gameScene?.map) return state.gameScene.map;
   return globalMapDefinition();
 }
 function projectToMap(longitude, latitude, map = state.activeMap || globalMapDefinition()) { return { x: ((Number(longitude) - map.min_longitude) / (map.max_longitude - map.min_longitude)) * 100, y: ((map.max_latitude - Number(latitude)) / (map.max_latitude - map.min_latitude)) * 100 }; }
 function selectedMapLayer() { return state.mapFiles.find((item) => item.asset_path === state.mapImage) || null; }
 function renderMapTiles(map) {
+  if (map.map_role === "local" && map.space_layer && map.space_layer !== "ground") {
+    const key = `platform:${map.id}`;
+    if (state.mapTileKey !== key) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.setAttribute("viewBox","0 0 1000 1000");
+      svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none";
+      svg.setAttribute("role","img"); svg.setAttribute("aria-label",`${map.name}悬空平台示意图`);
+      svg.innerHTML = '<defs><radialGradient id="cloudSky"><stop stop-color="#b6cfda"/><stop offset="1" stop-color="#e5eef3"/></radialGradient></defs><rect width="1000" height="1000" fill="url(#cloudSky)"/><ellipse cx="500" cy="530" rx="400" ry="395" fill="#456577" opacity=".2"/><circle cx="500" cy="500" r="400" fill="#d6cbad" stroke="#907854" stroke-width="12"/><circle cx="500" cy="500" r="270" fill="none" stroke="#f6efda" stroke-width="34"/><path d="M100 500H900M500 100V900" stroke="#f6efda" stroke-width="38"/><circle cx="500" cy="500" r="48" fill="#789caa" stroke="#4a6d7d" stroke-width="5"/>';
+      const title = document.createElementNS(svg.namespaceURI,"title"); title.textContent = `${map.name}，高于地面${map.altitude_m}米，中心为升降通道`; svg.prepend(title);
+      elements.mapTileLayer.replaceChildren(svg); state.mapTileKey = key;
+    }
+    return;
+  }
+  if (map.map_role === "local") { elements.mapTileLayer.replaceChildren(); state.mapTileKey = `local:${map.id}`; return; }
   if (map.map_role === "detail") { const key = `detail:${map.id}:${map.asset_path}`; if (key !== state.mapTileKey || !elements.mapTileLayer.childElementCount) { const image = document.createElement("img"); image.src = `/world-assets/${map.asset_path}`; image.alt = map.name; image.draggable = false; elements.mapTileLayer.replaceChildren(image); state.mapTileKey = key; } return; }
   const selectedLayer = selectedMapLayer();
   if (selectedLayer) { const key = `world:layer:${selectedLayer.asset_path}`; if (key !== state.mapTileKey || !elements.mapTileLayer.childElementCount) { const image = document.createElement("img"); image.src = `/world-assets/${selectedLayer.asset_path}`; image.alt = selectedLayer.label; image.draggable = false; elements.mapTileLayer.replaceChildren(image); state.mapTileKey = key; } return; }
@@ -486,23 +759,198 @@ function renderMapTiles(map) {
 }
 function renderMap(positionOverride = null) {
   const player = currentPlayer(); if (!player) return;
-  const movement = currentMovement(); const predictedPlayer = movement ? predictedMovementPosition(movement, displayedWorldTime()) : player; let longitude, latitude;
+  const movement = currentMovement(); const predictedPlayer = movement ? predictedMovementPosition(movement, displayedWorldTime()) : displayedPlayerPosition(); let longitude, latitude;
   if (positionOverride) { longitude = positionOverride.longitude; latitude = positionOverride.latitude; }
   else if (state.manualView) { const center = mapCenterCoordinate(); longitude = center.longitude; latitude = center.latitude; }
   else { longitude = predictedPlayer.longitude; latitude = predictedPlayer.latitude; }
   const map = selectDisplayMap(longitude, latitude); const changed = state.activeMap?.id !== map.id; state.activeMap = map; renderMapTiles(map); const selectedLayer = map.map_role === "detail" ? null : selectedMapLayer(); elements.mapShell.style.setProperty("--map-aspect", `${map.width_pixels || 2552} / ${map.height_pixels || 1304}`); elements.mapContextName.textContent = `${map.name}${selectedLayer ? ` · ${selectedLayer.label}` : ""}${map.review_status === "candidate" ? " · 候选" : ""}`; elements.mapCoordinate.textContent = formatCoordinate(longitude, latitude); elements.mapBounds.textContent = `范围：${formatCoordinate(map.min_longitude, map.min_latitude, 2)} ↔ ${formatCoordinate(map.max_longitude, map.max_latitude, 2)}`;
   const points = [];
+  renderWonderPanel();
+  (state.gameScene?.wonders || []).filter((wonder) => mapContains(map,wonder.longitude,wonder.latitude)).forEach((wonder) => {
+    const point = createMapPoint(wonder.longitude,wonder.latitude,"feature wonder",`◇ ${wonder.name}`,map,`悬空高度 ${wonder.altitude_m}米 · ${wonder.sponsors.join("、")}联合建设`);
+    point.style.pointerEvents = "auto"; point.style.zIndex = "10";
+    point.style.cursor = "pointer"; point.tabIndex = 0; point.setAttribute("role","button");
+    point.setAttribute("aria-label",`查看${wonder.name}的升降通道`);
+    point.dataset.wonderId = wonder.id;
+    point.addEventListener("pointerdown",(event) => event.stopPropagation());
+    const showAccess = () => { const panel = document.querySelector("#map-wonders"); panel?.scrollIntoView({block:"nearest"}); };
+    point.addEventListener("click",(event) => { event.stopPropagation(); showAccess(); });
+    point.addEventListener("keydown",(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); showAccess(); } });
+    points.push(point);
+  });
   if (map.map_role === "detail") elements.mapLayerLegend.textContent = "城镇详细地图";
   if (map.map_role !== "detail") {
-    if (state.mapView.scale >= 7) { elements.mapLayerLegend.textContent = "城镇标签"; state.snapshot.locations.filter((location) => mapContains(map, location.longitude, location.latitude)).forEach((location) => points.push(createMapPoint(location.longitude, location.latitude, "location", location.name, map, `人口 ${Number(location.resources?.population || 0).toLocaleString()}`, location.id))); }
-    else if (state.mapView.scale >= 3) { elements.mapLayerLegend.textContent = "省份标签（国家兜底）"; (state.snapshot.map_features || []).filter((feature) => ["province", "capital"].includes(feature.feature_type) && mapContains(map, feature.longitude, feature.latitude)).forEach((feature) => points.push(createMapPoint(feature.longitude, feature.latitude, "feature", feature.name, map, feature.feature_type === "province" ? "省份行政中心" : "国家首都"))); }
-    else { elements.mapLayerLegend.textContent = "国家标签"; (state.snapshot.map_features || []).filter((feature) => feature.feature_type === "capital" && mapContains(map, feature.longitude, feature.latitude)).forEach((feature) => points.push(createMapPoint(feature.longitude, feature.latitude, "feature", feature.name, map, "国家首都"))); }
+    if (state.mapView.scale >= 7) { elements.mapLayerLegend.textContent = "地点标签"; state.snapshot.locations.filter((location) => mapContains(map, location.longitude, location.latitude)).forEach((location) => points.push(createMapPoint(location.longitude, location.latitude, "location", location.name, map, location.resources?.population == null ? "" : `人口 ${Number(location.resources.population).toLocaleString()}`, location.id))); }
+    else if (state.mapView.scale >= 3) { elements.mapLayerLegend.textContent = "地图要素"; (state.snapshot.map_features || []).filter((feature) => mapContains(map, feature.longitude, feature.latitude)).forEach((feature) => points.push(createMapPoint(feature.longitude, feature.latitude, "feature", feature.name, map, feature.feature_type))); }
+    else { elements.mapLayerLegend.textContent = "主要地标"; const features = state.snapshot.map_features || []; const important = features.filter((feature) => ["capital", "landmark"].includes(feature.feature_type)); (important.length ? important : features).filter((feature) => mapContains(map, feature.longitude, feature.latitude)).forEach((feature) => points.push(createMapPoint(feature.longitude, feature.latitude, "feature", feature.name, map, feature.feature_type))); }
   }
+  const visibleNpcs = state.gameSceneWorldId === state.worldId && state.gameScene?.map?.id === map.id
+    ? state.gameScene.npcs : (state.snapshot?.characters || []).filter((person) => !person.is_player);
+  const mapNpcs = visibleNpcs.filter((person) => (person.space_layer || "ground") === (player.space_layer || "ground") && mapContains(map, person.longitude, person.latitude));
+  renderMapNpcPicker(map, mapNpcs);
+  mapNpcs.forEach((person) => {
+    const point = createMapPoint(person.longitude, person.latitude, "npc", person.name, map, person.identity || "NPC");
+    point.dataset.characterId = person.id; point.classList.toggle("selected", person.id === state.selectedMapNpcId); points.push(point);
+  });
   points.push(createMapPoint(predictedPlayer.longitude, predictedPlayer.latitude, "player", "我", map));
   if (movement && mapContains(map, movement.destination_longitude, movement.destination_latitude)) points.push(createMapPoint(movement.destination_longitude, movement.destination_latitude, "destination", "目标", map));
   elements.mapPoints.replaceChildren(...points); if (changed) { const restore = state.pendingMapView; state.pendingMapView = null; state.mapView.scale = restore?.scale ?? 1; state.mapView.x = restore?.x ?? 0; state.mapView.y = restore?.y ?? 0; } applyMapTransform();
 }
 function createMapPoint(longitude, latitude, kind, label, map, detail = "", locationId = null) { const point = document.createElement("span"); const projected = projectToMap(longitude, latitude, map); point.className = `map-point ${kind}`; point.dataset.mapX = String(projected.x / 100); point.dataset.mapY = String(projected.y / 100); if (locationId) point.dataset.locationId = locationId; point.title = `${label}${detail ? ` · ${detail}` : ""} · ${formatCoordinate(longitude, latitude)}`; point.innerHTML = `<i></i><span>${escapeHtml(label)}</span>`; return point; }
+function renderWonderPanel() {
+  let panel = document.querySelector("#map-wonders");
+  if (!panel) { panel = document.createElement("section"); panel.id = "map-wonders"; panel.className = "map-npc-info"; document.querySelector("#map-npc-info")?.before(panel); }
+  const player = currentPlayer(); const wonders = state.gameSceneWorldId === state.worldId ? state.gameScene?.wonders || [] : [];
+  panel.hidden = !wonders.length;
+  panel.replaceChildren();
+  for (const wonder of wonders) {
+    const article = document.createElement("article");
+    const inside = player?.space_layer === wonder.space_layer;
+    const distance = distanceKm(player.longitude,player.latitude,wonder.longitude,wonder.latitude);
+    article.innerHTML = `<strong>${escapeHtml(wonder.name)} · ${inside ? "当前所在浮空城" : "已建成奇观"}</strong><p>${escapeHtml(wonder.description)}</p><small>${escapeHtml(wonder.sponsors.join("、"))}联合建设 · 高于地面 ${wonder.altitude_m} 米 · 距通道 ${(distance*1000).toFixed(0)} 米</small>`;
+    const button = document.createElement("button"); button.type = "button";
+    button.textContent = distance > .1 ? "走到公共升降通道" : inside ? "乘通道返回地面" : "登上浮空城";
+    button.addEventListener("click",() => {
+      if (distance > .1) { startMapMovement(wonder.longitude,wonder.latitude); return; }
+      perform("正在乘升降通道",async () => {
+        stopSteering(); await steerChain;
+        const result = await api(`/api/worlds/${state.worldId}/wonders/${wonder.id}/traverse`,{method:"POST",body:JSON.stringify({direction:inside ? "exit" : "enter"})});
+        state.manualView = false; applyGameScene(result.scene,state.worldId,true); return result;
+      },inside ? "已返回地面" : `已登上${wonder.name}`);
+    });
+    article.append(button); panel.append(article);
+  }
+}
+function renderMapNpcPicker(map, people) {
+  const key = `${state.worldId}:${map.id}:${people.map((person) => person.id).join("|")}`;
+  if (key !== state.mapNpcListKey) {
+    elements.mapNpcSelect.replaceChildren(new Option(`本图 ${people.length} 位 NPC · 选择定位`, ""), ...people.map((person) => new Option(person.name, person.id)));
+    state.mapNpcListKey = key;
+  }
+  if (state.selectedMapNpcId && !people.some((person) => person.id === state.selectedMapNpcId)) {
+    state.selectedMapNpcId = null;
+    $("#map-npc-info").hidden = true;
+  }
+  elements.mapNpcSelect.value = state.selectedMapNpcId || "";
+}
+function focusMapNpc(characterId) {
+  const person = state.gameScene?.npcs.find((item) => item.id === characterId) || characterById(characterId);
+  if (!person || !state.activeMap || !mapContains(state.activeMap, person.longitude, person.latitude)) return;
+  state.selectedMapNpcId = characterId;
+  elements.mapNpcSelect.value = characterId;
+  const view = state.mapView;
+  view.scale = Math.max(3, view.scale);
+  const position = projectToMap(person.longitude, person.latitude, state.activeMap);
+  view.x = elements.mapShell.clientWidth * (0.5 - position.x / 100 * view.scale);
+  view.y = elements.mapShell.clientHeight * (0.5 - position.y / 100 * view.scale);
+  elements.mapPoints.querySelectorAll(".map-point.npc").forEach((marker) => marker.classList.toggle("selected", marker.dataset.characterId === characterId));
+  applyMapTransform();
+}
+async function refreshGameScene() {
+  if (!state.worldId || state.currentRoom !== "map" || !currentPlayer() || state.sceneRequestPending) return;
+  state.sceneRequestPending = true;
+  try {
+    const worldId = state.worldId;
+    const scene = await api(`/api/worlds/${worldId}/game-scene`);
+    if (state.worldId !== worldId) return;
+    applyGameScene(scene, worldId);
+  } catch (error) { showToast(error.message, true); } finally { state.sceneRequestPending = false; }
+}
+let playerFrame = null;
+function displayedPlayerPosition() {
+  const player = currentPlayer();
+  if (!playerFrame || playerFrame.worldId !== state.worldId ||
+      new Date(state.snapshot?.world.current_time) > new Date(playerFrame.worldTime)) return player;
+  const ratio = Math.min(1, Math.max(0, (performance.now() - playerFrame.capturedAt) / 300));
+  return { longitude: playerFrame.from.longitude + (playerFrame.to.longitude - playerFrame.from.longitude) * ratio,
+    latitude: playerFrame.from.latitude + (playerFrame.to.latitude - playerFrame.from.latitude) * ratio };
+}
+function applyGameScene(scene, worldId, immediate = false) {
+  if (state.worldId !== worldId || !scene.player) return;
+  if (state.gameSceneWorldId === worldId && state.gameScene &&
+      (new Date(scene.world_time) < new Date(state.gameScene.world_time) ||
+       (scene.steering?.sequence || 0) < (state.gameScene.steering?.sequence || 0))) return;
+  const from = immediate ? scene.player : displayedPlayerPosition() || scene.player;
+  playerFrame = { worldId, worldTime: scene.world_time, from, to: scene.player, capturedAt: performance.now() };
+  const previous = state.gameSceneWorldId === worldId && state.gameScene?.map?.id === scene.map?.id
+    ? new Map(state.gameScene.npcs.map((person) => [person.id, person])) : new Map();
+  state.npcFrames = new Map(scene.npcs.map((person) => [person.id, { from: previous.get(person.id) || person, to: person }]));
+  state.npcSceneCapturedAt = performance.now();
+  state.gameScene = scene; state.gameSceneWorldId = worldId;
+  Object.assign(currentPlayer(), scene.player);
+  renderMap(); renderMovement(currentMovement()); renderTransport(currentPlayer());
+}
+function drawPlayerFrame() {
+  if (state.currentRoom !== "map" || currentMovement() || !state.activeMap) return;
+  const player = displayedPlayerPosition(); if (!player) return;
+  const marker = elements.mapPoints.querySelector(".map-point.player"); if (!marker) return;
+  const projected = projectToMap(player.longitude, player.latitude, state.activeMap);
+  marker.dataset.mapX = String(projected.x / 100); marker.dataset.mapY = String(projected.y / 100);
+  updateMapPointScreenPosition(marker);
+  if (!state.manualView) elements.mapCoordinate.textContent = formatCoordinate(player.longitude, player.latitude);
+}
+async function inspectMapNpc(characterId) {
+  const person = characterById(characterId);
+  if (!person) return;
+  focusMapNpc(characterId);
+  const panel = $("#map-npc-info");
+  panel.hidden = false;
+  panel.innerHTML = `<strong>${escapeHtml(person.name)}</strong><p>${escapeHtml(person.identity || "身份未明")}</p><small>正在读取目标…</small><ol data-map-steps></ol><div><button type="button" data-map-talk>交谈</button><button type="button" data-map-interact>交互</button></div>`;
+  panel.querySelector("[data-map-talk]").addEventListener("click", () => { state.selectedDialogueIds = [characterId]; setComposerMode("dialogue"); switchRoom("scene"); renderDialogueTargets(); elements.playerIntent.focus(); });
+  panel.querySelector("[data-map-interact]").addEventListener("click", () => { state.selectedDialogueIds = [characterId]; setComposerMode("action"); switchRoom("scene"); elements.playerIntent.focus(); });
+  try {
+    const data = await api(`/api/worlds/${state.worldId}/npc-agency/${characterId}`);
+    const active = data.goals.filter((goal) => ["active", "blocked", "waiting"].includes(goal.status));
+    panel.querySelector("small").textContent = active.length ? active.map((goal) => `${goal.motive} · ${goal.next_step?.reason || goal.next_step?.action || "正在规划"}`).join("；") : "暂无进行中的目标，可查看近期行动结果";
+    const steps = data.goals.flatMap((goal) => goal.steps.map((step) => ({ goal, step }))).sort((a, b) => a.step.world_time.localeCompare(b.step.world_time));
+    panel.querySelector("[data-map-steps]").innerHTML = steps.slice(-5).map(({ step }) => `<li title="${escapeHtml((step.result_causes?.length ? step.result_causes : step.causes || []).map((cause) => cause.summary).join("；"))}">${escapeHtml(step.result_summary || step.event_summary || step.reason)} <em>${step.execution_status === "running" ? "进行中" : step.status === "rejected" ? "受阻" : "已完成"}</em></li>`).join("");
+  } catch (error) { panel.querySelector("small").textContent = error.message; }
+}
+const heldMoveKeys = new Set();
+let steerSequence = Date.now();
+let steerChain = Promise.resolve();
+let steerBusy = false;
+function steerDirection() {
+  const dx = Number(heldMoveKeys.has("d")) - Number(heldMoveKeys.has("a"));
+  const dy = Number(heldMoveKeys.has("w")) - Number(heldMoveKeys.has("s"));
+  return { dx, dy };
+}
+function sendSteer(stop = false, repeat = false) {
+  if (repeat && steerBusy) return;
+  if (!state.worldId || !currentPlayer()) return;
+  const worldId = state.worldId;
+  const direction = steerDirection();
+  if (!direction.dx && !direction.dy) stop = true;
+  const sequence = ++steerSequence;
+  const path = stop ? "player/steer/stop" : "player/steer";
+  const payload = stop ? { sequence } : { ...direction, sequence };
+  steerChain = steerChain.catch(() => {}).then(async () => {
+    steerBusy = true;
+    try {
+      const result = await api(`/api/worlds/${worldId}/${path}`, { method: "POST", body: JSON.stringify(payload) });
+      if (state.worldId !== worldId) return;
+      if (!stop) state.snapshot.movements = (state.snapshot.movements || []).filter((item) => item.character_id !== currentPlayer().id);
+      applyGameScene(result.scene, worldId, stop);
+    } finally { steerBusy = false; }
+  }).catch((error) => { if (error.status !== 409) { heldMoveKeys.clear(); showToast(error.message, true); } });
+}
+function stopSteering() { if (!heldMoveKeys.size) return; heldMoveKeys.clear(); sendSteer(true); }
+function drawNpcFrame() {
+  if (state.currentRoom !== "map" || !state.npcFrames.size || !state.activeMap) return;
+  const now = performance.now();
+  if (now - state.lastNpcPaintAt < 33) return;
+  state.lastNpcPaintAt = now;
+  const fraction = Math.min(1, (now - state.npcSceneCapturedAt) / 1800);
+  elements.mapPoints.querySelectorAll(".map-point.npc[data-character-id]").forEach((marker) => {
+    const frame = state.npcFrames.get(marker.dataset.characterId);
+    if (!frame) return;
+    const longitude = frame.from.longitude + (frame.to.longitude - frame.from.longitude) * fraction;
+    const latitude = frame.from.latitude + (frame.to.latitude - frame.from.latitude) * fraction;
+    const projected = projectToMap(longitude, latitude, state.activeMap);
+    marker.dataset.mapX = String(projected.x / 100); marker.dataset.mapY = String(projected.y / 100);
+    updateMapPointScreenPosition(marker);
+  });
+}
 function clampMapView() {
   const width = elements.mapShell.clientWidth; const height = elements.mapShell.clientHeight; const view = state.mapView;
   view.x = Math.min(0, Math.max(width * (1 - view.scale), view.x)); view.y = Math.min(0, Math.max(height * (1 - view.scale), view.y));
@@ -621,7 +1069,8 @@ function coordinateFromMapPointer(event) {
 }
 function startMapMovement(longitude, latitude) {
   if (currentMovement()) { showToast("你已经在移动中，请先取消当前行程", true); return; }
-  const player = currentPlayer(); perform("正在规划移动路线", () => api(`/api/worlds/${state.worldId}/player/move`, { method: "POST", body: JSON.stringify({ destination_longitude: longitude, destination_latitude: latitude, vehicle_id: player?.active_vehicle_id || null }) }), `已经开始前往 ${formatCoordinate(longitude, latitude, 2)}`, () => switchRoom("map"));
+  stopSteering();
+  const player = currentPlayer(); perform("正在规划移动路线", async () => { await steerChain; const result = await api(`/api/worlds/${state.worldId}/player/move`, { method: "POST", body: JSON.stringify({ destination_longitude: longitude, destination_latitude: latitude, vehicle_id: player?.active_vehicle_id || null }) }); state.gameScene = null; playerFrame = null; return result; }, `已经开始前往 ${formatCoordinate(longitude, latitude, 2)}`, () => switchRoom("map"));
 }
 
 function renderCombatPanel(snapshot) {
@@ -646,16 +1095,240 @@ function enableNodeDrag(svg, group, id, lineLayer) { let dragging = false; const
 
 async function openCharacterProfile(characterId) {
   if (!state.currentRoom.startsWith("observer") && typeof openKnownProfile === "function" && characterId !== currentPlayer()?.id) { openKnownProfile(characterId); return; }
-  const character = characterById(characterId); if (!character) return; const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude); const rel = relationFor(character.id); const activationLabel = character.is_player ? "主视角" : character.activation_state === "active" ? "激活NPC" : "背景NPC"; const avatar = character.portrait_url ? `<img class="profile-avatar-image" src="${escapeHtml(character.portrait_url)}" alt="${escapeHtml(character.name)}的人设图" />` : `<span class="profile-avatar">${escapeHtml(character.name.slice(0, 1))}</span>`; const player = currentPlayer(); const canExchangeContact = !character.is_player && player && distanceKm(player.longitude, player.latitude, character.longitude, character.latitude) <= VISIBLE_PERSON_RADIUS_KM; elements.characterProfile.innerHTML = `<header class="profile-head">${avatar}<div><p class="kicker">人物档案 · ${activationLabel}</p><h1>${escapeHtml(character.name)}</h1><p>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(location?.name || "位置未知")}</p><strong>${formatCoordinate(character.longitude, character.latitude)}</strong></div></header><dl class="profile-stats"><div><dt>生命</dt><dd>${character.health}</dd></div><div><dt>精力</dt><dd>${character.energy}</dd></div><div><dt>饱食</dt><dd>${character.satiety}</dd></div><div><dt>亲和</dt><dd>${rel?.affinity ?? "未知"}</dd></div><div><dt>信任</dt><dd>${rel?.trust ?? "未知"}</dd></div></dl><section><h2>近期回忆</h2><div id="profile-memories"><p class="empty-list">正在读取……</p></div></section><div class="profile-actions"><button class="button primary" data-profile-action="talk" type="button">与其交谈</button>${character.is_player ? "" : `<button class="button danger" data-profile-action="attack" type="button">向其攻击</button>${canExchangeContact ? `<button class="button secondary" data-profile-action="contact" type="button">交换信笺</button>` : ""}`}</div>`;
+  const character = characterById(characterId); if (!character) return; const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude, character.space_layer || "ground"); const rel = relationFor(character.id); const activationLabel = character.is_player ? "主视角" : character.activation_state === "active" ? "激活NPC" : "背景NPC"; const avatar = avatarMarkup(character, "profile-avatar"); const player = currentPlayer(); const canExchangeContact = !character.is_player && player && distanceKm(player.longitude, player.latitude, character.longitude, character.latitude) <= VISIBLE_PERSON_RADIUS_KM; elements.characterProfile.innerHTML = `<header class="profile-head">${avatar}<div><p class="kicker">人物档案 · ${activationLabel}</p><h1>${escapeHtml(character.name)}</h1><p>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(location?.name || "位置未知")}</p><strong>${formatCoordinate(character.longitude, character.latitude)}</strong></div></header><dl class="profile-stats"><div><dt>生命</dt><dd>${character.health}</dd></div><div><dt>精力</dt><dd>${character.energy}</dd></div><div><dt>饱食</dt><dd>${character.satiety}</dd></div><div><dt>亲和</dt><dd>${rel?.affinity ?? "未知"}</dd></div><div><dt>信任</dt><dd>${rel?.trust ?? "未知"}</dd></div></dl><section><h2>近期回忆</h2><div id="profile-memories"><p class="empty-list">正在读取……</p></div></section><div class="profile-actions">${character.is_player ? `<label class="button secondary avatar-upload-control">上传我的头像<input id="player-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" /></label>` : `<button class="button primary" data-profile-action="talk" type="button">与其交谈</button><button class="button danger" data-profile-action="attack" type="button">向其攻击</button>${canExchangeContact ? `<button class="button secondary" data-profile-action="contact" type="button">交换信笺</button>` : ""}`}</div>`;
+  if (character.is_player) $("#player-avatar-file").addEventListener("change", (event) => uploadPlayerAvatar(event.target.files?.[0], character.id));
   if (!character.is_player) { const stats = elements.characterProfile.querySelector(".profile-stats"); for (const [label, value] of [["性别", character.gender || "未知"], ["年龄", character.age_years == null ? "未知" : `${character.age_years}岁`]]) { const item = document.createElement("div"); const heading = document.createElement("dt"); const detail = document.createElement("dd"); heading.textContent = label; detail.textContent = value; item.append(heading, detail); stats.append(item); } }
   elements.characterProfile.querySelectorAll("[data-profile-action]").forEach((button) => button.addEventListener("click", () => { const action = button.dataset.profileAction; if (action === "contact") { perform("正在询问对方是否交换信笺", () => api(`/api/worlds/${state.worldId}/contacts`, { method: "POST", body: JSON.stringify({ recipient_id: character.id }) }), "联络请求已得到回应", (result) => showToast(result.response, result.status !== "accepted")); elements.characterDialog.close(); return; } const prefix = { talk: "与", attack: "攻击" }[action]; fillIntent(action === "talk" ? `与${character.name}交谈` : `${prefix}${character.name}`, action === "talk" ? character.id : null); elements.characterDialog.close(); }));
+  if (!character.is_player) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button secondary";
+    button.textContent = "绑定 SillyTavern 角色卡";
+    button.addEventListener("click", () => importSillyTavernCard(character));
+    elements.characterProfile.querySelector(".profile-actions").append(button);
+  }
   elements.characterDialog.showModal();
-  if (!character.is_player) { try { const card = await api(`/api/worlds/${state.worldId}/characters/${characterId}/character-card`); const section = document.createElement("section"); section.className = "profile-character-card"; section.innerHTML = `<h2>人物印象</h2><p><strong>${escapeHtml(card.public_role)}</strong> · ${escapeHtml(card.expression_notes)}</p><p>近来挂念：${escapeHtml(card.current_preoccupation)}</p><small>${escapeHtml(card.social_boundary)}</small>`; elements.characterProfile.querySelector(".profile-actions").before(section); } catch (error) { console.warn("读取角色卡失败", error); } }
+  if (!character.is_player) { try { const card = await api(`/api/worlds/${state.worldId}/characters/${characterId}/character-card`); const section = document.createElement("section"); section.className = "profile-character-card"; section.innerHTML = `<h2>人物印象</h2><p><strong>${escapeHtml(card.public_role)}</strong> · ${escapeHtml(card.expression_notes)}</p><p>近来挂念：${escapeHtml(card.current_preoccupation)}</p><small>${escapeHtml(card.social_boundary)}</small>`; elements.characterProfile.querySelector(".profile-actions").before(section); updateSillyTavernCardControls(character, card); } catch (error) { console.warn("读取角色卡失败", error); } }
   try { const memories = await api(`/api/worlds/${state.worldId}/characters/${characterId}/memories?limit=8`); const box = $("#profile-memories"); box.replaceChildren(...memories.map((memory) => { const article = document.createElement("article"); article.innerHTML = `<strong>${escapeHtml(memory.summary)}</strong><small>重要度 ${memory.importance} · ${escapeHtml(formatRealTime(memory.created_at))}</small>`; return article; })); if (!memories.length) box.append(emptyElement("p", "还没有可读取的回忆", "empty-list")); } catch (error) { $("#profile-memories").textContent = error.message; }
+}
+function updateSillyTavernCardControls(character, card) {
+  const section = elements.characterProfile.querySelector(".profile-character-card");
+  const actions = elements.characterProfile.querySelector(".profile-actions");
+  section?.querySelector("[data-sillytavern-card]")?.remove();
+  actions?.querySelector("[data-remove-sillytavern-card]")?.remove();
+  if (!card.sillytavern_card) return;
+  if (section) {
+    const status = document.createElement("small");
+    status.dataset.sillytavernCard = "";
+    status.textContent = `已导入扮演卡：${card.sillytavern_card.name}`;
+    section.append(status);
+  }
+  if (actions) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "button secondary";
+    remove.dataset.removeSillytavernCard = "";
+    remove.textContent = "移除导入卡";
+    remove.addEventListener("click", async () => {
+      if (state.busy) return;
+      setBusy(true, "正在移除角色卡");
+      try {
+        const result = await api(`/api/worlds/${state.worldId}/characters/${character.id}/sillytavern-card`, { method: "DELETE" });
+        await refreshAll({ silent: true });
+        const image = elements.characterProfile.querySelector(".profile-avatar img");
+        if (image) image.src = avatarSource(characterById(character.id));
+        updateSillyTavernCardControls(character, result);
+        showToast(`${character.name} 已恢复本地扮演卡`);
+      } catch (error) { showToast(error.message, true); }
+      finally { setBusy(false); }
+    });
+    actions.append(remove);
+  }
+}
+function syncCardImportMode() {
+  const creating = elements.cardImportMode.value === "create";
+  $("#card-import-create-fields").hidden = !creating;
+  $("#card-import-bind-field").hidden = creating;
+  elements.cardImportIdentity.required = creating;
+  elements.cardImportLocation.required = creating;
+  elements.cardImportTarget.required = !creating;
+  $("#card-import-submit").textContent = creating ? "创建 NPC" : "绑定角色卡";
+  $("#card-import-submit").disabled = !state.cardImportPreview;
+}
+function openSillyTavernImport(mode = "create", targetId = null) {
+  if (state.busy || !state.worldId) return;
+  elements.cardImportForm.reset();
+  state.cardImportPreview = null;
+  state.cardImportAnalysis = null;
+  $("#card-import-preview").hidden = true;
+  $("#card-import-preview-fields").replaceChildren();
+  $("#card-import-people").hidden = true;
+  $("#card-import-person").replaceChildren(new Option("请选择人物", ""));
+  $("#card-import-related").replaceChildren();
+  elements.cardImportMode.value = mode;
+  elements.cardImportLocation.replaceChildren(...(state.snapshot?.locations || []).map((location) => new Option(location.name, location.id)));
+  elements.cardImportLocation.value = currentPlayer()?.current_location_id || state.snapshot?.locations?.[0]?.id || "";
+  elements.cardImportTarget.replaceChildren(...(state.snapshot?.characters || []).filter((person) => !person.is_player).map((person) => new Option(person.name, person.id)));
+  if (targetId) elements.cardImportTarget.value = targetId;
+  syncCardImportMode();
+  if (elements.characterDialog.open) elements.characterDialog.close();
+  elements.cardImportDialog.showModal();
+}
+function importSillyTavernCard(character) { openSillyTavernImport("bind", character.id); }
+const cardImportFields = [
+  ["name", "卡片姓名", 120], ["description", "背景描述", 4000],
+  ["personality", "性格与说话方式", 3000], ["scenario", "初始场景", 2400],
+  ["first_mes", "开场白", 1400], ["mes_example", "对话示例", 5000],
+  ["system_prompt", "卡片附带提示", 2400],
+  ["post_history_instructions", "后续提示", 1200],
+];
+function renderCardImportPreview(card) {
+  const source = $("#card-import-source");
+  source.hidden = !card.source_text;
+  source.open = false;
+  $("#card-import-source-text").textContent = card.source_text || "";
+  const container = $("#card-import-preview-fields");
+  container.replaceChildren(...cardImportFields.map(([key, title, limit]) => {
+    const label = document.createElement("label");
+    label.textContent = title;
+    const input = key === "name" ? document.createElement("input") : document.createElement("textarea");
+    input.dataset.cardField = key;
+    input.maxLength = limit;
+    input.value = card[key] || "";
+    if (key === "name") input.required = true;
+    label.append(input);
+    return label;
+  }));
+  $("#card-import-world-note").textContent = `请检查卡片是否适合「${state.snapshot?.world.name || "当前世界"}」；时代、技术、职业、地点和开场场景都可以在这里调整。卡片内容不会自动改写世界事实。`;
+  $("#card-import-preview").hidden = false;
+}
+function resetSillyTavernSelection() {
+  state.cardImportPreview = null;
+  $("#card-import-preview").hidden = true;
+  $("#card-import-source-text").textContent = "";
+  $("#card-import-submit").disabled = true;
+}
+function renderSillyTavernPeople(analysis) {
+  const people = analysis.people || [];
+  const select = $("#card-import-person");
+  select.replaceChildren(new Option("请选择人物", ""), ...people.map((person) => new Option(person.name, person.name)));
+  $("#card-import-people").hidden = people.length === 0;
+  $("#card-import-related").replaceChildren();
+  $("#card-import-parse-note").textContent = people.length
+    ? `识别出 ${people.length} 位人物。请选择一位，再核对属于她的补充条目；世界规则和其他人物不会自动绑定。`
+    : "未发现多人世界书人物条目，将按普通角色卡预览。";
+}
+function renderSillyTavernRelated(person) {
+  const container = $("#card-import-related");
+  const entries = state.cardImportAnalysis?.entries || [];
+  container.replaceChildren(...(person?.suggested_entry_indices || []).map((index) => {
+    const entry = entries.find((item) => item.index === index);
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = String(index);
+    input.dataset.cardRelated = "";
+    const review = entry?.requires_manual_review ? "（需手动整理）" : "";
+    label.append(input, document.createTextNode(` 合并补充条目：${entry?.title || `条目 ${index}`}${review}`));
+    return label;
+  }));
+}
+async function previewSelectedSillyTavernPerson() {
+  resetSillyTavernSelection();
+  const file = elements.cardImportFile.files?.[0];
+  const analysis = state.cardImportAnalysis;
+  if (!file || !analysis) return;
+  const personName = $("#card-import-person").value || null;
+  if (analysis.people.length && !personName) return;
+  const person = analysis.people.find((item) => item.name === personName);
+  if (person?.requires_manual_review) {
+    $("#card-import-parse-note").textContent = "此人物条目采用自由格式；请核对下面提取出的资料，必要时手动补全。";
+  }
+  const includeEntryIndices = $$('[data-card-related]:checked').map((input) => Number(input.value));
+  setBusy(true, "正在整理所选人物资料");
+  try {
+    const payload = { file_name: file.name, data_url: analysis.dataUrl,
+      person_name: personName, include_entry_indices: includeEntryIndices };
+    const card = await api(`/api/worlds/${state.worldId}/characters/sillytavern-preview`, {
+      method: "POST", body: JSON.stringify(payload),
+    });
+    state.cardImportPreview = { fileName: file.name, dataUrl: analysis.dataUrl,
+      personName, includeEntryIndices };
+    renderCardImportPreview(card);
+    if (personName && !card.description && !card.personality) {
+      $("#card-import-parse-note").textContent = "所选条目没有可安全拆分的普通人物设定；请在下方手动填写背景或性格后再绑定。";
+    }
+  } catch (error) { showToast(error.message, true); }
+  finally { setBusy(false); syncCardImportMode(); }
+}
+async function analyzeSillyTavernImport() {
+  resetSillyTavernSelection();
+  state.cardImportAnalysis = null;
+  $("#card-import-people").hidden = true;
+  const file = elements.cardImportFile.files?.[0];
+  if (!file) return showToast("请先选择角色卡文件", true);
+  if (file.size > 8 * 1024 * 1024 || !/\.(json|png)$/i.test(file.name)) {
+    showToast("角色卡只支持 8MiB 以内的 JSON 或 PNG", true);
+    return;
+  }
+  setBusy(true, "正在解析角色卡");
+  try {
+    const dataUrl = await readImageAsDataUrl(file);
+    const analysis = await api(`/api/worlds/${state.worldId}/characters/sillytavern-analyze`, {
+      method: "POST", body: JSON.stringify({ file_name: file.name, data_url: dataUrl }),
+    });
+    state.cardImportAnalysis = { ...analysis, dataUrl };
+    renderSillyTavernPeople(analysis);
+    if (!analysis.people.length) await previewSelectedSillyTavernPerson();
+  } catch (error) { showToast(error.message, true); }
+  finally { setBusy(false); syncCardImportMode(); }
+}
+async function submitSillyTavernImport(event) {
+  event.preventDefault();
+  if (state.busy) return;
+  const file = elements.cardImportFile.files?.[0];
+  if (!file) return showToast("请选择角色卡文件", true);
+  if (!state.cardImportPreview || state.cardImportPreview.fileName !== file.name) return showToast("请先检查角色卡内容", true);
+  if (file.size > 8 * 1024 * 1024) return showToast("角色卡不能超过 8MiB", true);
+  if (!/\.(json|png)$/i.test(file.name)) return showToast("角色卡只支持 JSON 或 PNG", true);
+  const creating = elements.cardImportMode.value === "create";
+  const targetId = elements.cardImportTarget.value;
+  if (!creating && !targetId) return showToast("请选择要绑定的 NPC", true);
+  const path = creating ? `/api/worlds/${state.worldId}/characters/from-sillytavern` : `/api/worlds/${state.worldId}/characters/${encodeURIComponent(targetId)}/sillytavern-card`;
+  setBusy(true, creating ? "正在创建 NPC" : "正在绑定角色卡");
+  try {
+    const card_overrides = Object.fromEntries($$("#card-import-preview-fields [data-card-field]").map((input) => [input.dataset.cardField, input.value]));
+    const payload = { file_name: file.name, data_url: state.cardImportPreview.dataUrl, card_overrides,
+      person_name: state.cardImportPreview.personName,
+      include_entry_indices: state.cardImportPreview.includeEntryIndices };
+    if (creating) Object.assign(payload, { name: elements.cardImportName.value.trim() || null, identity: elements.cardImportIdentity.value.trim(), location_id: elements.cardImportLocation.value });
+    const result = await api(path, { method: "POST", body: JSON.stringify(payload) });
+    await refreshAll({ reloadWorlds: true, silent: true });
+    elements.cardImportDialog.close();
+    showToast(creating ? `${result.name} 已来到所选地点` : "角色卡已绑定到 NPC");
+  } catch (error) { showToast(error.message, true); }
+  finally { setBusy(false); }
 }
 
 function readImageAsDataUrl(file) {
-  return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error("读取人设图失败")); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("人设图内容无效")); reader.readAsDataURL(file); });
+  return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error("读取文件失败")); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("文件内容无效")); reader.readAsDataURL(file); });
+}
+async function uploadPlayerAvatar(file, characterId) {
+  if (!file || state.busy) return;
+  if (file.size > 8 * 1024 * 1024 || !["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+    showToast("头像只支持 8MiB 以内的 PNG、JPEG 或 WebP", true); return;
+  }
+  setBusy(true, "正在保存头像");
+  try {
+    const portrait = await api(`/api/worlds/${state.worldId}/characters/${characterId}/portrait`, {
+      method: "PUT", body: JSON.stringify({ data_url: await readImageAsDataUrl(file) }),
+    });
+    await refreshAll({ silent: true });
+    const image = elements.characterProfile.querySelector(".profile-avatar img");
+    if (image) image.src = portrait.url;
+    showToast("我的头像已更新");
+  } catch (error) { showToast(error.message, true); }
+  finally { setBusy(false); }
 }
 async function uploadSelectedPortrait({ required = false } = {}) {
   const file = elements.portraitFile.files?.[0];
@@ -675,6 +1348,27 @@ async function captureWorldPhoto() {
   return result;
 }
 
+const photoPreviewButton = document.createElement("button");
+photoPreviewButton.type = "button"; photoPreviewButton.id = "photo-preview-button";
+photoPreviewButton.className = "button secondary"; photoPreviewButton.textContent = "预览取景（不生图）";
+document.querySelector("#photo-form .form-actions")?.prepend(photoPreviewButton);
+const photoPreview = document.createElement("section"); photoPreview.id = "photo-preview"; photoPreview.hidden = true;
+document.querySelector("#photo-form")?.after(photoPreview);
+photoPreviewButton.addEventListener("click",() => perform("正在检查当前取景",async () => {
+  const player = currentPlayer(); if (!player) throw new Error("当前没有玩家视角");
+  const preview = await api(`/api/worlds/${state.worldId}/photos/preview`,{method:"POST",body:JSON.stringify({
+    photographer_character_id:player.id,direction:elements.photoDirection.value,
+    include_self:elements.photoIncludeSelf.checked,include_nearby_npcs:elements.photoIncludeNearby.checked,
+    included_character_ids:[...elements.photoCharacters.selectedOptions].map((item)=>item.value),
+    style_hint:elements.photoStyleHint.value.trim()
+  })});
+  const camera = preview.context.camera; const environment = preview.context.wonder_environment;
+  photoPreview.innerHTML = `<h3>当前取景预览</h3><p>${escapeHtml(camera.location_name)} · 朝向${escapeHtml(camera.direction_label)}</p><p>${escapeHtml(environment?.description || preview.context.terrain.description || preview.context.terrain.landform || "")}</p><p>同向地标：${escapeHtml(preview.context.landmarks.map((item)=>`${item.name}${item.altitude_m != null ? `（高于地面${item.altitude_m}米）` : ""}`).join("、") || "无" )}</p><small>仅准备拍摄场景，未请求生成图片。</small>`;
+  const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "查看拍摄场景说明";
+  const prompt = document.createElement("pre"); prompt.style.whiteSpace = "pre-wrap"; prompt.textContent = preview.prompt;
+  details.append(summary,prompt); photoPreview.append(details); photoPreview.hidden = false; return preview;
+},"取景已准备，未调用生图"));
+
 function renderNotebookReferences() {
   const keep = (select, records, label) => { const value = select.value; select.replaceChildren(new Option("无", ""), ...records.map((record) => new Option(label(record), record.id))); if ([...select.options].some((option) => option.value === value)) select.value = value; };
   keep(elements.notebookCharacter, state.snapshot.characters.filter((item)=>item.is_player || state.living?.known_people.some((known)=>known.id===item.id) || state.living?.people.some((known)=>known.id===item.id)), (item) => livingName(item)); keep(elements.notebookLocation, state.snapshot.locations, (item) => item.name); keep(elements.notebookEvent, knownEvents().slice(0, 100), (item) => humanizeEventSummary(item.summary).slice(0, 45));
@@ -693,33 +1387,143 @@ function renderClock(world) {
 function updateLiveClock() {
   if (!state.snapshot || !state.liveClockBase) return; const now = performance.now(); const shown = displayedWorldTime(now); const updateText = now - state.lastClockPaintAt >= 200; if (updateText) { elements.sceneTime.textContent = formatWorldTime(shown); elements.worldTime.textContent = formatWorldTime(shown); state.lastClockPaintAt = now; } updatePredictedMovement(shown, updateText);
 }
-function runLiveFrame() { if (document.visibilityState === "visible") updateLiveClock(); window.requestAnimationFrame(runLiveFrame); }
-function renderCharacters(characters) { elements.characterCount.textContent = `${characters.length} 人`; elements.characterGrid.replaceChildren(...characters.map((character) => { const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude); const demographic = character.is_player ? "玩家" : `${character.gender || "性别未知"}${character.age_years == null ? "" : ` · ${character.age_years}岁`}`; const card = document.createElement("button"); card.type = "button"; card.className = "character-card"; card.innerHTML = `<span class="avatar">${escapeHtml(character.name.slice(0, 1))}</span><span><strong>${escapeHtml(character.name)}</strong><small>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(demographic)} · ${escapeHtml(location?.name || "位置未知")}</small><em>${formatCoordinate(character.longitude, character.latitude, 4)}</em></span><b>${character.is_player ? "玩家" : character.activation_state === "active" ? "激活" : "背景"}</b>`; card.addEventListener("click", () => openCharacterProfile(character.id)); return card; })); }
+function runLiveFrame() { if (document.visibilityState === "visible") { updateLiveClock(); drawNpcFrame(); drawPlayerFrame(); } window.requestAnimationFrame(runLiveFrame); }
+function renderCharacters(characters) { elements.characterCount.textContent = `${characters.length} 人`; elements.characterGrid.replaceChildren(...characters.map((character) => { const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude, character.space_layer || "ground"); const demographic = character.is_player ? "玩家" : `${character.gender || "性别未知"}${character.age_years == null ? "" : ` · ${character.age_years}岁`}`; const card = document.createElement("button"); card.type = "button"; card.className = "character-card"; card.innerHTML = `${avatarMarkup(character)}<span><strong>${escapeHtml(character.name)}</strong><small>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(demographic)} · ${escapeHtml(location?.name || "位置未知")}</small><em>${formatCoordinate(character.longitude, character.latitude, 4)}</em></span><b>${character.is_player ? "玩家" : character.activation_state === "active" ? "激活" : "背景"}</b>`; card.addEventListener("click", () => openCharacterProfile(character.id)); return card; })); }
 function renderInterventionOptions(characters) { const value = elements.interventionCharacter.value; const available = characters.filter((character) => !character.is_player); elements.interventionCharacter.replaceChildren(...available.map((character) => new Option(character.name, character.id))); if (available.some((item) => item.id === value)) elements.interventionCharacter.value = value; }
 function renderAdjudications(runs) { elements.adjudicationList.replaceChildren(...runs.map((run) => { const item = document.createElement("li"); item.innerHTML = `<span><b>${escapeHtml(run.trigger_type === "player_intervention" ? "局部介入" : run.trigger_type === "manual" ? "手动裁判" : "自主裁判")}</b><time>${escapeHtml(formatRealTime(run.completed_at))}</time></span><strong>${escapeHtml(run.provider)}${run.fallback_used ? " · 已降级" : ""}</strong><small>${run.selected_character_ids.length} 名人物 · ${run.final_event_ids.length} 条事件</small>`; return item; })); if (!runs.length) elements.adjudicationList.append(emptyElement("li", "还没有裁判记录", "empty-list")); }
 
-function switchRoom(room, updateHash = true) { const valid = $(`[data-room-panel="${CSS.escape(room)}"]`) ? room : "scene"; state.currentRoom = valid; document.body.dataset.room = valid; $$('[data-room-panel]').forEach((panel) => { panel.hidden = panel.dataset.roomPanel !== valid; panel.classList.toggle("active", panel.dataset.roomPanel === valid); }); $$('[data-room]').forEach((button) => button.classList.toggle("active", button.dataset.room === valid)); if (updateHash) history.replaceState(null, "", `#${valid}`); elements.sideNavigation.classList.remove("open"); if (valid === "notebook") loadActivityRecords(); if (valid === "map") renderMap(); if (valid === "relationships") { state.relationshipKey = ""; renderRelationshipGraph(state.snapshot); } }
-async function perform(message, action, successMessage, afterSuccess = null) { if (state.busy || !state.worldId) return; setBusy(true, message); try { const result = await action(); await refreshAll({ reloadWorlds: true, silent: true }); if (afterSuccess) afterSuccess(result); showToast(successMessage); } catch (error) { showToast(error.message, true); } finally { setBusy(false); } }
+let sceneView = "dialogue";
+let composerMode = "dialogue";
+function setSceneView(view) {
+  sceneView = view === "details" ? "details" : "dialogue";
+  document.body.dataset.sceneView = sceneView;
+  const active = state.currentRoom === "scene";
+  $('button[data-room="scene"]')?.classList.toggle("active", active && sceneView === "dialogue");
+  $("#nav-scene-details")?.classList.toggle("active", active && sceneView === "details");
+}
+function switchRoom(room, updateHash = true) {
+  const valid = $(`[data-room-panel="${CSS.escape(room)}"]`) ? room : "scene";
+  if (valid !== "map") stopSteering();
+  state.currentRoom = valid; document.body.dataset.room = valid;
+  $$('[data-room-panel]').forEach((panel) => { panel.hidden = panel.dataset.roomPanel !== valid; panel.classList.toggle("active", panel.dataset.roomPanel === valid); });
+  $$('button[data-room]').forEach((button) => button.classList.toggle("active", button.dataset.room === valid));
+  setSceneView(sceneView);
+  if (updateHash) history.replaceState(null, "", `#${valid}`);
+  elements.sideNavigation.classList.remove("open");
+  if (valid === "notebook") loadActivityRecords(); if (valid === "map") { renderMap(); refreshGameScene(); }
+  if (valid === "relationships") { state.relationshipKey = ""; renderRelationshipGraph(state.snapshot); }
+}
+function setComposerMode(mode) {
+  composerMode = mode === "action" ? "action" : "dialogue";
+  if (composerMode === "action") state.selectedDialogueIds = [];
+  delete elements.playerIntent.dataset.presetValue;
+  $$('[data-composer-mode]').forEach((button) => { const active = button.dataset.composerMode === composerMode; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); });
+  elements.playerIntent.placeholder = composerMode === "dialogue" ? "说点什么，或描述你要做的事……" : "描述你要做的事……";
+  $("#player-delivery").closest("label").hidden = composerMode === "action";
+  renderDialogueTargets();
+}
+async function perform(message, action, successMessage, afterSuccess = null, options = {}) {
+  if ((state.busy && !options.continuing) || !state.worldId || (state.responsePending && !options.continuing)) return;
+  if (options.inline) {
+    if (options.continuing) addResponseStep(message);
+    else beginResponse(message);
+  } else setBusy(true, message);
+  let succeeded = false;
+  try {
+    const result = await action();
+    if (afterSuccess) afterSuccess(result);
+    showToast(successMessage);
+    if (options.inline) {
+      finishResponse(result?.npc_reply_pending ? "行动已保存；NPC 回应仍在后台生成" : successMessage);
+      if (result?.npc_reply_pending) {
+        elements.responseProgress.setAttribute("aria-busy", "true");
+        elements.responseProgressSummary.textContent = "NPC 正在思考 · 点击查看处理过程";
+      }
+    }
+    succeeded = true;
+  } catch (error) {
+    showToast(error.message, true);
+    if (options.inline) finishResponse(error.message, true);
+  } finally {
+    if (!options.inline) setBusy(false);
+  }
+  // Yuki 先把已结算的结果交给哥哥，其他面板在后台同步。
+  if (succeeded) void refreshAll({ silent: true });
+}
 
 const intentFormLabels = { purchase: "购买物品", sell: "出售物品", trade: "确认交易方向", transfer: "转交物品", learn: "学习技能", repair: "修理物品", heal: "接受治疗", letter_exchange: "交换联络信笺" };
+function intentInspectionText(preview) {
+  const kind = preview.route_kind;
+  const name = kind === "form" ? `${intentFormLabels[preview.operation] || "交互操作"}（待确认）`
+    : kind === "action" ? ({ gift: "赠与物品", approach: "靠近人物" }[preview.action_kind] || "行动")
+    : ({ speech: "对话", sequence: "多步行动", world: "交由世界裁决" }[kind] || "交由世界裁决");
+  const lines = [`识别意图：${name}`];
+  if (preview.item_name) lines.push(`提及物品：${preview.item_name}`);
+  if (preview.skill_name) lines.push(`提及技能：${preview.skill_name}`);
+  if (preview.amount != null) lines.push(`提及金额：${preview.amount} 铜币`);
+  const target = preview.target_label || preview.target_options?.find((item) => item.id === preview.target_character_id)?.name
+    || characterById(preview.target_character_id)?.name;
+  if (target) lines.push(`提及对象：${target}`);
+  if (preview.sequence_steps?.length) preview.sequence_steps.forEach((step, index) => {
+    lines.push(`第 ${index + 1} 步（${step.kind === "speech" ? "对话" : "行动"}）：${step.text}`);
+  });
+  else if (preview.route_detail) lines.push(`输入内容：${preview.route_detail}`);
+  return lines.join("\n");
+}
 function addIntentField(labelText, name, value = "", type = "text", required = true) { const label = document.createElement("label"); label.textContent = labelText; const input = document.createElement("input"); input.name = name; input.type = type; input.value = value ?? ""; input.required = required; if (type === "number") { input.min = "0"; input.step = "1"; } label.append(input); elements.intentFormFields.append(label); return input; }
 function openIntentForm(preview) { state.intentPreview = preview; elements.intentFormFields.replaceChildren(); elements.intentFormTitle.textContent = intentFormLabels[preview.operation] || "补全行动细节"; elements.intentFormNote.textContent = "请核对对象与数值；确认后才会进入规则校验和世界结算。"; const targetLabel = document.createElement("label"); targetLabel.textContent = "交互对象"; const target = document.createElement("select"); target.name = "target_character_id"; target.required = true; const blank = document.createElement("option"); blank.value = ""; blank.textContent = "请选择附近人物"; target.append(blank); for (const item of preview.target_options || []) { const option = document.createElement("option"); option.value = item.id; option.textContent = item.identity ? `${item.name} · ${item.identity}` : item.name; option.selected = item.id === preview.target_character_id; target.append(option); } targetLabel.append(target); elements.intentFormFields.append(targetLabel); if (preview.operation === "trade") { const label = document.createElement("label"); label.textContent = "交易方向"; const select = document.createElement("select"); select.name = "trade_direction"; for (const [value, text] of [["purchase", "我要购买"], ["sell", "我要出售"]]) { const option = document.createElement("option"); option.value = value; option.textContent = text; select.append(option); } label.append(select); elements.intentFormFields.append(label); } if (["purchase", "sell", "trade", "transfer", "repair"].includes(preview.operation)) addIntentField("物品名称", "item_name", preview.item_name); if (["purchase", "sell", "trade", "learn"].includes(preview.operation)) addIntentField(preview.operation === "learn" ? "学费（铜币）" : "金额（铜币）", "amount", preview.amount ?? "", "number"); if (preview.operation === "learn") addIntentField("技能名称", "skill_name", preview.skill_name); elements.intentFormDialog.showModal(); }
-function executePlayerIntent(intent, targetCharacterId = null) { const payload = { intent, delivery: $("#player-delivery")?.value || "normal" }; if (targetCharacterId) payload.target_character_id = targetCharacterId; perform("世界正在回应你的行动", () => api(`/api/worlds/${state.worldId}/player/act`, { method: "POST", body: JSON.stringify(payload) }), "你的行动已写入世界", (result) => { renderActionResult(result.outcome, result); if (result.outcome.action !== "socialize" && !result.npc_reply && !result.npc_reply_error) state.conversationTargetId = null; elements.playerIntent.value = ""; saveIntentDraft(); }); }
-function executeGroupDialogue(intent) { perform("在场人物正在斟酌回应", () => api(`/api/worlds/${state.worldId}/player/group-dialogue`, { method: "POST", body: JSON.stringify({ intent, max_speakers: 2, delivery: $("#player-delivery")?.value || "normal" }) }), "多人对话已写入世界", (result) => { elements.actionResult.textContent = result.replies.map((item) => `${item.name}：“${item.reply}”`).join("  "); elements.actionResult.hidden = false; state.groupDialogueMode = false; state.conversationTargetId = null; elements.playerIntent.value = ""; saveIntentDraft(); }); }
-function requestLearning(targetCharacterId, skill, payment) { perform("正在向 NPC 请求教学", async () => { const review = await api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId, operation_type: "学习", terms: { skill, payment, title: `学习${skill}` } }) }); if (review.status === "npc_countered") return { review, countered: true }; if (review.status !== "npc_accepted") throw new Error(review.npc_response || "NPC 没有同意教学"); const confirmed = await api(`/api/worlds/${state.worldId}/long-term-requests/${review.id}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }); confirmed.npc_response = review.npc_response; return confirmed; }, "NPC 的回应已写入长期事务", (result) => { if (result.countered) { switchRoom("agreements"); return; } elements.actionResult.textContent = `${result.npc_response} 你已学会${skill}。`; elements.actionResult.hidden = false; elements.playerIntent.value = ""; saveIntentDraft(); }); }
-function requestLetterExchange(targetCharacterId) { perform("正在询问对方是否交换信笺", () => api(`/api/worlds/${state.worldId}/contacts`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId }) }), "联络信笺已交换", (result) => { if (result.status !== "accepted") showToast(result.response, true); else state.selectedContactId = targetCharacterId; }); }
-async function previewPlayerIntent(intent) { if (state.busy || !state.worldId) return; const payload = { intent }; if (state.conversationTargetId) payload.target_character_id = state.conversationTargetId; let directTargetId = null; let shouldExecute = false; let sequencePlan = null; setBusy(true, "正在理解你的行动"); try { const preview = await api(`/api/worlds/${state.worldId}/player/intents/preview`, { method: "POST", body: JSON.stringify(payload) }); if (preview.sequence_steps?.length >= 2) sequencePlan = preview.sequence_steps; else if (preview.requires_form) openIntentForm(preview); else { directTargetId = state.conversationTargetId; shouldExecute = true; } } catch (error) { showToast(error.message, true); } finally { setBusy(false); } if (sequencePlan) executeSequencePlan(sequencePlan); else if (shouldExecute) executePlayerIntent(intent, directTargetId); }
+function executePlayerIntent(intent, targetCharacterId = null, continuing = false) { const payload = { intent, delivery: $("#player-delivery")?.value || "normal" }; if (targetCharacterId) payload.target_character_id = targetCharacterId; perform("已按上述意图提交世界规则结算；NPC 回应可能随后生成", () => api(`/api/worlds/${state.worldId}/player/act`, { method: "POST", body: JSON.stringify(payload) }), "行动结果已写入世界", (result) => { addResponseStep(`世界结算：${result.outcome.summary}`); renderActionResult(result.outcome, result); if (result.npc_reply_pending) { state.progressReactionEventId = result.outcome.event_id; window.setTimeout(() => watchActionReaction(state.worldId, result.outcome), 0); } if (result.outcome.action !== "socialize" && !result.npc_reply && !result.npc_reply_error) { state.selectedDialogueIds = []; renderDialogueTargets(); } elements.playerIntent.value = ""; saveIntentDraft(); }, { inline: true, continuing }); }
+function executeGroupDialogue(intent) { const participantIds = [...state.selectedDialogueIds]; const speech = intent.replace(/^(?:说话|对话|发言)\s*[：:]\s*/, "").trim(); if (!speech) return showToast("先写下要说的话", true); perform("已提交发言；正在等待所选人物的回应", () => { addResponseStep(`识别意图：多人对话\n提及对象：${participantIds.map((id) => characterById(id)?.name || id).join("、")}\n输入内容：${speech}`); return api(`/api/worlds/${state.worldId}/player/group-dialogue`, { method: "POST", body: JSON.stringify({ intent: speech, participant_ids: participantIds, max_speakers: 3, delivery: $("#player-delivery")?.value || "normal" }) }); }, "多人对话已写入世界", () => { hideActionResult(); state.selectedDialogueIds = []; renderDialogueTargets(); elements.playerIntent.value = ""; saveIntentDraft(); }, { inline: true }); }
+function requestLearning(targetCharacterId, skill, payment) { perform("已提交教学请求，正在等待 NPC 审阅", async () => { const review = await api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId, operation_type: "学习", terms: { skill, payment, title: `学习${skill}` } }) }); if (review.status === "npc_countered") return { review, countered: true }; if (review.status !== "npc_accepted") throw new Error(review.npc_response || "NPC 没有同意教学"); addResponseStep("NPC 已同意，正在确认教学结果"); const confirmed = await api(`/api/worlds/${state.worldId}/long-term-requests/${review.id}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }); confirmed.npc_response = review.npc_response; return confirmed; }, "NPC 的回应已写入长期事务", (result) => { if (result.countered) { switchRoom("agreements"); return; } showActionResult(`${result.npc_response} 你已学会${skill}。`); elements.playerIntent.value = ""; saveIntentDraft(); }, { inline: true }); }
+function requestLetterExchange(targetCharacterId) { perform("已提交交换信笺请求，正在等待对方回应", () => api(`/api/worlds/${state.worldId}/contacts`, { method: "POST", body: JSON.stringify({ recipient_id: targetCharacterId }) }), "联络信笺请求已处理", (result) => { if (result.status !== "accepted") showToast(result.response, true); else state.selectedContactId = targetCharacterId; }, { inline: true }); }
+async function previewPlayerIntent(intent) {
+  if (state.busy || state.responsePending || !state.worldId) return;
+  const payload = { intent };
+  if (state.conversationTargetId) payload.target_character_id = state.conversationTargetId;
+  let directTargetId = null, shouldExecute = false, sequencePlan = null, inspectionText = null;
+  beginResponse("已收到输入，正在检查意图与所需参数");
+  try {
+    const preview = await api(`/api/worlds/${state.worldId}/player/intents/preview`, {
+      method: "POST", body: JSON.stringify(payload),
+    });
+    inspectionText = intentInspectionText(preview);
+    addResponseStep(inspectionText);
+    if (preview.sequence_steps?.length >= 2) {
+      sequencePlan = preview.sequence_steps;
+      finishResponse("已识别为多步行动，等待逐步执行");
+    } else if (preview.requires_form) {
+      openIntentForm(preview);
+      finishResponse("需要补全行动细节，尚未提交世界");
+    } else {
+      directTargetId = state.conversationTargetId;
+      shouldExecute = true;
+    }
+  } catch (error) {
+    showToast(error.message, true);
+    finishResponse(error.message, true);
+  }
+  if (sequencePlan) executeSequencePlan(sequencePlan, inspectionText);
+  else if (shouldExecute) executePlayerIntent(intent, directTargetId, true);
+}
 function canonicalIntentFromForm(preview, values, targetName) { const item = values.item_name?.trim(); const amount = Number(values.amount); const skill = values.skill_name?.trim(); const priced = ["purchase", "sell", "trade"].includes(preview.operation); if (priced && (!item || !Number.isInteger(amount) || amount <= 0)) throw new Error("请填写有效的物品名称和正整数金额"); if (preview.operation === "transfer" && !item) throw new Error("请填写要转交的物品"); if (preview.operation === "learn" && (!skill || !Number.isInteger(amount) || amount < 0)) throw new Error("请填写技能名称和非负学费"); if (preview.operation === "repair" && !item) throw new Error("请填写要修理的物品"); if (preview.operation === "purchase" || (preview.operation === "trade" && values.trade_direction === "purchase")) return `向${targetName}支付${amount}铜币购买${item}`; if (preview.operation === "sell" || preview.operation === "trade") return `向${targetName}出售${item}获得${amount}铜币`; if (preview.operation === "transfer") return `将${item}赠与${targetName}`; if (preview.operation === "learn") return `向${targetName}学习${skill}，支付${amount}铜币`; if (preview.operation === "repair") return `请${targetName}修理${item}`; return `请${targetName}治疗我`; }
 function renderActionResult(outcome, result = {}) {
   if (!outcome?.summary) return;
-  const lines = [humanizeEventSummary(outcome.summary)];
+  state.lastActionResultEventId = outcome.event_id;
+  if (state.currentRoom === "scene" && sceneView === "details") setSceneView("dialogue");
+  if ((outcome.action === "socialize" || result.npc_reply) && !result.npc_reply_error) {
+    hideActionResult();
+    return;
+  }
+  const lines = outcome.action === "socialize" && result.npc_reply
+    ? [`你：“${result.player_dialogue || ""}”`]
+    : [humanizeEventSummary(outcome.summary)];
+  if (result.npc_stage_direction) lines.push(result.npc_stage_direction);
   if (result.npc_reply) lines.push(`NPC 回应：“${result.npc_reply}”`);
+  if (result.npc_reply_pending) lines.push("NPC 正在回应，行动结果已经保存。");
   if (result.npc_reply_error) lines.push(result.npc_reply_error);
-  elements.actionResult.textContent = lines.join("\n");
-  elements.actionResult.hidden = false;
-  elements.actionResult.classList.remove("flash");
-  void elements.actionResult.offsetWidth;
-  elements.actionResult.classList.add("flash");
+  showActionResult(lines.join("\n"), {
+    sticky: Boolean(result.npc_reply_pending || result.npc_reply_error),
+  });
   let retry = $("#retry-action-reaction");
   if (!retry) {
     retry = document.createElement("button"); retry.id = "retry-action-reaction";
@@ -730,9 +1534,46 @@ function renderActionResult(outcome, result = {}) {
   retry.hidden = !result.npc_reply_error;
   retry.onclick = () => perform("正在请 NPC 回应已保存的行动", async () => {
     const reaction = await api(`/api/worlds/${state.worldId}/player/actions/${outcome.event_id}/reaction`, { method: "POST" });
-    renderActionResult(outcome, { npc_reply: reaction.reply, npc_reply_error: reaction.error });
+    renderActionResult(outcome, { npc_reply: reaction.reply, npc_stage_direction: reaction.stage_direction, npc_reply_error: reaction.error });
     return reaction;
-  }, "已检查行动回应");
+  }, "已检查行动回应", null, { inline: true });
+}
+
+const pollingReactions = new Set();
+const pendingReactionsKey = "virtual-world-pending-reactions";
+function savedPendingReactions() {
+  try { return JSON.parse(localStorage.getItem(pendingReactionsKey) || "[]"); }
+  catch (_) { return []; }
+}
+function watchActionReaction(worldId, outcome) {
+  const eventId = outcome.event_id;
+  if (!eventId || pollingReactions.has(eventId)) return;
+  const pending = savedPendingReactions().filter((item) => item.eventId !== eventId);
+  pending.push({ worldId, eventId, outcome });
+  localStorage.setItem(pendingReactionsKey, JSON.stringify(pending));
+  pollingReactions.add(eventId);
+  const poll = async () => {
+    try {
+      const reaction = await api(`/api/worlds/${worldId}/player/actions/${eventId}/reaction`);
+      if (reaction.status === "pending") { window.setTimeout(poll, 1500); return; }
+      pollingReactions.delete(eventId);
+      localStorage.setItem(pendingReactionsKey, JSON.stringify(savedPendingReactions().filter((item) => item.eventId !== eventId)));
+      if (worldId !== state.worldId) return;
+      if (state.progressReactionEventId === eventId) {
+        addResponseStep(reaction.status === "ready" ? "NPC 回应已写入世界" : (reaction.error || "NPC 回应未完成"));
+        elements.responseProgress.setAttribute("aria-busy", "false");
+        elements.responseProgressSummary.textContent = reaction.status === "ready" ? "处理完成 · 点击查看过程" : "处理未完成 · 点击查看原因";
+        state.progressReactionEventId = null;
+      }
+      if (state.lastActionResultEventId === eventId && outcome?.summary) {
+        renderActionResult(outcome, { npc_reply: reaction.reply, npc_stage_direction: reaction.stage_direction, npc_reply_error: reaction.error });
+      } else {
+        showToast(reaction.status === "ready" ? "NPC 已对行动作出回应" : (reaction.error || "NPC 回应未完成"), reaction.status !== "ready");
+      }
+      void refreshAll({ silent: true });
+    } catch (_) { window.setTimeout(poll, 3000); }
+  };
+  void poll();
 }
 function emptyElement(tag, text, className) { const node = document.createElement(tag); node.textContent = text; if (className) node.className = className; return node; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
@@ -754,23 +1595,46 @@ function renderLongTermTerms(terms) {
 }
 function saveIntentDraft() { if (state.worldId) localStorage.setItem(`virtual-world-intent:${state.worldId}`, elements.playerIntent.value); }
 
-$$('[data-room]').forEach((button) => button.addEventListener("click", () => switchRoom(button.dataset.room)));
+$$('button[data-room]').forEach((button) => button.addEventListener("click", () => { if (button.dataset.room === "scene") setSceneView("dialogue"); switchRoom(button.dataset.room); }));
+$("#nav-scene-details").addEventListener("click", () => { setSceneView("details"); switchRoom("scene"); });
+$("#scene-detail-toggle").addEventListener("click", () => { setSceneView("details"); switchRoom("scene"); });
+$("#aside-player-profile").addEventListener("click", () => { const player = currentPlayer(); if (player) openCharacterProfile(player.id); });
+$$('[data-composer-mode]').forEach((button) => button.addEventListener("click", () => setComposerMode(button.dataset.composerMode)));
+$("#player-delivery").addEventListener("change", renderDialogueTargets);
+elements.dialogueTargetAll.addEventListener("click", () => { const ids = dialogueTargetsInRange().map((item) => item.id); state.selectedDialogueIds = ids.length && ids.every((id) => state.selectedDialogueIds.includes(id)) ? [] : ids; renderDialogueTargets(); });
+elements.dialogueTargetPicker.addEventListener("toggle", () => { if (elements.dialogueTargetPicker.open) { elements.playerIntentForm.classList.remove("suggestions-open"); $("#suggestion-toggle").setAttribute("aria-expanded", "false"); } });
+$("#suggestion-toggle").addEventListener("click", (event) => { const open = elements.playerIntentForm.classList.toggle("suggestions-open"); if (open) elements.dialogueTargetPicker.open = false; event.currentTarget.setAttribute("aria-expanded", String(open)); });
 $$('[data-room-jump]').forEach((button) => button.addEventListener("click", () => switchRoom(button.dataset.roomJump)));
 elements.mobileNavToggle.addEventListener("click", () => elements.sideNavigation.classList.toggle("open"));
-elements.worldSelect.addEventListener("change", async (event) => { state.worldId = event.target.value; state.conversationTargetId = null; state.groupDialogueMode = false; resetMapView(); state.relationshipKey = ""; state.mapImage = null; await refreshAll(); loadMapFiles(); elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; });
+elements.worldSelect.addEventListener("change", async (event) => { state.worldId = event.target.value; state.conversationTargetId = null; state.groupDialogueMode = false; state.selectedDialogueIds = []; resetMapView(); state.relationshipKey = ""; state.mapImage = null; await refreshAll(); loadMapFiles(); elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; });
 elements.refreshButton.addEventListener("click", () => refreshAll({ reloadWorlds: true }));
 elements.playerCreateLocation.addEventListener("change", updatePlayerCreationMapSelection);
 elements.playerCreateMapMarkers.addEventListener("click", (event) => { const marker = event.target.closest("[data-location-id]"); if (marker) { elements.playerCreateLocation.value = marker.dataset.locationId; updatePlayerCreationMapSelection(); } });
 elements.playerCreateSecondaryLocations.addEventListener("click", (event) => { const button = event.target.closest("[data-location-id]"); if (button) { elements.playerCreateLocation.value = button.dataset.locationId; updatePlayerCreationMapSelection(); } });
 elements.playerCreateForm.addEventListener("submit", (event) => { event.preventDefault(); const name = elements.playerCreateName.value.trim(); const locationId = elements.playerCreateLocation.value; if (!name || !locationId) return showToast("请填写姓名并选择起始地点", true); const traits = elements.playerCreateTraits.value.split(/[，,]/).map((item) => item.trim()).filter(Boolean).slice(0, 5); perform("正在把你的角色写入世界", () => api(`/api/worlds/${state.worldId}/player`, { method: "POST", body: JSON.stringify({ name, identity: elements.playerCreateIdentity.value.trim() || "旅人", location_id: locationId, traits, goal: elements.playerCreateGoal.value.trim() }) }), `${name}已进入这个世界`); });
 elements.setupMapShell.addEventListener("wheel", (event) => { event.preventDefault(); state.setupMapScale = Math.max(1, Math.min(12, state.setupMapScale * Math.exp(-event.deltaY * 0.0015))); elements.setupMapCamera.style.transform = `scale(${state.setupMapScale})`; }, { passive: false });
-elements.playerIntentForm.addEventListener("submit", (event) => { event.preventDefault(); const intent = elements.playerIntent.value.trim(); if (!intent) return showToast("先写下你此刻想做的事吧", true); if (state.groupDialogueMode) executeGroupDialogue(intent); else previewPlayerIntent(intent); });
+elements.playerIntentForm.addEventListener("submit", (event) => { event.preventDefault(); const raw = elements.playerIntent.value.trim(); if (!raw) return showToast("先写下你此刻想做的事吧", true); const explicit = /^(?:动作|说话|行动)\s*[：:]/.test(raw); const preset = elements.playerIntent.dataset.presetValue === raw; const approaching = /^(?:我)?(?:走到|走近|走向|靠近|来到|移动到|移动至|移到|前往).+(?:的)?(?:附近|身边|面前|旁边)[。！!]*$/.test(raw); const gifting = !/[？?]/.test(raw) && /^(?:我)?(?:(?:想要|想|要|打算|准备)\s*)?(?:将|把).+(?:赠与|赠送给|送给|交给|归还给).+/.test(raw); const actionInput = composerMode === "action" || /^(?:动作|行动)\s*[：:]/.test(raw) || approaching || gifting; const intent = explicit || preset || composerMode === "dialogue" ? raw : `动作：${raw}`; if (composerMode === "dialogue" && !actionInput && !state.selectedDialogueIds.length) return showToast("先选择要说话的人物", true); if (state.groupDialogueMode && !actionInput) executeGroupDialogue(intent); else previewPlayerIntent(intent); });
 elements.intentFormDialogClose.addEventListener("click", () => elements.intentFormDialog.close());
 elements.intentFormCancel.addEventListener("click", () => elements.intentFormDialog.close());
 elements.intentForm.addEventListener("submit", (event) => { event.preventDefault(); const preview = state.intentPreview; if (!preview) return; const values = Object.fromEntries(new FormData(elements.intentForm).entries()); const target = (preview.target_options || []).find((item) => item.id === values.target_character_id); if (!target) return showToast("请选择附近的交互对象", true); try { const intent = canonicalIntentFromForm(preview, values, target.name); elements.intentFormDialog.close(); if (preview.operation === "learn") requestLearning(target.id, values.skill_name.trim(), Number(values.amount)); else if (preview.operation === "letter_exchange") requestLetterExchange(target.id); else executePlayerIntent(intent, target.id); } catch (error) { showToast(error.message, true); } });
-elements.playerIntent.addEventListener("input", saveIntentDraft); elements.playerIntent.addEventListener("keydown", (event) => { if (event.key !== "Enter" || event.ctrlKey) return; event.preventDefault(); elements.playerIntentForm.requestSubmit(); });
+elements.playerIntent.addEventListener("input", () => { delete elements.playerIntent.dataset.presetValue; saveIntentDraft(); }); elements.playerIntent.addEventListener("keydown", (event) => { if (event.key !== "Enter" || event.ctrlKey) return; event.preventDefault(); elements.playerIntentForm.requestSubmit(); });
 elements.mapShell.addEventListener("wheel", (event) => { event.preventDefault(); zoomMap(Math.exp(-event.deltaY * 0.0015), event.clientX, event.clientY); }, { passive: false });
-elements.mapShell.addEventListener("pointerdown", (event) => { if (event.button !== 0) return; const view = state.mapView; const marker = event.target.closest(".map-point.location[data-location-id]"); view.dragging = true; view.moved = false; view.clickedLocationId = marker?.dataset.locationId || null; view.startX = event.clientX; view.startY = event.clientY; view.originX = view.x; view.originY = view.y; elements.mapShell.setPointerCapture(event.pointerId); });
+elements.mapShell.addEventListener("pointerdown", (event) => { if (event.button !== 0 || event.target.closest(".map-point.npc")) return; const view = state.mapView; const marker = event.target.closest(".map-point.location[data-location-id]"); view.dragging = true; view.moved = false; view.clickedLocationId = marker?.dataset.locationId || null; view.startX = event.clientX; view.startY = event.clientY; view.originX = view.x; view.originY = view.y; elements.mapShell.setPointerCapture(event.pointerId); });
+elements.mapPoints.addEventListener("click", (event) => { const npc = event.target.closest(".map-point.npc[data-character-id]"); if (npc) inspectMapNpc(npc.dataset.characterId); });
+elements.mapNpcSelect.addEventListener("change", (event) => { if (event.target.value) inspectMapNpc(event.target.value); });
+document.addEventListener("keydown", (event) => {
+  if (state.currentRoom !== "map" || event.ctrlKey || event.altKey || event.metaKey ||
+      event.target.closest("input,textarea,select,[contenteditable=true]") || document.querySelector("dialog[open]")) return;
+  const key = event.key.toLowerCase();
+  if (!["w", "a", "s", "d"].includes(key)) return;
+  event.preventDefault();
+  if (!heldMoveKeys.has(key)) { heldMoveKeys.add(key); sendSteer(); }
+});
+document.addEventListener("keyup", (event) => { const key = event.key.toLowerCase(); if (!heldMoveKeys.delete(key)) return; if (heldMoveKeys.size) sendSteer(); else sendSteer(true); });
+window.addEventListener("blur", stopSteering);
+document.addEventListener("focusin", (event) => { if (event.target.closest("input,textarea,select,[contenteditable=true]")) stopSteering(); });
+window.setInterval(() => { if (state.currentRoom === "map" && heldMoveKeys.size && document.visibilityState === "visible") { if (document.querySelector("dialog[open]")) stopSteering(); else sendSteer(false, true); } }, 450);
+window.setInterval(() => { if (document.visibilityState === "visible") refreshGameScene(); }, 1800);
 let terrainHoverTimer = null;
 async function refreshTerrainHover(longitude, latitude) {
   if (!state.worldId) return;
@@ -796,6 +1660,23 @@ elements.messageForm.addEventListener("submit", (event) => { event.preventDefaul
 elements.longTermForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = elements.longTermRecipient.value; if (!recipientId) return showToast("请先选择事务对象", true); const payment = Number(elements.longTermPayment.value); if (!Number.isInteger(payment) || payment < 0) return showToast("报酬必须是非负整数", true); const terms = { payment, title: elements.longTermTitle.value.trim(), details: elements.longTermDetails.value.trim(), duration_days: Number($("#long-term-duration").value) }; const kind = elements.longTermType.value; if (["约定","约定改期"].includes(kind)) { const value = $("#long-term-meeting-time").value; const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return showToast("请填写明确的世界见面时间",true); delete terms.duration_days; terms.meeting_world_time=date.toISOString(); terms.meeting_minutes=Number($("#long-term-meeting-minutes").value); terms.location_id=$("#long-term-meeting-location").value; if(kind === "约定改期") { const original=state.living?.appointments.find((item)=>item.id===$("#long-term-appointment").value); if(!original) return showToast("请选择仍可改期的约定",true); terms.appointment_id=original.id; terms.expected_revision=original.revision; terms.payment=0; }} if (kind === "住房") { terms.room_id = $("#long-term-room").value; if (!terms.room_id) return showToast("请选择对方的可租住房间", true); } if (kind === "借贷") terms.direction = $("#long-term-direction").value; if (kind === "租赁") { terms.vehicle_id = $("#long-term-vehicle").value; if (!terms.vehicle_id) return showToast("对方没有可租赁的载具", true); } if (["委托", "雇佣"].includes(kind)) { terms.fulfillment_action = "work"; terms.work_units = Number($("#long-term-units").value); } perform("正在请NPC审阅长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, operation_type: elements.longTermType.value, terms }) }), "NPC 已作出回应", (result) => { elements.longTermForm.reset(); updateContractFields(); showToast(result.npc_response, result.status === "npc_rejected"); }); });
 elements.longTermList.addEventListener("click", (event) => { const confirm = event.target.closest("[data-long-term-confirm]"); const remove = event.target.closest("[data-long-term-remove]"); const repay = event.target.closest("[data-contract-repay]"); if (repay) perform("正在结清借款", () => api(`/api/worlds/${state.worldId}/long-term-requests/${repay.dataset.contractRepay}/repay`, { method: "POST" }), "借款已结清"); if (confirm) perform("正在原子执行已确认事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${confirm.dataset.longTermConfirm}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }), "长期事务已执行并写入双方记忆"); if (remove) perform("正在结束长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${remove.dataset.longTermRemove}`, { method: "DELETE" }), "事务及其长期待办已移除"); });
 elements.characterDialogClose.addEventListener("click", () => elements.characterDialog.close()); elements.characterDialog.addEventListener("click", (event) => { if (event.target === elements.characterDialog) elements.characterDialog.close(); }); elements.playerProfileButton.addEventListener("click", () => { const player = currentPlayer(); if (player) openCharacterProfile(player.id); });
+$("#open-card-import").addEventListener("click", () => openSillyTavernImport());
+$("#card-import-close").addEventListener("click", () => elements.cardImportDialog.close());
+$("#card-import-cancel").addEventListener("click", () => elements.cardImportDialog.close());
+elements.cardImportMode.addEventListener("change", syncCardImportMode);
+elements.cardImportFile.addEventListener("change", () => {
+  resetSillyTavernSelection();
+  state.cardImportAnalysis = null;
+  $("#card-import-people").hidden = true;
+});
+$("#card-import-analyze").addEventListener("click", analyzeSillyTavernImport);
+$("#card-import-person").addEventListener("change", () => {
+  const person = state.cardImportAnalysis?.people.find((item) => item.name === $("#card-import-person").value);
+  renderSillyTavernRelated(person);
+  previewSelectedSillyTavernPerson();
+});
+$("#card-import-related").addEventListener("change", previewSelectedSillyTavernPerson);
+elements.cardImportForm.addEventListener("submit", submitSillyTavernImport);
 elements.openPhotoDialog.addEventListener("click", () => { const player = currentPlayer(); if (!player) return; renderPhotoControls(player); elements.photoDialog.showModal(); }); elements.photoDialogClose.addEventListener("click", () => elements.photoDialog.close()); elements.photoDialog.addEventListener("click", (event) => { if (event.target === elements.photoDialog) elements.photoDialog.close(); });
 elements.portraitUploadOnly.addEventListener("click", async () => { if (state.busy) return; setBusy(true, "正在保存人设图"); try { const portrait = await uploadSelectedPortrait({ required: true }); await refreshAll({ reloadWorlds: true, silent: true }); showToast("人设图已保存，可以用于后续拍照"); return portrait; } catch (error) { showToast(error.message, true); } finally { setBusy(false); } });
 elements.photoForm.addEventListener("submit", async (event) => { event.preventDefault(); if (state.busy) return; setBusy(true, "正在根据世界现场生成照片"); try { await captureWorldPhoto(); showToast("照片已生成并留存到世界相册"); } catch (error) { showToast(error.message, true); } finally { setBusy(false); } });
@@ -809,11 +1690,11 @@ elements.heartbeatButton.addEventListener("click", () => perform("正在执行�
 elements.adjudicateButton.addEventListener("click", () => perform("模型正在进行世界裁判", () => api(`/api/worlds/${state.worldId}/adjudicate`, { method: "POST", body: JSON.stringify({ trigger: "manual", character_ids: null }) }), "模型裁判已完成"));
 elements.interventionButton.addEventListener("click", () => { const id = elements.interventionCharacter.value; if (!id) return showToast("请先选择人物", true); perform("正在处理局部介入", () => api(`/api/worlds/${state.worldId}/adjudicate`, { method: "POST", body: JSON.stringify({ trigger: "player_intervention", character_ids: [id] }) }), "局部裁判已完成"); });
 elements.syncHistoryButton.addEventListener("click", () => perform("正在同步世界卷宗", () => api(`/api/worlds/${state.worldId}/history/sync`, { method: "POST" }), "世界卷宗已同步"));
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !state.busy) refreshAll({ silent: true }); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && !state.busy) refreshAll({ silent: true }); else stopSteering(); });
 window.addEventListener("hashchange", () => switchRoom(window.location.hash.slice(1) || "scene", false));
 window.setInterval(() => { if (document.visibilityState === "visible" && !state.busy) refreshAll({ silent: true }); }, 5000);
 window.requestAnimationFrame(runLiveFrame);
-refreshAll({ reloadWorlds: true }).then(() => { if (state.worldId) { elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; loadMapFiles(); } });
+refreshAll({ reloadWorlds: true }).then(() => { if (state.worldId) { elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; loadMapFiles(); savedPendingReactions().forEach((item) => watchActionReaction(item.worldId, item.outcome || { event_id: item.eventId })); } });
 
 function updateContractFields() {
   const kind = elements.longTermType.value;

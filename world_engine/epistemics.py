@@ -22,6 +22,85 @@ class KnowledgeService:
         )
 
     @classmethod
+    def capture_final_reply_name(cls, c, event_id: str, reply: str) -> None:
+        """Yuki 等最终台词入卷后，才把 NPC 亲口说出的称呼交给玩家。"""
+        event = c.execute(
+            "SELECT actor_id,target_id FROM world_events "
+            "WHERE id=? AND event_type='action.socialize'",
+            (event_id,),
+        ).fetchone()
+        if event is None or not event["actor_id"] or not event["target_id"]:
+            return
+        npc = c.execute("SELECT name FROM characters WHERE id=?", (event["target_id"],)).fetchone()
+        if npc is None:
+            return
+        text = reply.strip().lstrip("“\"「")
+        name = cls._spoken_name(text, npc["name"])
+        if not name or any(word in name for word in ("不是", "如果", "假如", "是不是")):
+            return
+        c.execute(
+            """INSERT OR IGNORE INTO character_acquaintances
+               (observer_id,subject_id,world_id,known_name,encounters,shared_experiences,
+                first_seen,last_seen,source_event_id)
+               SELECT ?,?,world_id,NULL,1,1,occurred_at,occurred_at,id
+               FROM world_events WHERE id=?""",
+            (event["actor_id"], event["target_id"], event_id),
+        )
+        cls.add_evidence(
+            c,
+            observer_id=event["actor_id"],
+            subject_id=event["target_id"],
+            predicate="name",
+            value=name,
+            event_id=event_id,
+            method="reported",
+            quote=text[:500],
+            source_id=event["target_id"],
+        )
+
+    @staticmethod
+    def _spoken_name(text: str, canonical_name: str) -> str | None:
+        """Yuki 只从明确的自我介绍中取名，不把职业或旁人提及当成姓名。"""
+        spoken = re.search(
+            r"(?:^|[，。！；\n])\s*(?:我叫|我名叫|我的名字是|叫我)"
+            r"([^，。！？；：、\s]{1,20})(?=[，。！；\s]|$)",
+            text,
+        )
+        if spoken:
+            return spoken[1]
+        name = re.escape(canonical_name)
+        suffix = r"(?=[，。！？；：、\s]|$)"
+        lead = re.sub(r"^\s*[（(][^）)]{0,120}[）)]\s*", "", text)
+        if re.match(rf"^\s*(?:我是)?{name}{suffix}", lead):
+            return canonical_name
+        if re.search(rf"(?:刚才不是说了吗|名字是|姓名是)\s*[—–-]*\s*{name}{suffix}", text):
+            return canonical_name
+        if re.search(rf"(?:^|[。！？；\n])\s*(?:我是)?{name}{suffix}", text):
+            return canonical_name
+        return None
+
+    @classmethod
+    def backfill_final_reply_names(cls, c) -> None:
+        """Yuki 从旧存档里已入卷的 NPC 自报姓名补回玩家视角称呼。"""
+        rows = c.execute(
+            """SELECT e.id,e.payload_json FROM world_events e
+               JOIN characters player ON player.id=e.actor_id AND player.is_player=1
+               JOIN characters npc ON npc.id=e.target_id AND npc.is_player=0
+               LEFT JOIN character_acquaintances acquaintance
+                 ON acquaintance.observer_id=player.id AND acquaintance.subject_id=npc.id
+               WHERE e.event_type='action.socialize' AND acquaintance.known_name IS NULL
+               ORDER BY e.created_at"""
+        ).fetchall()
+        for row in rows:
+            try:
+                reply = json.loads(row["payload_json"] or "{}").get("reply")
+                if isinstance(reply, str) and reply.strip():
+                    cls.capture_final_reply_name(c, row["id"], reply)
+            except (ValueError, TypeError):
+                # 旧记录若缺少证据链，Yuki 跳过它，不臆造姓名。
+                continue
+
+    @classmethod
     def add_evidence(
         cls,
         c,

@@ -117,6 +117,11 @@ class TaskService:
 
     @staticmethod
     def _reserve(connection, actor, item, amount, activity_id):
+        from world_engine.materials import MaterialService
+
+        if MaterialService.state(connection, item['id']) is not None:
+            return MaterialService.move(connection, item, amount, 'activity_escrow', activity_id,
+                                        item['owner_character_id'])
         if amount == item["quantity"]:
             connection.execute(
                 "UPDATE item_instances SET container_type='activity_escrow',container_id=? "
@@ -317,6 +322,10 @@ class TaskService:
                 },
             )
             spec["check_preview"] = CheckService.public_plan(check_plan)
+        from world_engine.materials import MaterialService
+
+        if any(MaterialService.state(connection, item['id']) is not None for item, _ in reserved):
+            raise LifeActivityError('追踪原料须使用有物质转化账的材料工序，不能用普通制作或修理配方改成产物')
         return spec, target, reserved, tools, check_plan
 
     @classmethod
@@ -459,6 +468,12 @@ class TaskService:
         if detail["result_json"] != "{}":
             return json.loads(detail["result_json"])
         spec = json.loads(detail["spec_json"])
+        from world_engine.materials import MaterialService
+
+        if status == 'completed' and any(
+            MaterialService.state(connection, iid) is not None for iid in spec.get('reserved_items', [])
+        ):
+            raise LifeActivityError('原料已有追踪材料状态，普通任务不能绕过物质转化结算')
         before = InventoryService.snapshot(connection, row["world_id"])
         result = {
             "name": spec["name"],

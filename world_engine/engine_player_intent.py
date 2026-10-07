@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from world_engine.bounded_calls import submit_call
 from world_engine.decisions import DecisionProviderError
+from world_engine.diagnostic_logging import diagnostic_json
 from world_engine.domain import (
     ActionOutcome,
     ActionProposal,
@@ -19,9 +20,16 @@ from world_engine.domain import (
 )
 from world_engine.engine_errors import ConcurrentWorldUpdateError
 from world_engine.intent_parser import IntentPreview
-from world_engine.player_inputs import parse_player_input
+from world_engine.model_availability import is_model_billing_error
+from world_engine.npc_performance import (
+    finalize_social_event,
+    safe_npc_speech,
+    settle_npc_reply,
+)
+from world_engine.player_inputs import parse_player_input, unprefixed_action_text
 from world_engine.removal import ElementRemovalSubmit
 from world_engine.repository import to_iso, utc_now
+from world_engine.roleplay_pipeline import NpcPromptOverflow
 
 LOGGER = logging.getLogger("virtual-world.engine")
 
@@ -36,19 +44,35 @@ class PlayerIntentMixin:
         *,
         target_character_id: str | None = None,
         delivery: str = "normal",
+        defer_action_reaction: bool = False,
     ) -> PlayerActionResult:
         """把玩家一条自然语言意图结算为一次行动，与心跳/裁判解耦。
 
         找到唯一的玩家角色(is_player)，用决策器(DeepSeek，失败降级规则)把
         意图转成一次 ActionProposal，执行并写事件；只增加版本号，不推进轮次。
         """
+        request_id = str(uuid4())
+        LOGGER.info(
+            "玩家输入 request_id=%s world_id=%s intent=%s",
+            request_id,
+            world_id,
+            diagnostic_json(
+                intent,
+                (self.settings.deepseek_api_key, self.settings.image_api_key),
+            ),
+        )
         message = parse_player_input(intent)
         from world_engine.sequences import explicit_steps
-        if explicit_steps(intent):raise ValueError("这是组合输入，请通过连续行动入口执行")
-        if message.kind == "action":
+        if explicit_steps(intent):
+            raise ValueError("这是组合输入，请通过连续行动入口执行")
+        action_text = message.text if message.kind == "action" else unprefixed_action_text(intent)
+        if action_text is not None:
             from world_engine.player_action_flow import execute_explicit_action
 
-            return execute_explicit_action(self, world_id, message.text, target_character_id)
+            return execute_explicit_action(
+                self, world_id, action_text, target_character_id,
+                defer_reaction=defer_action_reaction,
+            )
         explicit_speech = message.kind == "speech"
         if explicit_speech and not message.text:
             raise ValueError("请在“说话：”后填写台词")
@@ -96,6 +120,15 @@ class PlayerIntentMixin:
             hinted_target is not None
             and (explicit_speech or not self.conversations.is_non_dialogue_intent(intent))
         )
+        speech_like = (
+            message.kind == "auto"
+            and not self.conversations.is_non_dialogue_intent(intent)
+            and (
+                self.conversations.looks_like_follow_up(intent)
+                or self.conversations.looks_like_directed_dialogue(intent)
+                or any(pronoun in intent for pronoun in ("你", "您"))
+            )
+        )
         proposal: ActionProposal
         provider_name = self.decision_provider.name
         fallback_used = False
@@ -120,7 +153,13 @@ class PlayerIntentMixin:
                 proposal = self.fallback_provider.plan_player_action(
                     snapshot, player, planning_intent
                 )
+        if speech_like and not lock_dialogue_target:
+            if proposal.action is not ActionType.SOCIALIZE or not proposal.target_id:
+                # Yuki 只允许模型替首次搭话选对象，不能把玩家台词改成自主行动。
+                raise ValueError("请先选择要说话的 NPC")
+            proposal.dialogue = intent
         # 玩家自己的发言来自输入；NPC 可见回应只允许由模型生成，绝不使用规则台词。
+        npc_reply = None
         if proposal.action is ActionType.SOCIALIZE and proposal.target_id:
             target = next(
                 (item for item in snapshot.characters if item.id == proposal.target_id),
@@ -129,8 +168,12 @@ class PlayerIntentMixin:
             if target is not None:
                 from world_engine.geo import great_circle_distance_km
                 from world_engine.proximity import VOICE_RADIUS_KM, same_room
-                if delivery not in VOICE_RADIUS_KM:raise ValueError("说话方式无效")
-                if not same_room(player,target) or great_circle_distance_km(player.longitude,player.latitude,target.longitude,target.latitude)>VOICE_RADIUS_KM[delivery]:
+                if delivery not in VOICE_RADIUS_KM:
+                    raise ValueError("说话方式无效")
+                distance = great_circle_distance_km(
+                    player.longitude, player.latitude, target.longitude, target.latitude
+                )
+                if not same_room(player, target) or distance > VOICE_RADIUS_KM[delivery]:
                     raise ValueError("对方听不见当前音量的话语，请走近或选择喊话")
                 if not proposal.dialogue:
                     proposal.dialogue = intent
@@ -162,8 +205,17 @@ class PlayerIntentMixin:
                     ).result(timeout=self.settings.world_agent_timeout_seconds)
                 except Exception as exc:
                     LOGGER.info("NPC 独立回应失败，本次对话不写入预设台词", exc_info=True)
+                    if is_model_billing_error(exc):
+                        raise DecisionProviderError(
+                            "DeepSeek 账户余额或额度不足，请检查账户后重试对话"
+                        ) from exc
+                    if isinstance(exc.__cause__, NpcPromptOverflow):
+                        raise DecisionProviderError(
+                            f"角色卡与当前上下文超出 NPC 输入预算：{exc}。"
+                            "请提高 WORLD_DIALOGUE_CONTEXT_MAX_TOKENS 或精简角色卡"
+                        ) from exc
                     raise DecisionProviderError("NPC 对话模型暂时不可用，请稍后重试") from exc
-                proposal.reply = npc_reply.reply
+                proposal.reply = safe_npc_speech(npc_reply.reply) or "……"
                 proposal.metadata["npc_social_move"] = npc_reply.social_move
         proposal.metadata.setdefault("player_intent", intent)
         proposal.metadata["delivery"]=delivery
@@ -171,9 +223,25 @@ class PlayerIntentMixin:
             proposal.metadata["conversation_target_id"] = conversation.npc_id
             proposal.metadata["conversation_turn_count"] = len(conversation.turns)
 
+        LOGGER.info(
+            "玩家行动提案 request_id=%s actor_id=%s provider=%s fallback=%s action=%s "
+            "target_id=%s reason=%s",
+            request_id,
+            player.id,
+            provider_name,
+            fallback_used,
+            proposal.action.value,
+            proposal.target_id,
+            diagnostic_json(
+                proposal.reason,
+                (self.settings.deepseek_api_key, self.settings.image_api_key),
+            ),
+        )
+
         action_id = str(uuid4())
         completed_at = utc_now()
         new_version = snapshot.world.version + 1
+        npc_stage_direction = None
         with self.database.write() as connection:
             current_snapshot = self.repository.get_snapshot(connection, world_id)
             if current_snapshot.world.version != snapshot.world.version:
@@ -203,23 +271,7 @@ class PlayerIntentMixin:
                 occurred_at=snapshot.world.current_time,
                 proposal=proposal,
             )
-            if (
-                outcome.accepted
-                and outcome.event_id is not None
-                and proposal.action is ActionType.SOCIALIZE
-                and proposal.target_id is not None
-                and proposal.reply
-            ):
-                self.conversations.record_exchange(
-                    connection,
-                    world_id=world_id,
-                    npc_id=proposal.target_id,
-                    counterpart_id=player.id,
-                    event_id=outcome.event_id,
-                    world_time=snapshot.world.current_time,
-                    player_text=intent,
-                    npc_text=proposal.reply,
-                )
+            applied_summaries: list[str] = []
             if outcome.accepted and outcome.event_id is not None:
                 effects = self.intent_effects.apply(
                     connection,
@@ -230,8 +282,56 @@ class PlayerIntentMixin:
                     intent=intent,
                 )
                 applied_summaries = [effect.summary for effect in effects if effect.applied]
-                if applied_summaries:
-                    outcome.summary = f"{outcome.summary} {'；'.join(applied_summaries)}。"
+            if (
+                outcome.accepted
+                and outcome.event_id is not None
+                and npc_reply is not None
+                and proposal.target_id is not None
+            ):
+                npc_actor = connection.execute(
+                    "SELECT * FROM characters WHERE id=? AND world_id=?",
+                    (proposal.target_id, world_id),
+                ).fetchone()
+                settled = settle_npc_reply(
+                    connection,
+                    npc=npc_actor,
+                    player_id=player.id,
+                    at=snapshot.world.current_time,
+                    channel="in_person",
+                    reply=npc_reply,
+                )
+                LOGGER.info(
+                    "NPC对话结算 request_id=%s source_event_id=%s npc_id=%s "
+                    "action_status=%s action_event_id=%s",
+                    request_id,
+                    outcome.event_id,
+                    proposal.target_id,
+                    settled.action_status or "no_action",
+                    settled.action_event_id,
+                )
+                proposal.reply = settled.reply
+                npc_stage_direction = settled.stage_direction
+                outcome.summary = self.actions.socialize_summary(
+                    player.name, npc_actor["name"], proposal.dialogue, settled.reply
+                )
+                finalize_social_event(
+                    connection,
+                    event_id=outcome.event_id,
+                    summary=outcome.summary,
+                    reply=settled,
+                )
+                self.conversations.record_exchange(
+                    connection,
+                    world_id=world_id,
+                    npc_id=proposal.target_id,
+                    counterpart_id=player.id,
+                    event_id=outcome.event_id,
+                    world_time=snapshot.world.current_time,
+                    player_text=intent,
+                    npc_text=settled.reply,
+                )
+            if applied_summaries:
+                outcome.summary = f"{outcome.summary} {'；'.join(applied_summaries)}。"
             # 玩家败北：玩家被打倒则原地苏醒并记败北事件(真实失败但可继续)。
             player_health = connection.execute(
                 "SELECT health FROM characters WHERE id = ?", (player.id,)
@@ -257,6 +357,9 @@ class PlayerIntentMixin:
                         to_iso(completed_at),
                     ),
                 )
+            new_version = int(connection.execute(
+                "SELECT version FROM worlds WHERE id=?", (world_id,)
+            ).fetchone()[0]) + 1
             connection.execute(
                 """
                 UPDATE worlds
@@ -309,7 +412,20 @@ class PlayerIntentMixin:
                         )
             except Exception:
                 LOGGER.exception("玩家行动已结算，但自动元素注册未完成")
-        self._sync_history_safely(world_id)
+        LOGGER.info(
+            "玩家行动结算 request_id=%s action_id=%s event_id=%s accepted=%s "
+            "action=%s summary=%s",
+            request_id,
+            action_id,
+            outcome.event_id,
+            outcome.accepted,
+            proposal.action.value,
+            diagnostic_json(
+                outcome.summary,
+                (self.settings.deepseek_api_key, self.settings.image_api_key),
+            ),
+        )
+        self._sync_history_safely(world_id, background=True)
         return PlayerActionResult(
             world_id=world_id,
             action_id=action_id,
@@ -321,6 +437,12 @@ class PlayerIntentMixin:
             provider=provider_name,
             fallback_used=fallback_used,
             registration_ids=registration_ids,
+            player_dialogue=proposal.dialogue if proposal.action is ActionType.SOCIALIZE else None,
+            npc_reply=(
+                proposal.reply if outcome.accepted and proposal.action is ActionType.SOCIALIZE
+                else None
+            ),
+            npc_stage_direction=npc_stage_direction,
         )
 
 
@@ -338,14 +460,38 @@ class PlayerIntentMixin:
             player = next((item for item in snapshot.characters if item.is_player), None)
             if player is None:
                 raise ValueError("当前世界还没有玩家角色，无法解析行动")
+            from world_engine.player_inputs import approach_target_phrase, gift_target_phrase
             from world_engine.sequences import explicit_steps
             steps = explicit_steps(intent)
             if steps:
-                return IntentPreview(requires_form=False, operation="none", sequence_steps=steps)
-            if parse_player_input(intent).kind in {"action", "speech"}:
-                if not parse_player_input(intent).text:
+                return IntentPreview(
+                    requires_form=False, operation="none", route_kind="sequence",
+                    route_detail=intent, sequence_steps=steps,
+                )
+            message = parse_player_input(intent)
+            if message.kind in {"action", "speech"}:
+                if not message.text:
                     raise ValueError("输入前缀后不能为空")
-                return IntentPreview(requires_form=False, operation="none")
+            action_text = (
+                message.text if message.kind == "action"
+                else unprefixed_action_text(intent)
+            )
+            if action_text is not None:
+                gift = gift_target_phrase(action_text)
+                approach = approach_target_phrase(action_text)
+                return IntentPreview(
+                    requires_form=False, operation="none", route_kind="action",
+                    action_kind="gift" if gift else "approach" if approach else None,
+                    route_detail=action_text,
+                    target_character_id=target_character_id,
+                    target_label=gift[1] if gift else approach or "",
+                    item_name=gift[0] if gift else "",
+                )
+            if message.kind == "speech":
+                return IntentPreview(
+                    requires_form=False, operation="none", route_kind="speech",
+                    route_detail=message.text, target_character_id=target_character_id,
+                )
             hinted_target = self.conversations.resolve_target(
                 connection,
                 snapshot=snapshot,
@@ -353,12 +499,18 @@ class PlayerIntentMixin:
                 intent=intent,
                 target_character_id=target_character_id,
             )
-        return self.intent_parser.preview(
+        preview = self.intent_parser.preview(
             intent=intent,
             player=player,
             snapshot=snapshot,
             preferred_target_id=hinted_target.id if hinted_target else None,
         )
+        if preview.route_kind == "world":
+            return preview.model_copy(update={
+                "route_detail": intent,
+                "target_character_id": hinted_target.id if hinted_target else None,
+            })
+        return preview
 
 
     def _tombstone_destroyed_targets(

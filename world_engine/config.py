@@ -29,6 +29,7 @@ class Settings:
     """运行配置；所有路径都显式解析，便于测试隔离和服务器迁移。"""
 
     database_path: Path
+    world_pack_directory: Path | None = None
     minutes_per_tick: int = 60
     worker_interval_seconds: int = 60
     active_character_limit: int = 10
@@ -39,12 +40,16 @@ class Settings:
     deepseek_timeout_seconds: float = 60.0
     deepseek_max_retries: int = 2
     deepseek_max_output_tokens: int = 8192
+    debug_model_io: bool = False
+    npc_temperature: float | None = None
+    npc_top_p: float | None = None
     knowledge_enabled: bool = True
     knowledge_paths: tuple[Path, ...] = field(default_factory=tuple)
+    knowledge_excluded_filenames: tuple[str, ...] | None = None
     knowledge_top_k: int = 6
     knowledge_max_context_chars: int = 8000
     dialogue_context_max_chars: int = 12000
-    dialogue_context_max_tokens: int = 3600
+    dialogue_context_max_tokens: int = 8192
     dialogue_memory_top_k: int = 6
     dialogue_knowledge_top_k: int = 4
     dialogue_episode_turn_threshold: int = 6
@@ -61,6 +66,14 @@ class Settings:
     world_agent_timeout_seconds: float = 8.0
     world_agent_active_npc_limit: int = 8
     world_agent_combat_enabled: bool = False
+    research_api_enabled: bool = False
+    science_api_enabled: bool = False
+    research_max_calls: int = 24
+    research_token_limit: int = 60000
+    collective_api_enabled: bool = False
+    collective_max_calls: int = 120
+    collective_token_limit: int = 1500000
+    collective_max_output_tokens: int = 32768
     image_generation_provider: str = "seedream"
     image_api_key: str | None = field(default=None, repr=False)
     image_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
@@ -72,6 +85,8 @@ class Settings:
     # 数据保留：控制事件衍生表的长期增长。
     # 已完成的记忆任务只留最近若干条；知识归档窗口为 0 表示永久保留（默认）。
     memory_job_keep_recent: int = 500
+    memory_jobs_per_batch: int = 4
+    memory_batch_max_output_tokens: int = 1200
     knowledge_retention_days: int = 0
 
     @classmethod
@@ -79,6 +94,7 @@ class Settings:
         load_dotenv(PROJECT_ROOT / ".env", override=False)
         return cls(
             database_path=_resolve_path(os.getenv("WORLD_DB_PATH", "data/world.db")),
+            world_pack_directory=_resolve_path(os.getenv("WORLD_PACK_DIR", "docs")),
             minutes_per_tick=max(1, int(os.getenv("WORLD_MINUTES_PER_TICK", "60"))),
             worker_interval_seconds=max(
                 1, int(os.getenv("WORLD_WORKER_INTERVAL_SECONDS", "60"))
@@ -101,6 +117,16 @@ class Settings:
             deepseek_max_output_tokens=max(
                 256, int(os.getenv("DEEPSEEK_MAX_OUTPUT_TOKENS", "8192"))
             ),
+            debug_model_io=os.getenv("WORLD_DEBUG_MODEL_IO", "false").strip().lower()
+            in {"1", "true", "yes", "on"},
+            npc_temperature=(
+                float(os.environ["NPC_TEMPERATURE"])
+                if os.getenv("NPC_TEMPERATURE") else None
+            ),
+            npc_top_p=(
+                float(os.environ["NPC_TOP_P"])
+                if os.getenv("NPC_TOP_P") else None
+            ),
             knowledge_enabled=os.getenv("WORLD_KNOWLEDGE_ENABLED", "true").strip().lower()
             in {"1", "true", "yes", "on"},
             knowledge_paths=_resolve_paths(
@@ -120,7 +146,7 @@ class Settings:
             ),
             dialogue_context_max_tokens=max(
                 800,
-                int(os.getenv("WORLD_DIALOGUE_CONTEXT_MAX_TOKENS", "3600")),
+                int(os.getenv("WORLD_DIALOGUE_CONTEXT_MAX_TOKENS", "8192")),
             ),
             dialogue_memory_top_k=max(
                 1,
@@ -166,6 +192,16 @@ class Settings:
             ),
             world_agent_enabled=os.getenv("WORLD_AGENT_ENABLED", "false").strip().lower()
             in {"1", "true", "yes", "on"},
+            research_api_enabled=os.getenv("WORLD_RESEARCH_API_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"},
+            science_api_enabled=os.getenv("WORLD_SCIENCE_API_ENABLED", "false").strip().lower()
+            in {"1", "true", "yes", "on"},
+            research_max_calls=max(0, int(os.getenv("WORLD_RESEARCH_MAX_CALLS", "24"))),
+            research_token_limit=max(0, int(os.getenv("WORLD_RESEARCH_TOKEN_LIMIT", "60000"))),
+            collective_api_enabled=os.getenv('WORLD_COLLECTIVE_API_ENABLED','false').strip().lower() in {'true','1','yes'},
+            collective_max_calls=max(1,int(os.getenv('WORLD_COLLECTIVE_MAX_CALLS','120'))),
+            collective_token_limit=max(1,int(os.getenv('WORLD_COLLECTIVE_TOKEN_LIMIT','1500000'))),
+            collective_max_output_tokens=max(1,int(os.getenv('WORLD_COLLECTIVE_MAX_OUTPUT_TOKENS','32768'))),
             world_agent_budget_per_heartbeat=max(
                 1, int(os.getenv("WORLD_AGENT_BUDGET_PER_HEARTBEAT", "100"))
             ),
@@ -200,6 +236,12 @@ class Settings:
             ),
             memory_job_keep_recent=max(
                 0, int(os.getenv("WORLD_MEMORY_JOB_KEEP_RECENT", "500"))
+            ),
+            memory_jobs_per_batch=max(
+                1, int(os.getenv("WORLD_MEMORY_JOBS_PER_BATCH", "4"))
+            ),
+            memory_batch_max_output_tokens=max(
+                256, int(os.getenv("WORLD_MEMORY_BATCH_MAX_OUTPUT_TOKENS", "1200"))
             ),
             knowledge_retention_days=max(
                 0, int(os.getenv("WORLD_KNOWLEDGE_RETENTION_DAYS", "0"))

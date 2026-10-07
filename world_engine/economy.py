@@ -1,6 +1,7 @@
 """真实库存、食物、资源补给和工资账户组成的日常生计规则。"""
 
 import json
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 from uuid import uuid4
@@ -13,6 +14,16 @@ from world_engine.repository import from_iso, to_iso
 
 # 一个 NPC 每日维持基本生存所需的资源份数（按饱食度消耗 72 点/日、每份恢复 42 点折算）。
 NPC_DAILY_RESOURCE_NEED = 2
+
+
+@dataclass(frozen=True)
+class SupplyObstacle:
+    """Yuki 留下采购失败的实际阻碍，方便 NPC 重新规划。"""
+
+    kind: Literal[
+        "insufficient_funds", "no_seller", "out_of_stock", "inventory_full", "actor_unavailable"
+    ]
+    required_money: int | None = None
 
 
 class CommoditySpec(BaseModel):
@@ -48,17 +59,91 @@ class EconomyService:
         return bool(EconomyService.buy_supply(c, actor, at, food_only=True))
 
     @staticmethod
-    def buy_supply(c, actor, at, *, item_type_id=None, minimum_condition=0,
-                   budget=None, food_only=False):
+    def supply_obstacle(
+        c, actor, at, *, item_type_id=None, minimum_condition=0, budget=None, food_only=False
+    ):
+        """Yuki 只核对现场卖家与真实库存，不替人物猜远方的货源。"""
+        from world_engine.geo import great_circle_distance_km
+        from world_engine.proximity import same_room
+
+        actor = c.execute("SELECT * FROM characters WHERE id=?", (actor["id"],)).fetchone()
+        if (
+            actor["health"] <= 0
+            or c.execute(
+                "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
+                (actor["id"],),
+            ).fetchone()
+        ):
+            return SupplyObstacle("actor_unavailable")
+        spendable = actor["money"] if budget is None else min(budget, actor["money"])
+        found_seller = False
+        cheapest = None
+        for seller in c.execute(
+            "SELECT * FROM characters WHERE world_id=? AND id!=? AND health>0 AND is_player=0",
+            (actor["world_id"], actor["id"]),
+        ).fetchall():
+            if (
+                not same_room(actor, seller)
+                or (actor["current_location_id"] or actor["location_id"])
+                != (seller["current_location_id"] or seller["location_id"])
+                or c.execute(
+                    "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
+                    (seller["id"],),
+                ).fetchone()
+                or great_circle_distance_km(
+                    actor["longitude"], actor["latitude"], seller["longitude"], seller["latitude"]
+                )
+                > 0.1
+                or not any(
+                    word in (seller["identity"] or "")
+                    for word in ("商", "店", "贩", "医", "匠", "厨")
+                )
+            ):
+                continue
+            found_seller = True
+            item = c.execute(
+                "SELECT MIN(p.price) FROM item_instances i "
+                "JOIN world_item_profiles p ON p.item_type_id=i.item_type_id "
+                "AND p.world_id=i.world_id "
+                "WHERE i.world_id=? AND i.container_type='character_inventory' "
+                "AND i.container_id=? AND i.owner_character_id=? AND i.quantity>0 "
+                "AND (?=0 OR p.nutrition>0) AND (? IS NULL OR i.item_type_id=?) "
+                "AND i.condition>=? AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?)",
+                (
+                    actor["world_id"],
+                    seller["id"],
+                    seller["id"],
+                    food_only,
+                    item_type_id,
+                    item_type_id,
+                    minimum_condition,
+                    to_iso(at),
+                ),
+            ).fetchone()[0]
+            if item is not None:
+                cheapest = item if cheapest is None else min(cheapest, item)
+        if cheapest is None:
+            return SupplyObstacle("out_of_stock" if found_seller else "no_seller")
+        if cheapest > spendable:
+            return SupplyObstacle("insufficient_funds", cheapest)
+        return SupplyObstacle("inventory_full")
+
+    @staticmethod
+    def buy_supply(
+        c, actor, at, *, item_type_id=None, minimum_condition=0, budget=None, food_only=False
+    ):
         from world_engine.actions import ActionService
         from world_engine.geo import great_circle_distance_km
         from world_engine.proximity import same_room
 
         actor = c.execute("SELECT * FROM characters WHERE id=?", (actor["id"],)).fetchone()
-        if actor["health"] <= 0 or c.execute(
-            "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
-            (actor["id"],),
-        ).fetchone():
+        if (
+            actor["health"] <= 0
+            or c.execute(
+                "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
+                (actor["id"],),
+            ).fetchone()
+        ):
             return None
         budget = actor["money"] if budget is None else min(budget, actor["money"])
         for seller in c.execute(
@@ -90,8 +175,17 @@ class EconomyService:
                 "AND i.container_id=? AND i.owner_character_id=? AND i.quantity>0 "
                 "AND (?=0 OR p.nutrition>0) AND (? IS NULL OR i.item_type_id=?) "
                 "AND i.condition>=? AND p.price<=? AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?) ORDER BY p.price,i.id LIMIT 1",
-                (actor["world_id"], seller["id"], seller["id"], food_only,
-                 item_type_id, item_type_id, minimum_condition, budget, to_iso(at)),
+                (
+                    actor["world_id"],
+                    seller["id"],
+                    seller["id"],
+                    food_only,
+                    item_type_id,
+                    item_type_id,
+                    minimum_condition,
+                    budget,
+                    to_iso(at),
+                ),
             ).fetchone()
             if item is None:
                 continue
@@ -151,7 +245,10 @@ class EconomyService:
         ):
             raise ValueError("资源所有者不属于当前世界")
         if spec.resource_location_id:
-            if c.execute("SELECT 1 FROM world_item_profiles WHERE world_id=? AND resource_location_id=? AND resource_key=?",(wid,spec.resource_location_id,spec.resource_key)).fetchone():
+            if c.execute(
+                "SELECT 1 FROM world_item_profiles WHERE world_id=? AND resource_location_id=? AND resource_key=?",
+                (wid, spec.resource_location_id, spec.resource_key),
+            ).fetchone():
                 raise ValueError("同一地点的资源来源已登记，不能重复定义补给或所有者")
             loc = c.execute(
                 "SELECT resources_json FROM locations WHERE id=? AND world_id=? AND is_active=1",
@@ -160,7 +257,10 @@ class EconomyService:
             if loc is None:
                 raise ValueError("资源地点不存在")
             resources = json.loads(loc["resources_json"] or "{}")
-            if spec.resource_key in resources and int(resources[spec.resource_key]) > spec.resource_capacity:
+            if (
+                spec.resource_key in resources
+                and int(resources[spec.resource_key]) > spec.resource_capacity
+            ):
                 raise ValueError("登记上限不能低于现有储量，请先核对已有资源")
             if spec.resource_key not in resources:
                 resources[spec.resource_key] = spec.initial_resource
@@ -197,7 +297,9 @@ class EconomyService:
             ),
         )
         if spec.shelf_life_hours is not None:
-            c.execute("INSERT INTO food_storage_rules VALUES (?,?,?)", (iid, wid, spec.shelf_life_hours))
+            c.execute(
+                "INSERT INTO food_storage_rules VALUES (?,?,?)", (iid, wid, spec.shelf_life_hours)
+            )
         return iid
 
     @staticmethod
@@ -220,24 +322,74 @@ class EconomyService:
     @staticmethod
     def food(c, actor, event_id=None, *, at=None):
         from world_engine.food import FoodService
+        from world_engine.materials import MaterialService
 
-        at = at or from_iso(c.execute("SELECT w.current_time FROM worlds w WHERE id=?", (actor["world_id"],)).fetchone()[0])
-        item = c.execute(
-            "SELECT i.*,p.nutrition,t.name FROM item_instances i JOIN world_item_profiles p ON p.item_type_id=i.item_type_id "
-            "JOIN item_types t ON t.id=i.item_type_id WHERE i.world_id=? AND i.container_id=? AND i.container_type='character_inventory' "
-            "AND i.owner_character_id=? AND p.nutrition>0 AND i.quantity>0 "
-            "AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?) "
-            "ORDER BY i.spoils_world_time IS NULL,i.spoils_world_time,i.id LIMIT 1",
-            (actor["world_id"], actor["id"], actor["id"], to_iso(at)),
-        ).fetchone()
+        at = at or from_iso(
+            c.execute(
+                "SELECT w.current_time FROM worlds w WHERE id=?", (actor["world_id"],)
+            ).fetchone()[0]
+        )
+        if MaterialService.enabled(c, actor["world_id"]):
+            items = c.execute(
+                "SELECT i.*,t.name,0 nutrition FROM item_instances i JOIN item_types t ON t.id=i.item_type_id JOIN material_batches b ON b.item_id=i.id LEFT JOIN collective_food_decisions d ON d.actor_id=? AND d.batch_id=i.id WHERE i.world_id=? AND i.container_type='character_inventory' AND i.container_id=? AND i.owner_character_id=? AND t.category='food' AND (d.policy IS NULL OR d.policy='allow') AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?) ORDER BY i.spoils_world_time IS NULL,i.spoils_world_time,i.rowid",
+                (actor["id"], actor["world_id"], actor["id"], actor["id"], to_iso(at)),
+            ).fetchall()
+            item = next((i for i in items if MaterialService.state(c, i["id"]).nutrition > 0), None)
+            if (
+                item is None
+                and not actor["current_room_id"]
+                and not c.execute(
+                    "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
+                    (actor["id"],),
+                ).fetchone()
+            ):
+                # 哥哥，日常取饭只拿一份本人明确允许的本地食物，不替人物判断污染。
+                store = c.execute(
+                    "SELECT i.*,t.name,t.stack_limit,t.slot_size,0 nutrition FROM item_instances i JOIN item_types t ON t.id=i.item_type_id JOIN material_batches b ON b.item_id=i.id JOIN collective_food_decisions d ON d.batch_id=i.id AND d.actor_id=? WHERE i.world_id=? AND i.owner_character_id=? AND i.container_type='ground' AND i.container_id=? AND t.category='food' AND d.policy='allow' AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?) ORDER BY i.rowid",
+                    (
+                        actor["id"],
+                        actor["world_id"],
+                        actor["id"],
+                        actor["current_location_id"] or actor["location_id"],
+                        to_iso(at),
+                    ),
+                ).fetchall()
+                for candidate in store:
+                    if MaterialService.state(c, candidate["id"]).nutrition <= 0:
+                        continue
+                    try:
+                        InventoryService._capacity(c, actor["id"], candidate, 1, allow_merge=False)
+                    except InventoryError:
+                        continue
+                    iid = MaterialService.move(
+                        c, candidate, 1, "character_inventory", actor["id"], actor["id"]
+                    )
+                    item = c.execute(
+                        "SELECT i.*,t.name,0 nutrition FROM item_instances i JOIN item_types t ON t.id=i.item_type_id WHERE i.id=?",
+                        (iid,),
+                    ).fetchone()
+                    break
+        else:
+            item = c.execute(
+                "SELECT i.*,p.nutrition,t.name FROM item_instances i JOIN world_item_profiles p ON p.item_type_id=i.item_type_id "
+                "JOIN item_types t ON t.id=i.item_type_id WHERE i.world_id=? AND i.container_id=? AND i.container_type='character_inventory' "
+                "AND i.owner_character_id=? AND p.nutrition>0 AND i.quantity>0 "
+                "AND (i.spoils_world_time IS NULL OR i.spoils_world_time>?) "
+                "ORDER BY i.spoils_world_time IS NULL,i.spoils_world_time,i.id LIMIT 1",
+                (actor["world_id"], actor["id"], actor["id"], to_iso(at)),
+            ).fetchone()
         if item is None:
             return None
         effect = FoodService.eat(c, actor, item, at)
         return f"{actor['name']}吃了一份{item['name']}，补充{effect['nutrition']}点饱食。"
 
     @staticmethod
-    def collect_outputs(c, actor, at):
+    def collect_outputs(
+        c, actor, at, *, item_type_ids=None, return_event=False, defer_agency=False
+    ):
         from world_engine.actions import ActionService
+        from world_engine.domain import ActionProposal, ActionType
+        from world_engine.event_history import EventHistoryService
 
         loc = LifeSceneService.ground_location(c, actor)
         if loc is None:
@@ -247,9 +399,32 @@ class EconomyService:
             (actor["world_id"], actor["id"], loc["id"], actor["current_room_id"]),
         ).fetchall()
         for item in rows:
+            if item_type_ids is not None and item["item_type_id"] not in item_type_ids:
+                continue
+            activity_id = item["container_id"]
+            if (
+                defer_agency
+                and c.execute(
+                    "SELECT 1 FROM action_execution_links l JOIN npc_agency_goals g ON g.id=l.goal_id "
+                    "WHERE l.execution_kind='activity' AND l.execution_id=? AND g.character_id=? "
+                    "AND g.status IN ('active','blocked')",
+                    (activity_id, actor["id"]),
+                ).fetchone()
+            ):
+                continue
+            actor_before = ActionService._observed_state(c, actor["id"])
             before = InventoryService.snapshot(c, actor["world_id"])
+            cooperative_output = bool(
+                c.execute(
+                    "SELECT 1 FROM action_execution_links l JOIN npc_agency_goals g ON g.id=l.goal_id "
+                    "WHERE l.execution_kind='activity' AND l.execution_id=? AND g.kind='cooperation_craft'",
+                    (activity_id,),
+                ).fetchone()
+            )
             try:
-                InventoryService.transfer(c, item, actor["id"], item["quantity"])
+                InventoryService.transfer(
+                    c, item, actor["id"], item["quantity"], preserve_identity=cooperative_output
+                )
             except InventoryError:
                 continue
             eid = ActionService._record_event(
@@ -265,10 +440,46 @@ class EconomyService:
                 payload={"item_id": item["id"]},
             )
             InventoryService.audit(c, actor["world_id"], eid, before)
+            ActionService._record_effect(
+                c,
+                actor["world_id"],
+                eid,
+                ActionProposal(
+                    actor_id=actor["id"], action=ActionType.GATHER, reason="领取已完成的真实成果"
+                ),
+                at,
+                actor_before,
+                ActionService._observed_state(c, actor["id"]),
+                None,
+                None,
+                "action.stock_collected",
+            )
+            result = c.execute(
+                "SELECT result_event_id FROM action_execution_links "
+                "WHERE execution_kind='activity' AND execution_id=?",
+                (activity_id,),
+            ).fetchone()
+            if result and result["result_event_id"]:
+                EventHistoryService.link(c, eid, result["result_event_id"], strict=False)
+            if return_event:
+                return eid
 
     @staticmethod
     def harvest(c, actor, at, *, food_only=False, item_type_ids=None, return_event=False):
         from world_engine.actions import ActionService
+        from world_engine.materials import MaterialService
+
+        if MaterialService.enabled(c, actor["world_id"]):
+            from world_engine.collective_production import ProductionService
+
+            return ProductionService.gather(
+                c,
+                actor,
+                at,
+                food_only=food_only,
+                item_type_ids=item_type_ids,
+                return_event=return_event,
+            )
 
         loc = LifeSceneService.ground_location(c, actor)
         if loc is None or actor["current_room_id"]:
@@ -303,7 +514,10 @@ class EconomyService:
             from world_engine.food import FoodService
 
             FoodService.stamp(c, iid, profile["item_type_id"], at)
-            item = c.execute("SELECT i.*,t.stack_limit,t.slot_size FROM item_instances i JOIN item_types t ON t.id=i.item_type_id WHERE i.id=?", (iid,)).fetchone()
+            item = c.execute(
+                "SELECT i.*,t.stack_limit,t.slot_size FROM item_instances i JOIN item_types t ON t.id=i.item_type_id WHERE i.id=?",
+                (iid,),
+            ).fetchone()
             try:
                 InventoryService.transfer(c, item, actor["id"], 1)
             except InventoryError:
@@ -334,6 +548,10 @@ class EconomyService:
     @staticmethod
     def tick(c, wid, at):
         from world_engine.actions import ActionService
+        from world_engine.materials import MaterialService
+
+        if MaterialService.enabled(c, wid):
+            return
 
         rows = c.execute(
             "SELECT * FROM world_item_profiles WHERE world_id=? AND daily_growth>0",
@@ -377,7 +595,17 @@ class EconomyService:
                 else:
                     # 地点专属资源（如某个矿点的木材）与人口无关，保持原有再生速度。
                     growth = row["daily_growth"]
-                after = min(row["resource_capacity"], before + elapsed * growth)
+                from world_engine.incidents import IncidentService
+
+                productive_days = IncidentService.productive_days(
+                    c,
+                    wid,
+                    loc["id"],
+                    row["resource_key"],
+                    from_iso(row["last_growth_world_time"]),
+                    elapsed,
+                )
+                after = min(row["resource_capacity"], before + int(productive_days * growth))
                 if after == before:
                     continue
                 resources[row["resource_key"]] = after
@@ -403,7 +631,7 @@ class EconomyService:
                         "registration_id": row["registration_id"],
                     },
                 )
-            if grew_anywhere:
+            if grew_anywhere or targets:
                 c.execute(
                     "UPDATE world_item_profiles SET last_growth_world_time=? WHERE item_type_id=?",
                     (

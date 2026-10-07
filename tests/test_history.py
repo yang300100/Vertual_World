@@ -2,12 +2,49 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from threading import Event
 
 from fastapi.testclient import TestClient
 
 from world_engine.api import create_app
 from world_engine.engine import WorldEngine
 from world_engine.repository import WorldRepository
+
+
+def test_background_history_export_does_not_block_action_and_coalesces(
+    database, settings, tmp_path, monkeypatch
+) -> None:
+    history_settings = replace(
+        settings,
+        history_logging_enabled=True,
+        history_directory=tmp_path / "background-history",
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+    entered = Event()
+    release = Event()
+    finished = Event()
+    calls = []
+
+    def slow_export(export_world_id):
+        calls.append(export_world_id)
+        entered.set()
+        if len(calls) == 1:
+            assert release.wait(5)
+        else:
+            finished.set()
+
+    monkeypatch.setattr(engine.history_logger, "sync_world", slow_export)
+    try:
+        engine._sync_history_safely(world_id, background=True)
+        assert entered.wait(2)
+        engine._sync_history_safely(world_id, background=True)
+        engine._sync_history_safely(world_id, background=True)
+        assert calls == [world_id]
+    finally:
+        release.set()
+    assert finished.wait(5)
+    assert calls == [world_id, world_id]
 
 
 def _create_world(database) -> str:
@@ -184,6 +221,48 @@ def test_state_logs_are_appended_not_rewritten(database, settings, tmp_path) -> 
     assert manifest["heartbeat_count"] == len(first_heartbeats) + 1
     assert manifest["heartbeat_rowid"] > 0
     assert manifest["state_update_rowid"] > 0
+
+
+def test_heartbeat_state_export_is_not_blocked_by_full_history_lock(
+    database, settings, tmp_path,
+) -> None:
+    history_settings = replace(
+        settings, history_logging_enabled=True,
+        history_directory=tmp_path / "parallel-history",
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+    world_directory = history_settings.history_directory / world_id
+    world_directory.mkdir(parents=True)
+
+    with engine.history_logger._export_lock(world_directory):
+        engine.heartbeat(world_id, elapsed_seconds=60)
+        manifest = json.loads(
+            (world_directory / "state_manifest.json").read_text(encoding="utf-8")
+        )
+
+    assert manifest["heartbeat_count"] == 1
+
+
+def test_full_history_export_keeps_existing_incremental_state_log(
+    database, settings, tmp_path,
+) -> None:
+    history_settings = replace(
+        settings, history_logging_enabled=True,
+        history_directory=tmp_path / "incremental-full-export",
+    )
+    world_id = _create_world(database)
+    engine = WorldEngine(database, history_settings)
+    engine.heartbeat(world_id, elapsed_seconds=60)
+    heartbeat_path = history_settings.history_directory / world_id / "heartbeats.jsonl"
+    sentinel = '{"sentinel":true}\n'
+    with heartbeat_path.open("a", encoding="utf-8") as handle:
+        handle.write(sentinel)
+
+    export = engine.sync_history(world_id)
+
+    assert sentinel in heartbeat_path.read_text(encoding="utf-8")
+    assert export.heartbeat_count == 1
 
 
 def test_time_scale_change_is_recorded_in_world_history(database, settings, tmp_path) -> None:

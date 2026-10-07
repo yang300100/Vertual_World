@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from typing import Literal, Protocol
+from uuid import uuid4
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
 from world_engine.config import PROJECT_ROOT, Settings
+from world_engine.diagnostic_logging import diagnostic_json
 from world_engine.domain import (
     ActionProposal,
     ActionType,
@@ -17,12 +21,24 @@ from world_engine.domain import (
 )
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import KnowledgeHit, WorldKnowledgeBase
+from world_engine.model_availability import (
+    ModelBillingError,
+    check_model_billing,
+    record_model_billing_failure,
+)
 from world_engine.proximity import same_room
 from world_engine.roleplay import (
-    build_npc_reply_messages,
     npc_reply_system_prompt,
     salvage_npc_reply,
 )
+from world_engine.roleplay_pipeline import (
+    NpcPromptOverflow,
+    SamplingIntent,
+    build_deepseek_roleplay_payload,
+    build_npc_prompt,
+)
+
+LOGGER = logging.getLogger("virtual-world.decisions")
 
 _FORBIDDEN_CHARACTER_TERMS = (
     "纳米机器人",
@@ -48,12 +64,35 @@ class DecisionBatch(BaseModel):
     decisions: list[ActionProposal] = Field(default_factory=list)
 
 
+class NpcActionIntent(BaseModel):
+    """NPC 在对话中提出的候选行动；真实结果仍由世界规则决定。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["door", "room", "give_item", "travel"]
+    operation: Literal["open", "close", "enter", "exit"] | None = None
+    target_id: str = Field(min_length=1, max_length=100)
+    quantity: int = Field(default=1, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def validate_operation(self) -> "NpcActionIntent":
+        allowed = {"door": {"open", "close"}, "room": {"enter", "exit"}}
+        if self.operation not in allowed.get(self.kind, {None}):
+            raise ValueError("NPC 行动类型与操作不匹配")
+        if self.kind != "give_item" and self.quantity != 1:
+            raise ValueError("只有转交物品可以指定数量")
+        return self
+
+
 class NpcReply(BaseModel):
-    """NPC 对玩家一句话的候选；只有内容会进入行动事件。"""
+    """NPC 的台词、短暂表演和待世界裁定的行动候选。"""
 
     model_config = ConfigDict(extra="forbid")
 
     reply: str = Field(min_length=1, max_length=500)
+    stage_direction: str | None = Field(default=None, max_length=200)
+    action_intent: NpcActionIntent | None = None
+    fallback_reply: str | None = Field(default=None, max_length=500)
     # 该字段全项目只写不读（只落进事件 metadata，没有消费方），因此给它默认值：
     # 模型自由说台词时不必为它额外输出结构化字段。
     social_move: Literal[
@@ -263,7 +302,13 @@ class RuleDecisionProvider:
             [item for item in snapshot.locations if item.id != character.location_id],
             key=lambda item: item.name,
         )
-        if any(key in intent for key in ("攻击", "打", "袭击", "砍", "杀", "教训", "揍")):
+        attack_word = (
+            any(key in intent for key in ("攻击", "袭击", "砍", "杀", "教训", "揍"))
+            or bool(re.search(r"打(?:人|他|她|你|架|旁边的|附近的|眼前的)", intent))
+            or any(f"打{person.name}" in intent for person in nearby)
+            or intent.strip() == "打"
+        )
+        if attack_word:
             if nearby:
                 target = next((p for p in nearby if p.name in intent), nearby[0])
                 return ActionProposal(
@@ -283,7 +328,10 @@ class RuleDecisionProvider:
                 reason=f"我打算捡起{item}。",
                 metadata={"item": item},
             )
-        if any(key in intent for key in ("用", "使用", "装备", "服用", "喝下", "卸下", "放下", "丢下")):
+        if any(
+            key in intent
+            for key in ("用", "使用", "装备", "服用", "喝下", "卸下", "放下", "丢下")
+        ):
             item = next(
                 (n for n in ("疗伤药", "铁剑", "硬木护符", "面包") if n in intent),
                 "疗伤药",
@@ -292,9 +340,21 @@ class RuleDecisionProvider:
                 actor_id=character.id,
                 action=ActionType.USE,
                 reason=f"我打算使用{item}。",
-                metadata={"item": item, "operation": "unequip" if "卸下" in intent else "drop" if any(word in intent for word in ("放下", "丢下")) else "use"},
+                metadata={
+                    "item": item,
+                    "operation": (
+                        "unequip" if "卸下" in intent
+                        else "drop" if any(word in intent for word in ("放下", "丢下"))
+                        else "use"
+                    ),
+                },
             )
-        if any(key in intent for key in ("去", "前往", "到", "赶去", "动身")):
+        travel_request = re.match(
+            r"^(?:我)?(?:(?:现在|先|想|要|打算|准备)\s*)*"
+            r"(?:去(?!过)|前往|到|赶去|赶往|动身去)",
+            intent.strip(),
+        )
+        if travel_request:
             target_loc = next((loc for loc in destinations if loc.name in intent), None)
             if target_loc is not None:
                 return ActionProposal(
@@ -318,7 +378,10 @@ class RuleDecisionProvider:
                 action=ActionType.EAT,
                 reason="我打算进食补充体力。",
             )
-        if any(key in intent for key in ("干", "做", "工作", "调查", "查看", "翻查", "找活")):
+        if any(
+            key in intent
+            for key in ("干", "做", "工作", "打工", "调查", "查看", "翻查", "找活")
+        ):
             return ActionProposal(
                 actor_id=character.id,
                 action=ActionType.WORK,
@@ -336,7 +399,12 @@ class RuleDecisionProvider:
                 reason="我公开表达并记录了自己的看法。",
                 dialogue=intent.strip(),
             )
-        return self._decide(snapshot, character)
+        # Yuki 不把未识别的玩家话语交给 NPC 的自主生存决策。
+        return ActionProposal(
+            actor_id=character.id,
+            action=ActionType.IDLE,
+            reason="没有识别出可执行的具体行动，暂时保持原状。",
+        )
 
 class DeepSeekDecisionProvider:
     """通过DeepSeek兼容接口批量生成结构化人物行动。"""
@@ -352,8 +420,15 @@ class DeepSeekDecisionProvider:
         if not settings.deepseek_api_key:
             raise ValueError("WORLD_DECISION_PROVIDER=deepseek时必须配置DEEPSEEK_API_KEY")
         self.model = settings.deepseek_model
+        self.base_url = settings.deepseek_base_url
+        self.debug_model_io = settings.debug_model_io
+        self._diagnostic_secrets = (settings.deepseek_api_key,)
+        LOGGER.setLevel(logging.DEBUG if self.debug_model_io else logging.NOTSET)
         self.max_retries = settings.deepseek_max_retries
         self.max_output_tokens = settings.deepseek_max_output_tokens
+        self.roleplay_input_tokens = settings.dialogue_context_max_tokens
+        self.roleplay_temperature = settings.npc_temperature
+        self.roleplay_top_p = settings.npc_top_p
         self.knowledge_top_k = settings.knowledge_top_k
         self.knowledge_max_context_chars = settings.knowledge_max_context_chars
         self.knowledge_base = knowledge_base
@@ -361,6 +436,7 @@ class DeepSeekDecisionProvider:
             self.knowledge_base = WorldKnowledgeBase.from_paths(
                 settings.knowledge_paths,
                 project_root=PROJECT_ROOT,
+                excluded_filenames=settings.knowledge_excluded_filenames,
             )
         self.client = client or httpx.Client(
             base_url=f"{settings.deepseek_base_url}/",
@@ -376,7 +452,9 @@ class DeepSeekDecisionProvider:
     ) -> list[ActionProposal]:
         if not characters:
             return []
-        response_data = self._request(self._build_request(snapshot, characters))
+        response_data, call_id = self._request(
+            self._build_request(snapshot, characters), label="world_decision",
+        )
         try:
             content = response_data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -386,6 +464,12 @@ class DeepSeekDecisionProvider:
         decisions = self._parse_decisions(content)
         self._validate_character_perspective(decisions)
         self._apply_pov_filter(snapshot, decisions)
+        if self.debug_model_io:
+            LOGGER.debug(
+                "模型解析结果 call_id=%s label=world_decision result=%s",
+                call_id,
+                diagnostic_json([item.model_dump(mode="json") for item in decisions], self._diagnostic_secrets),
+            )
         return decisions
 
     def plan_player_action(
@@ -395,7 +479,9 @@ class DeepSeekDecisionProvider:
         intent: str,
     ) -> ActionProposal:
         """把玩家自然语言意图交给模型，转成该玩家的一次确定行动。"""
-        response_data = self._request(self._build_request(snapshot, [player], intent=intent))
+        response_data, call_id = self._request(
+            self._build_request(snapshot, [player], intent=intent), label="player_action",
+        )
         try:
             content = response_data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -405,6 +491,12 @@ class DeepSeekDecisionProvider:
         decisions = self._parse_decisions(content)
         self._validate_character_perspective(decisions)
         self._apply_pov_filter(snapshot, decisions)
+        if self.debug_model_io:
+            LOGGER.debug(
+                "模型解析结果 call_id=%s label=player_action result=%s",
+                call_id,
+                diagnostic_json([item.model_dump(mode="json") for item in decisions], self._diagnostic_secrets),
+            )
         return decisions[0]
 
     def respond_to_player(
@@ -415,17 +507,24 @@ class DeepSeekDecisionProvider:
         context: dict[str, object],
     ) -> NpcReply:
         """单独让目标 NPC 回应，避免由玩家行动提案器代写双方台词。"""
-        payload = {
-            "model": self.model,
-            "messages": build_npc_reply_messages(self._npc_reply_system_prompt(), context),
-            # 刻意不发 response_format=json_object：带推理的模型在该模式下会概率性
-            # 把正文吐成空白或裸文本（实测约 1/6），空正文要连中三次重试才会失败，
-            # 玩家看到的是「NPC 对话模型暂时不可用」。台词改由 salvage_npc_reply
-            # 宽容解析，与 agent_llm 的 roleplay 路径保持一致。
-            "max_tokens": min(self.max_output_tokens, 1200),
-            "stream": False,
-        }
-        response_data = self._request(payload)
+        try:
+            prompt = build_npc_prompt(
+                self._npc_reply_system_prompt(), context,
+                max_input_tokens=self.roleplay_input_tokens,
+            )
+        except NpcPromptOverflow as exc:
+            raise DecisionProviderError(str(exc)) from exc
+        payload = build_deepseek_roleplay_payload(
+            prompt, self.model,
+            SamplingIntent(
+                max_output_tokens=min(self.max_output_tokens, 1200),
+                temperature=self.roleplay_temperature,
+                top_p=self.roleplay_top_p,
+            ),
+        )
+        # Yuki 统一从适配器取参数；带推理的模型若在 JSON 模式下吐空正文，
+        # 就让下方的宽容解析保住台词。
+        response_data, call_id = self._request(payload, label="npc_reply")
         try:
             content = response_data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
@@ -436,33 +535,87 @@ class DeepSeekDecisionProvider:
             reply = salvage_npc_reply(content, TypeAdapter(NpcReply))
         except (ValidationError, ValueError) as exc:
             raise DecisionProviderError("DeepSeek的NPC对话未通过结构化校验") from exc
+        visible_text = " ".join(
+            part for part in (reply.reply, reply.stage_direction, reply.fallback_reply) if part
+        )
         forbidden_term = next(
-            (term for term in _FORBIDDEN_CHARACTER_TERMS if term in reply.reply),
+            (term for term in _FORBIDDEN_CHARACTER_TERMS if term in visible_text),
             None,
         )
         if forbidden_term is not None:
             raise DecisionProviderError(
                 f"DeepSeek对话泄露人物不可知的底层术语：{forbidden_term}"
             )
+        if self.debug_model_io:
+            LOGGER.debug(
+                "模型解析结果 call_id=%s label=npc_reply result=%s",
+                call_id,
+                diagnostic_json(reply.model_dump(mode="json"), self._diagnostic_secrets),
+            )
         return reply
 
     def close(self) -> None:
         self.client.close()
 
-    def _request(self, payload: dict[str, object]) -> dict[str, object]:
+    def _request(
+        self, payload: dict[str, object], *, label: str = "decision",
+    ) -> tuple[dict[str, object], str]:
+        call_id = str(uuid4())
+        if self.debug_model_io:
+            LOGGER.debug(
+                "模型请求已组装 call_id=%s label=%s model=%s payload=%s",
+                call_id,
+                label,
+                self.model,
+                diagnostic_json(payload, self._diagnostic_secrets),
+            )
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
+                check_model_billing(self.base_url)
                 response = self.client.post("chat/completions", json=payload)
+                if self.debug_model_io:
+                    LOGGER.debug(
+                        "模型 HTTP 原始响应 call_id=%s label=%s attempt=%s status=%s body=%s",
+                        call_id,
+                        label,
+                        attempt + 1,
+                        response.status_code,
+                        diagnostic_json(response.text, self._diagnostic_secrets),
+                    )
+                if response.status_code == 402:
+                    record_model_billing_failure(self.base_url)
                 if response.status_code == 429 or response.status_code >= 500:
                     raise DecisionProviderError(f"DeepSeek暂时不可用，HTTP {response.status_code}")
                 response.raise_for_status()
                 data = response.json()
                 if not isinstance(data, dict):
                     raise DecisionProviderError("DeepSeek响应不是JSON对象")
-                return data
+                usage = data.get("usage") or {}
+                LOGGER.info(
+                    "决策模型请求完成 call_id=%s label=%s model=%s prompt_tokens=%s "
+                    "completion_tokens=%s attempts=%d",
+                    call_id,
+                    label,
+                    self.model,
+                    usage.get("prompt_tokens"),
+                    usage.get("completion_tokens"),
+                    attempt + 1,
+                )
+                return data, call_id
+            except ModelBillingError as exc:
+                raise DecisionProviderError(str(exc)) from exc
             except (httpx.HTTPError, ValueError, DecisionProviderError) as exc:
                 last_error = exc
+                LOGGER.warning(
+                    "决策模型请求失败 call_id=%s label=%s model=%s attempt=%d/%d error=%s",
+                    call_id,
+                    label,
+                    self.model,
+                    attempt + 1,
+                    self.max_retries + 1,
+                    type(exc).__name__,
+                )
                 if attempt >= self.max_retries:
                     break
                 time.sleep(min(0.5 * (2**attempt), 2.0))
@@ -565,6 +718,8 @@ class DeepSeekDecisionProvider:
             "id": location.id,
             "name": location.name,
             "kind": location.kind,
+            "space_layer":location.space_layer,
+            "altitude_m":location.altitude_m,
             "resources": location.resources,
         }
 
@@ -581,6 +736,8 @@ class DeepSeekDecisionProvider:
         for character in characters:
             origin_id = character.current_location_id or character.location_id
             for location in snapshot.locations:
+                if location.space_layer != character.space_layer:
+                    continue
                 if location.id == origin_id:
                     continue
                 normalized_name = "".join(location.name.casefold().split())
@@ -618,9 +775,15 @@ class DeepSeekDecisionProvider:
     def _decision_system_prompt(*, has_player_intent: bool) -> str:
         player_intent_rule = (
             "\n- player_intent 是主控人物本轮明确意图；优先忠实执行其可行部分，"
+            "问候或提问应提议 socialize 并保留玩家原话，不因饱食、精力或 goals 改选其他行动；"
             "若点名地点，只能从 matches_player_intent=true 的 travel_destinations 中选择。"
             if has_player_intent
             else ""
+        )
+        survival_rule = (
+            "主控人物有 player_intent 时先忠实处理该意图，不自行改做满足生存需求的行动。"
+            if has_player_intent
+            else "先满足紧急生存需要（健康、饱食、精力），再处理危险，最后围绕 goals 行动。"
         )
         return (
             "# 角色\n"
@@ -635,7 +798,7 @@ class DeepSeekDecisionProvider:
             "character_common 才是普通人物可使用的通用认知，仍须服从人物经历与身份。"
             "资料未支持的专名、历史、组织、能力与因果必须保持未知。\n"
             "# 决策规则\n"
-            "先满足紧急生存需要（健康、饱食、精力），再处理危险，最后围绕 goals 行动。"
+            f"{survival_rule}"
             "action 只能是 rest、eat、work、travel、socialize、idle、attack。"
             "travel 的 destination_id 只能取 travel_destinations 中的 id；"
             "socialize 与 attack 的 target_id 只能取本人物 interaction_targets 中的 id。"

@@ -155,6 +155,10 @@ def seed_food_supply(connection: sqlite3.Connection, world_id: str) -> FoodSuppl
     之前取——后者会顺带写下 `system:food-supply:<world_id>` 登记，若拿登记记录
     当判据，首次播种自己就会把自己判成「已播种」，存量永远写不进去。
     """
+    from world_engine.materials import MaterialService
+
+    if MaterialService.enabled(connection, world_id):
+        return FoodSupplyStats(item_type_id='', locations_seeded=0, profile_created=False)
     already_seeded = _has_generic_profile(connection, world_id)
     item_type_id, created = _ensure_generic_profile(connection, world_id)
     if already_seeded:

@@ -8,9 +8,10 @@ VOICE_RADIUS_KM = {"whisper": 0.003, "normal": 0.02, "shout": 0.1}
 
 def same_room(first, second) -> bool:
     """门后的独立空间不能仅凭经纬度相同就成为同一可交互场景。"""
-    def room(value):
+    def field(value, key, default=None):
         if hasattr(value, "keys"):
-            return value["current_room_id"] if "current_room_id" in value.keys() else None
-        return getattr(value, "current_room_id", None)
+            return value[key] if key in value.keys() else default
+        return getattr(value, key, default)
 
-    return room(first) == room(second)
+    return (field(first,"current_room_id") == field(second,"current_room_id")
+            and field(first,"space_layer","ground") == field(second,"space_layer","ground"))

@@ -38,7 +38,7 @@ main { padding-top: 68px; }
 .player-hud { display: flex; align-items: center; gap: 14px; margin: 28px 0; padding: 16px 18px; border: 1px solid var(--line); border-radius: 18px; background: rgba(25, 30, 44, .66); }.portrait, .profile-avatar { display: grid; flex: 0 0 auto; place-items: center; width: 52px; height: 52px; color: var(--gold-soft); border: 1px solid rgba(212,170,115,.35); border-radius: 50%; background: radial-gradient(circle, #394154, #1c2130); font: 21px var(--serif); }.portrait { cursor: pointer; }.hud-name h2 { margin: 0; font: 18px var(--serif); }.hud-name span, .hud-name p { color: var(--paper-dim); font-size: 11px; }.hud-name p { margin: 4px 0 0; }
 .hud-resources { display: flex; flex-wrap: wrap; gap: 16px; margin: 0 0 0 auto; }.hud-resources div { min-width: 90px; }.hud-resources dt { margin-bottom: 5px; color: var(--paper-dim); font-size: 10px; }.hud-resources dd { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 11px; }.meter { display: block; width: 70px; height: 5px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }.meter b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--gold), var(--gold-soft)); }.coin { color: var(--gold); }
 .narrative-block { position: relative; min-height: 130px; margin: 32px 0; padding: 24px 32px 24px 60px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(135deg, rgba(212,170,115,.055), rgba(255,255,255,.015)); }.narrative-block > span { position: absolute; top: 6px; left: 18px; color: var(--gold); opacity: .42; font: 58px var(--serif); }.narrative-block p { margin: 0; font: clamp(18px, 2vw, 23px)/1.85 var(--serif); }
-.action-result { margin: 20px 0; padding: 13px 16px; color: var(--paper); border-left: 2px solid var(--gold); border-radius: 0 12px 12px 0; background: rgba(212,170,115,.1); font: 15px/1.7 var(--serif); }.action-result.flash { animation: resultFlash .6s ease; }
+.action-result { margin: 20px 0; padding: 13px 16px; color: var(--paper); border-left: 2px solid var(--gold); border-radius: 0 12px 12px 0; background: rgba(212,170,115,.1); font: 15px/1.7 var(--serif); white-space: pre-line; }.action-result.flash { animation: resultFlash .6s ease; }
 .scene-columns { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .8fr); gap: 18px; }.story-section, .nearby-section, .combat-panel, .observer-card, .adjudication-archive { padding: 20px; border: 1px solid var(--line); border-radius: 18px; background: rgba(25,30,44,.54); }.section-heading h2, .combat-panel h2, .observer-card h2 { margin: 3px 0 0; font: 20px var(--serif); }.text-link { color: var(--gold-soft); border: 0; background: transparent; font-size: 11px; }
 .story-cards { display: grid; gap: 8px; margin: 16px 0 0; padding: 0; list-style: none; }.story-cards button { display: grid; width: 100%; gap: 5px; padding: 12px 14px; color: var(--paper); text-align: left; border: 1px solid var(--line); border-radius: 12px; background: rgba(10,13,20,.25); }.story-cards button:hover { border-color: var(--gold); transform: translateY(-1px); }.story-cards span, .story-cards small { color: var(--paper-dim); font-size: 10px; }.story-cards strong { font: 14px/1.5 var(--serif); }
 .presence-list { display: flex; flex-wrap: wrap; gap: 7px; margin: 14px 0; }.presence-chip { padding: 5px 10px; color: var(--paper); border: 1px solid var(--line); border-radius: 999px; background: transparent; font-size: 11px; }.presence-chip.friend { border-color: rgba(115,191,162,.44); }.presence-chip.enemy { border-color: rgba(201,121,109,.54); }.nearby-characters { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }.nearby-characters button { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px; color: var(--paper); text-align: left; border: 0; border-bottom: 1px solid var(--line); background: transparent; }.nearby-characters button > span:nth-child(2) { display: grid; gap: 3px; }.nearby-characters b { margin-left: auto; color: var(--paper-dim); font-size: 10px; }.nearby-characters small { color: var(--paper-dim); font-size: 10px; }.avatar { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; color: var(--gold-soft); border: 1px solid var(--line); border-radius: 50%; background: var(--space-3); }
@@ -65,7 +65,25 @@ body:not([data-room="scene"]) .action-composer textarea { height: 42px; min-heig
 .map-controls > b { color: var(--paper); font: 14px var(--serif); }
 .room[data-room-panel="map"] { width: min(1560px, calc(100% - 32px)); }
 .room[data-room-panel="map"] .atlas-layout { grid-template-columns: minmax(0, 1fr) 170px; }
-.map-point.location { pointer-events: auto; cursor: pointer; }.map-point.feature { pointer-events: auto; cursor: help; }
+  .map-point.location { pointer-events: auto; cursor: pointer; }.map-point.feature { pointer-events: auto; cursor: help; }
+  .map-point.npc { z-index: 7; pointer-events: auto; cursor: pointer; }
+  .map-point.npc i { width: 13px; height: 13px; border-color: #b9d7e2; background: #4e8da5; box-shadow: 0 0 0 5px rgba(78,141,165,.22); }
+  .map-point.npc span { opacity: 0; pointer-events: none; }
+  .map-point.npc:hover span, .map-point.npc.selected span { opacity: 1; }
+  .map-point.npc.selected { z-index: 9; }
+  .map-point.npc.selected i { border-color: var(--gold); background: var(--gold); box-shadow: 0 0 0 8px rgba(212,170,115,.3); }
+  .map-npc-picker { display: grid; gap: 6px; color: var(--paper-dim); font-size: 11px; }
+  .map-npc-picker select { width: 100%; min-width: 0; padding: 8px; color: var(--paper); border: 1px solid var(--line-strong); border-radius: 7px; background: var(--space-2); }
+  .map-legend .legend-npc { background: #4e8da5; }
+  .map-npc-info { display: grid; gap: 8px; margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(8,11,17,.55); }
+  .map-npc-info[hidden] { display: none; }
+  .map-npc-info p { margin: 0; color: var(--paper-dim); }
+  .map-npc-info small { line-height: 1.5; }
+  .map-npc-info ol { display: grid; gap: 5px; max-height: 150px; margin: 0; padding-left: 18px; overflow: auto; font-size: 10px; line-height: 1.4; }
+  .map-npc-info li em { color: var(--gold-soft); font-style: normal; }
+  .map-npc-info div { display: flex; gap: 6px; }
+  .map-npc-info button { padding: 5px 8px; color: var(--paper); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--space-2); cursor: pointer; }
+  .map-tile-layer:empty { background: radial-gradient(circle at 50% 45%, #263849, #101922 70%); }
 .setup-map-camera { position: absolute; inset: 0; transform-origin: center; }.setup-map-camera img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: .7; }.setup-map-hint { position: absolute; right: 8px; bottom: 8px; padding: 4px 6px; color: var(--paper-soft); border-radius: 6px; background: rgba(8,11,17,.76); font-size: 9px; pointer-events: none; }
 .mobile-only { display: none; }
 @keyframes roomIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
@@ -138,3 +156,17 @@ body:not([data-room="scene"]) .action-composer textarea { height: 42px; min-heig
 #life-progress { width: min(100%, 360px); margin-right: .8rem; }
 #life-progress-wrap, #life-last { margin-bottom: .75rem; }
 @media (max-width: 600px) { .life-controls label { flex-basis: 100%; } .life-item > span { flex-basis: 100%; } }
+/* 哥哥看地图时留出人物视野；选择 NPC 交谈后回到对话界面。 */
+body[data-room="map"] .action-composer { display: none; }
+.science-page { max-width: 1440px; margin: 28px auto; padding: 0 24px 60px; display: grid; gap: 24px; }
+.science-card { min-width: 0; background: #171d29; color: #e8e9ed; border: 1px solid #394255; border-radius: 16px; padding: 24px; }
+#science-graph { overflow: auto; }
+.science-edge { fill: none; stroke: #8c99ae; stroke-width: 2; }
+.science-node { cursor: pointer; }
+.science-node rect { fill: #213b38; stroke: #73bbaa; }
+.science-node text { fill: #e9f0ed; font-size: 14px; }
+.science-node .science-node-status { font-size: 12px; }
+.science-node.invalidated rect { fill: #4a2830; stroke: #cf8c91; }
+.science-node.needs_review rect { fill: #4a4128; stroke: #d4b983; }
+.science-node:focus rect { stroke: #fff; stroke-width: 3; }
+#science-process { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 70vh; overflow: auto; font-size: 13px; line-height: 1.65; }

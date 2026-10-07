@@ -9,6 +9,7 @@ from world_engine.conversation.types import ScheduledDialogueSpeaker
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
+from world_engine.repository import to_iso
 
 
 class DialogueSpeakerScheduler:
@@ -46,7 +47,11 @@ class DialogueSpeakerScheduler:
         requested = set(participant_ids or [])
         visible_ids = {character.id for character in visible}
         if requested - visible_ids:
-            raise ValueError("多人对话只能选择100米内仍在场的人物")
+            raise ValueError("所选人物已不在当前说话方式的可听范围内")
+        if participant_ids is not None:
+            visible = [character for character in visible if character.id in requested]
+        if not visible:
+            return []
         relations = {
             str(row["source_character_id"]): (
                 int(row["affinity"]),
@@ -65,8 +70,9 @@ class DialogueSpeakerScheduler:
             """
             SELECT character_id, title, details FROM npc_todos
             WHERE world_id = ? AND status IN ('open', 'doing')
+              AND (due_world_time IS NULL OR due_world_time > ?)
             """,
-            (snapshot.world.id,),
+            (snapshot.world.id, to_iso(snapshot.world.current_time)),
         ).fetchall():
             todos_by_character[str(row["character_id"])] = (
                 todos_by_character.get(str(row["character_id"]), "")

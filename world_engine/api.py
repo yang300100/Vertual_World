@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from world_engine.api_map import WORLD_MAP_DIRECTORY, _world_map_layers
 from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.database import Database
+from world_engine.diagnostic_logging import configure_runtime_logging
 from world_engine.domain import WorldSnapshot, WorldState
 from world_engine.engine import WorldEngine
 from world_engine.food_supply import seed_food_supply
@@ -27,6 +28,13 @@ from world_engine.photos import (
     PortraitView,
 )
 from world_engine.repository import WorldNotFoundError, WorldRepository, to_iso, utc_now
+from world_engine.world_pack import (
+    check_pack_save,
+    ensure_pack_save,
+    ensure_pack_world,
+    resolve_pack_settings,
+    seed_world_from_pack,
+)
 
 LOGGER = logging.getLogger("virtual-world.api")
 
@@ -47,15 +55,21 @@ def create_app(
     *,
     photo_service_override: PhotoService | None = None,
 ) -> FastAPI:
-    resolved_settings = settings or Settings.from_env()
-    database = Database(resolved_settings.database_path)
+    resolved_settings, world_pack = resolve_pack_settings(settings or Settings.from_env())
+    configure_runtime_logging(resolved_settings.debug_model_io)
+    database = Database(resolved_settings.database_path, legacy_world_defaults=world_pack is None)
     repository = WorldRepository()
     engine = WorldEngine(database, resolved_settings)
     photo_service = photo_service_override or PhotoService(resolved_settings)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if world_pack is not None:
+            check_pack_save(database, world_pack)
         database.initialize()
+        if world_pack is not None:
+            ensure_pack_save(database, world_pack)
+            ensure_pack_world(database, resolved_settings, world_pack)
         engine.reset_offline_baseline()
         try:
             yield
@@ -75,7 +89,7 @@ def create_app(
     )
     application.mount(
         "/world-assets",
-        StaticFiles(directory=WORLD_MAP_DIRECTORY),
+        StaticFiles(directory=world_pack.assets_root if world_pack is not None else WORLD_MAP_DIRECTORY),
         name="world-assets",
     )
     media_directory = resolved_settings.media_directory or (PROJECT_ROOT / "data" / "world-media")
@@ -122,6 +136,7 @@ def create_app(
                 "server_time": to_iso(utc_now()),
                 "database": "ready",
                 "decision_provider": engine.decision_provider.name,
+                "debug_model_io": resolved_settings.debug_model_io,
                 "knowledge": {
                     "enabled": resolved_settings.knowledge_enabled,
                     "loaded_chunks": getattr(
@@ -155,8 +170,12 @@ def create_app(
                         else resolved_settings.default_time_scale
                     ),
                     adjudication_interval_minutes=(resolved_settings.adjudication_interval_minutes),
-                    seed_demo=payload.seed_demo,
+                    seed_demo=payload.seed_demo if world_pack is None else False,
+                    seed_maps=world_pack is None,
+                    start_time=world_pack.start_time if world_pack is not None else None,
                 )
+                if world_pack is not None:
+                    seed_world_from_pack(connection, world_id, world_pack)
                 # 新建世界必须即刻播种食物供给，否则 API 进程长驻期间新建的世界
                 # 会一直停留在「无任何可采集资源」的饥饿死锁状态，直到进程重启
                 # 触发 Database.initialize() 的补种。播种放在调用方而非 repository，
@@ -186,7 +205,7 @@ def create_app(
         这条路由不带 world_id，属于世界级端点而非某个世界内的地图接口，
         因此留在 api.py；图层扫描实现随地图域放在 api_map。
         """
-        layers = _world_map_layers()
+        layers = world_pack.map_layers if world_pack is not None else _world_map_layers()
         # files 是仅含安全相对路径的简化列表；前端显示名称和格式时使用 layers。
         return {"layers": layers, "files": [item["asset_path"] for item in layers]}
 
@@ -316,8 +335,12 @@ def create_app(
 
     application.include_router(build_elements_router(database))
     application.include_router(build_map_router(database))
-    application.include_router(build_player_router(database, engine, repository, photo_service))
+    application.include_router(build_player_router(database, engine, repository, photo_service, world_pack))
     application.include_router(build_world_router(database, engine, repository))
+    from world_engine.api_science import build_science_router
+    application.include_router(build_science_router(database))
+    from world_engine.api_wonders import build_wonders_router
+    application.include_router(build_wonders_router(database,photo_service))
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))
     application.include_router(build_task_router(database, engine))

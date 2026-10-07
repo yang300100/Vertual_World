@@ -103,8 +103,7 @@ async function lifeMutation(path, body) {
       method: "POST", ...(body ? { body: JSON.stringify(body) } : {}),
     });
     if (worldId !== state.worldId) return;
-    $("#action-result").textContent = result.summary;
-    $("#action-result").hidden = false;
+    showActionResult(result.summary);
     $("#life-item-detail").hidden = true;
     await refreshAll();
     return result;

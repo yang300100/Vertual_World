@@ -9,6 +9,12 @@ import sqlite3
 from datetime import timedelta
 
 from world_engine.conversation.types import NpcConversationContext
+from world_engine.dialogue_relevance import (
+    DIALOGUE_SOURCE_LIMITS,
+    DialogueRelevance,
+    compact_dialogue_item,
+    natural_text,
+)
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
 from world_engine.knowledge import search_dynamic_knowledge
@@ -66,9 +72,10 @@ class ConversationContextMixin:
             """
             SELECT title, details FROM npc_todos
             WHERE world_id = ? AND character_id = ? AND status IN ('open', 'doing')
+              AND (due_world_time IS NULL OR due_world_time > ?)
             ORDER BY CASE status WHEN 'doing' THEN 0 ELSE 1 END, updated_at DESC LIMIT 3
             """,
-            (snapshot.world.id, npc.id),
+            (snapshot.world.id, npc.id, to_iso(snapshot.world.current_time)),
         ).fetchall()
         relation = {
             (item.source_character_id, item.target_character_id): {
@@ -102,6 +109,8 @@ class ConversationContextMixin:
                     "id": location.id,
                     "name": location.name,
                     "kind": location.kind,
+                    "space_layer": location.space_layer,
+                    "altitude_m": location.altitude_m,
                     "resources": location.resources,
                 }
                 if location
@@ -115,14 +124,18 @@ class ConversationContextMixin:
                 limit=6,
             ),
         }
-        if npc.current_room_id:
+        if channel in {"in_person", "group_scene", "action_observation"}:
             from world_engine.interiors import InteriorService
+            from world_engine.npc_stage_actions import carried_items, travel_destinations
 
             npc_row = connection.execute(
                 "SELECT * FROM characters WHERE id=?", (npc.id,),
             ).fetchone()
             interior = InteriorService.scene(connection, npc_row)
             scene["room"] = interior["room"]
+            scene["doors"] = interior["doors"]
+            scene["inventory"] = carried_items(connection, npc_row)
+            scene["travel_destinations"] = travel_destinations(connection, npc_row)
             scene["fixtures"] = [
                 {"name": item["name"], "kind": item["kind"],
                  "open": item["open"], "occupied": item["occupied"]}
@@ -221,6 +234,12 @@ class ConversationContextMixin:
                 base["player_current_activity"] = LifeActivityService.view(
                     active, snapshot.world.current_time,
                 )
+        npc_activity = LifeActivityService.running(connection, npc.id)
+        if npc_activity:
+            # Yuki 让本人正在做的事直接可见，不靠旧事件猜测当前活动。
+            base["npc_current_activity"] = LifeActivityService.view(
+                npc_activity, snapshot.world.current_time,
+            )
         return self._apply_context_budget(base)
 
     @staticmethod
@@ -234,15 +253,26 @@ class ConversationContextMixin:
     def _apply_context_budget(self, context: dict[str, object]) -> dict[str, object]:
         """保留人物与规则必需段，再按优先级逐项装入可裁剪上下文。"""
         optional_keys = (
+            "open_commitments",
             "recent_conversation",
+            "knowledge_context",
             "player_activity_records",
             "conversation_episodes",
             "recent_private_memories",
-            "knowledge_context",
-            "open_commitments",
             "recalled_past_conversation",
         )
         result = dict(context)
+        nested_sections: list[tuple[str, str, object]] = []
+        scene = result.get("scene")
+        if isinstance(scene, dict):
+            result["scene"] = dict(scene)
+            if "recent_personal_events" in scene:
+                nested_sections.append(("scene", "recent_personal_events",
+                                        result["scene"].pop("recent_personal_events")))
+        experience = result.pop("personal_experience", None)
+        if isinstance(experience, dict):
+            nested_sections.extend(("personal_experience", key, value)
+                                   for key, value in experience.items())
         for key in optional_keys:
             result[key] = []
         # 世界护栏不被长历史挤出；资料仍放在用户数据中，不提升为系统指令。
@@ -252,30 +282,128 @@ class ConversationContextMixin:
             if isinstance(item, dict) and item.get("audience") == "guardrail"
         ] if isinstance(knowledge, list) else []
         trace: dict[str, int] = {}
+        source_usage: dict[str, tuple[int, int]] = {}
+        names = tuple(str(section.get("name") or "") for name in ("npc", "player")
+                      if isinstance(section := context.get(name), dict))
+        relevance = DialogueRelevance(
+            str(context.get("player_text") or ""), names=names,
+            history=context.get("recent_conversation") or [],
+        )
+
+        def relevant(source: str, value: object) -> bool:
+            # Yuki 让缺少本轮输入的旧预算调用保持兼容；真实对话先筛选再占位。
+            if "player_text" not in context:
+                return True
+            if source == "knowledge_context" and isinstance(value, dict):
+                if value.get("audience") == "guardrail":
+                    return True
+            if source == "recent_private_memories" and isinstance(value, dict):
+                importance = value.get("importance")
+                if isinstance(importance, int | float) and importance >= 8:
+                    return True
+            if source in {
+                "knowledge_context", "recent_private_memories", "conversation_episodes",
+                "recalled_past_conversation", "scene.recent_personal_events",
+                "personal_experience.known_events", "personal_experience.beliefs",
+            }:
+                generic_past = relevance.asks_about_past and not relevance.terms
+                return relevance.matches(value) or (generic_past and source in {
+                    "conversation_episodes", "recalled_past_conversation",
+                    "scene.recent_personal_events", "personal_experience.known_events",
+                })
+            return True
+
         base_tokens = self.estimate_tokens(result)
         trace["mandatory"] = base_tokens
+
+        def fits_source(source: str, cost: int) -> bool:
+            if source not in DIALOGUE_SOURCE_LIMITS:
+                return True
+            limit, count_limit = DIALOGUE_SOURCE_LIMITS[source]
+            used, count = source_usage.get(source, (0, 0))
+            # Yuki 给最终消息新增的字段名与计数舍入留少量余量。
+            overhead = self.estimate_tokens(source) + 4 if count == 0 else 2
+            return used + cost + overhead <= limit and count < count_limit
+
+        def admitted(source: str, cost: int) -> None:
+            used, count = source_usage.get(source, (0, 0))
+            source_usage[source] = (used + cost, count + 1)
+
+        def add_nested_section(parent: str, key: str, value: object) -> None:
+            if value is None:
+                return
+            items = value if isinstance(value, list) else [value]
+            for item in items:
+                if not relevant(f"{parent}.{key}", item):
+                    continue
+                source = f"{parent}.{key}"
+                if source in DIALOGUE_SOURCE_LIMITS:
+                    item = compact_dialogue_item(key, item, relevance, keep_provenance=True)
+                before = self.estimate_tokens(result)
+                section = result.setdefault(parent, {})
+                if isinstance(value, list):
+                    section.setdefault(key, []).append(item)
+                else:
+                    section[key] = item
+                after = self.estimate_tokens(result)
+                cost = after - before
+                if after > self.max_context_tokens or not fits_source(source, cost):
+                    if isinstance(value, list):
+                        section[key].pop()
+                        if not section[key]:
+                            section.pop(key)
+                    else:
+                        section.pop(key)
+                    if not section:
+                        result.pop(parent)
+                else:
+                    admitted(source, cost)
+            trace[f"{parent}.{key}"] = self.estimate_tokens(result.get(parent, {}).get(key, []))
+
+        current_experience = {"emotion", "food_discomfort", "shared_appointments", "wonder_context"}
+        for parent, key, value in nested_sections:
+            if parent == "personal_experience" and key in current_experience:
+                add_nested_section(parent, key, value)
         for key in optional_keys:
             selected = list(result[key])
             raw_items = context.get(key)
             if not isinstance(raw_items, list):
                 continue
-            groups = (
-                list(reversed(conversation_exchanges(raw_items)))
-                if key == "recent_conversation" else [[item] for item in raw_items]
-            )
+            groups = conversation_exchanges(raw_items) if key in {
+                "recent_conversation", "recalled_past_conversation",
+            } else [[item] for item in raw_items]
+            if key == "recent_conversation":
+                groups.reverse()
             for group in groups:
                 if key == "knowledge_context" and group[0] in selected:
                     continue
+                if key == "recalled_past_conversation" and not relevance.wants_original(group):
+                    continue
+                candidate_text = "\n".join(natural_text(item) for item in group)
+                if not relevant(key, candidate_text if key == "recalled_past_conversation"
+                                else group[0]):
+                    continue
+                if key in DIALOGUE_SOURCE_LIMITS and key != "recalled_past_conversation":
+                    group = [compact_dialogue_item(key, item, relevance, keep_provenance=True)
+                             for item in group]
+                before = self.estimate_tokens(result)
                 candidate = group + selected if key == "recent_conversation" else selected + group
                 result[key] = candidate
-                if self.estimate_tokens(result) > self.max_context_tokens:
+                after = self.estimate_tokens(result)
+                cost = after - before
+                if after > self.max_context_tokens or not fits_source(key, cost):
                     result[key] = selected
                     if key == "recent_conversation":
                         break
                     continue
                 selected = candidate
+                admitted(key, cost)
             result[key] = selected
             trace[key] = self.estimate_tokens(selected)
+        # Yuki 按条预算旧事件与经历，让它们不能在必需段里挤走最新问答。
+        for parent, key, value in nested_sections:
+            if parent != "personal_experience" or key not in current_experience:
+                add_nested_section(parent, key, value)
         trace["total"] = self.estimate_tokens(result)
         trace["limit"] = self.max_context_tokens
         trace["over_budget_tokens"] = max(0, trace["total"] - self.max_context_tokens)

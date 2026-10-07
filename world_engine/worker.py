@@ -10,9 +10,16 @@ from world_engine.bounded_calls import submit_call
 from world_engine.config import Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
+from world_engine.diagnostic_logging import configure_runtime_logging
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
 from world_engine.repository import WorldRepository, from_iso
 from world_engine.retention import apply_retention
+from world_engine.world_pack import (
+    check_pack_save,
+    ensure_pack_save,
+    ensure_pack_world,
+    resolve_pack_settings,
+)
 
 LOGGER = logging.getLogger("virtual-world.worker")
 
@@ -24,10 +31,10 @@ class WorldWorker:
     """独立于Web进程的自动推进服务。"""
 
     def __init__(self, settings: Settings) -> None:
-        self.settings = settings
-        self.database = Database(settings.database_path)
+        self.settings, self.world_pack = resolve_pack_settings(settings)
+        self.database = Database(self.settings.database_path, legacy_world_defaults=self.world_pack is None)
         self.repository = WorldRepository()
-        self.engine = WorldEngine(self.database, settings)
+        self.engine = WorldEngine(self.database, self.settings)
         self.stop_event = threading.Event()
         self._memory_future = None
         self._outreach_future = None
@@ -146,8 +153,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = Settings.from_env()
+    configure_runtime_logging(settings.debug_model_io)
+    LOGGER.info(
+        "模型 I/O 调试输出：%s",
+        "已启用" if settings.debug_model_io else "未启用",
+    )
     worker = WorldWorker(settings)
+    if worker.world_pack is not None:
+        check_pack_save(worker.database, worker.world_pack)
     worker.database.initialize()
+    if worker.world_pack is not None:
+        ensure_pack_save(worker.database, worker.world_pack)
+        ensure_pack_world(worker.database, worker.settings, worker.world_pack)
     signal.signal(signal.SIGINT, worker.stop)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, worker.stop)

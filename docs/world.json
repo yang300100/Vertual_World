@@ -1,0 +1,38 @@
+{
+  "format_version": 1,
+  "id": "iserra-noryia",
+  "revision": 1,
+  "name": "伊瑟拉·诺里亚",
+  "start_time": "2040-04-01T08:00:00+00:00",
+  "locations": "world/locations.json",
+  "characters": "world/characters.json",
+  "maps": "world/maps.json",
+  "map_features": "world/map_features.json",
+  "species": "world/species.json",
+  "knowledge": ["worldbuilding", "knowledge"],
+  "knowledge_exclude_files": [
+    "16-northern-continent-civilization-framework.md",
+    "17-history-of-three-regions.md",
+    "18-states-cultures-and-conflicts.md",
+    "19-canonical-chronology.md",
+    "20-current-powers-and-customs.md",
+    "21-war-and-treaty-ledger.md",
+    "22-lineages-gray-elves-and-dragon-isolation.md",
+    "23-faiths-calendars-and-memory.md",
+    "24-far-north-dragon-history.md"
+  ],
+  "assets_root": "worldbuilding/maps",
+  "map_layers": [
+    {"asset_path": "map_new/Noryia.svg", "label": "诺里亚地形图"},
+    {"asset_path": "map_new/Noryia_标注.svg", "label": "诺里亚标注图"},
+    {"asset_path": "navigation/noryia/Noryia卫星图.png", "label": "诺里亚卫星图"}
+  ],
+  "player": {
+    "species": "human", "money": 30, "skills": ["剑术"],
+    "items": [
+      {"type_id": "iron_sword", "name": "铁剑", "category": "weapon", "quantity": 1, "container": "character_equipment", "attack_bonus": 8},
+      {"type_id": "healing_potion", "name": "疗伤药", "category": "consumable", "quantity": 2, "container": "character_inventory", "stack_limit": 3, "usable": true, "heal": 30},
+      {"type_id": "wooden_charm", "name": "硬木护符", "category": "charm", "quantity": 0, "container": "character_inventory", "defense_bonus": 4}
+    ]
+  }
+}

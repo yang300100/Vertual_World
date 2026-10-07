@@ -82,6 +82,12 @@ def test_respond_to_player_rejects_truly_empty_content(llm_settings) -> None:
         _ask(llm_settings, "   \n  ")
 
 
+def test_respond_to_player_rejects_hidden_terminology_in_stage(llm_settings) -> None:
+    content = '{"reply":"你好。","stage_direction":"她查看了系统权限。"}'
+    with pytest.raises(DecisionProviderError, match="底层术语"):
+        _ask(llm_settings, content)
+
+
 def test_respond_to_player_does_not_swallow_timeout(llm_settings) -> None:
     """网络层错误不应被宽容解析吞掉，否则会把断网伪装成正常对话。"""
 

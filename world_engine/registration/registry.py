@@ -235,6 +235,13 @@ class WorldElementRegistry:
                 (registration_id,),
             )
             result = self.handlers[element_type].apply(context, payload)
+            if result.entity_type == "character" and result.entity_id and result.location_id:
+                place = connection.execute("SELECT space_layer,altitude_m FROM locations WHERE id=?",(result.location_id,)).fetchone()
+                if place:
+                    connection.execute("UPDATE characters SET space_layer=?,altitude_m=? WHERE id=?",
+                                       (place["space_layer"],place["altitude_m"],result.entity_id))
+                    from world_engine.wonders import WonderService
+                    WonderService.observe(connection,context.world_id,context.world_time)
             self._persist_result(connection, context, result)
             connection.execute("RELEASE SAVEPOINT element_registration_apply")
         except RegistrationRejected as exc:

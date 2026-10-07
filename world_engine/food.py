@@ -71,6 +71,12 @@ class FoodService:
         ):
             raise InventoryError("只能食用自己随身携带的食物")
         state = cls.view(item, at)["state"]
+        decision = c.execute(
+            "SELECT policy FROM collective_food_decisions WHERE actor_id=? AND batch_id=?",
+            (actor["id"], item["id"]),
+        ).fetchone()
+        if decision and decision[0] in {"avoid", "reserve"}:
+            raise InventoryError("本人已作出隔离或留存饮食安排，不能自动食用这一批")
         if state == "spoiled" and not accept_spoiled:
             raise InventoryError("食物已变质；自动进食不会选择它，请明确确认风险后再食用")
         nutrition = (
@@ -80,11 +86,40 @@ class FoodService:
             if state == "stale"
             else item["nutrition"]
         )
-        InventoryService.consume(c, item, 1)
+        from world_engine.materials import MaterialService
+
+        material = MaterialService.state(c, item["id"])
+        gain = nutrition
+        if material is not None:
+            nutrition = (
+                0
+                if state == "spoiled"
+                else material.nutrition / item["quantity"] * (0.5 if state == "stale" else 1)
+            )
+            from world_engine.collective_regions import RegionService
+
+            RegionService.ingestion(
+                c,
+                actor["world_id"],
+                at,
+                batch_id=item["id"],
+                dose=material.mobile / item["quantity"],
+                actor_id=actor["id"],
+            )
+            residual = c.execute(
+                "SELECT value FROM collective_nutrition_residuals WHERE actor_id=?", (actor["id"],)
+            ).fetchone()
+            available = nutrition + (residual[0] if residual else 0)
+            gain = int(available)
+            c.execute(
+                "INSERT INTO collective_nutrition_residuals VALUES (?,?) ON CONFLICT(actor_id) DO UPDATE SET value=excluded.value",
+                (actor["id"], available - gain),
+            )
+        InventoryService.consume(c, item, 1, destination="body:" + actor["id"])
         energy_loss = min(actor["energy"], 8) if state == "spoiled" else 0
         c.execute(
             "UPDATE characters SET satiety=MIN(100,satiety+?),energy=MAX(0,energy-?) WHERE id=?",
-            (nutrition, energy_loss, actor["id"]),
+            (gain, energy_loss, actor["id"]),
         )
         return {
             "nutrition": nutrition,

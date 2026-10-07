@@ -20,7 +20,7 @@ class LifeActivityError(ValueError):
 def parse_life_activity(text: str) -> tuple[str, int] | None:
     """识别明确的单一休息/等待指令；复杂描述留给原有行动路径。"""
     match = re.fullmatch(
-        r"(?:我)?(休息|原地休息|睡觉|睡一觉|等待|原地等待)"
+        r"(?:我)?(休息(?:一下|一会儿|片刻)?|原地休息|睡觉|睡一觉|等待|原地等待)"
         r"\s*(?:(\d+)\s*(分钟|小时))?\s*[。！!]?",
         text.strip(),
     )
@@ -53,7 +53,7 @@ class LifeActivityService:
     def start(cls, connection, actor, world_time: datetime, kind: str, minutes: int) -> str:
         cls.assert_available(connection, actor["id"])
         if (
-            kind not in {"rest", "wait", "work", "craft", "repair", "map_review"}
+            kind not in {"rest", "wait", "work", "craft", "repair", "map_review", "research"}
             or isinstance(minutes, bool)
             or not isinstance(minutes, int)
         ):
@@ -62,6 +62,10 @@ class LifeActivityService:
             raise LifeActivityError("每次活动需要持续 1 至 720 个世界分钟")
         if actor["health"] <= 0:
             raise LifeActivityError("当前身体状态无法开始活动")
+        from world_engine.player_steering import PlayerSteeringService
+
+        if PlayerSteeringService.active(connection, actor["id"]):
+            raise LifeActivityError("请先松开方向键，再开始原地活动")
         if connection.execute(
             "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
             (actor["id"],),
@@ -131,6 +135,7 @@ class LifeActivityService:
             "craft": "制作",
             "repair": "修理",
             "map_review": "地图核对",
+            "research": "研究",
         }[row["kind"]]
         summary = (
             f"{actor['name']}的{name}{'结束了' if status == 'completed' else '已停止'}。{reason}"
@@ -195,6 +200,13 @@ class LifeActivityService:
             """UPDATE character_life_activities SET status=?,finished_world_time=?,reason=?,
                 finish_event_id=? WHERE id=? AND status='running'""",
             (status, to_iso(at), reason, event_id, row["id"]),
+        )
+        from world_engine.action_results import finish_execution
+
+        finish_execution(
+            connection, kind="activity", execution_id=row["id"], event_id=event_id,
+            world_id=row["world_id"], actor_id=row["character_id"], at=at, status=status,
+            source_event_id=row["source_event_id"],
         )
         ActionService._record_memory(
             connection,
@@ -263,6 +275,20 @@ class LifeActivityService:
                 updates += 1
                 continue
             if effective <= last:
+                continue
+            if row["kind"] == "research":
+                from world_engine.autonomous_research import ResearchService
+
+                able = ResearchService.advance_work(connection, row, actor, effective, heartbeat_id)
+                connection.execute(
+                    "UPDATE character_life_activities SET last_processed_world_time=? WHERE id=?",
+                    (to_iso(effective), row["id"]),
+                )
+                if not able:
+                    cls.finish(connection, row, effective, "interrupted", "身体需要先休息或用饭，研究暂缓。")
+                elif at >= end:
+                    cls.finish(connection, row, end, "completed", "本段研究劳动已实际完成。")
+                updates += 1
                 continue
             if row["kind"] in {"work", "craft", "repair", "map_review"}:
                 from world_engine.activity_tasks import TaskService

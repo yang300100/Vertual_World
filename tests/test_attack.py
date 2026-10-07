@@ -40,6 +40,10 @@ def test_attack_important_death_is_major_event(database, settings) -> None:
             "UPDATE characters SET health = 12 WHERE world_id = ? AND name = ?",
             (world_id, "北潭·漱泉"),
         )
+        connection.execute(
+            "UPDATE worlds SET current_time=? WHERE id=?",
+            ("2030-01-01T08:00:00+00:00", world_id),
+        )
     engine = WorldEngine(database, settings)
     engine.submit_player_intent(world_id, "打北潭·漱泉")
     with database.read() as connection:
@@ -58,6 +62,9 @@ def test_attack_important_death_is_major_event(database, settings) -> None:
         ).fetchone()
     assert health <= 0
     assert any(e["event_type"] == "world.major_death" for e in events)
+    assert next(e for e in events if e["event_type"] == "world.major_death")["occurred_at"] == (
+        "2030-01-01T08:00:00+00:00"
+    )
     assert removal["status"] == "applied"
 
 

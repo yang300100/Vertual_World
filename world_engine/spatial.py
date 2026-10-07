@@ -16,13 +16,14 @@ class SpatialContextService:
         world_id: str,
         longitude: float,
         latitude: float,
+        space_layer: str = "ground",
     ) -> sqlite3.Row | None:
         locations = connection.execute(
             """
             SELECT * FROM locations
-            WHERE world_id = ? AND is_active = 1 AND area_radius_km > 0
+            WHERE world_id = ? AND is_active = 1 AND area_radius_km > 0 AND space_layer = ?
             """,
-            (world_id,),
+            (world_id, space_layer),
         ).fetchall()
         matches: list[tuple[int, float, float, sqlite3.Row]] = []
         for location in locations:
@@ -67,11 +68,13 @@ class SpatialContextService:
                 "UPDATE characters SET current_room_id=NULL,current_fixture_id=NULL WHERE id=?",
                 (character_id,),
             )
+        actor = connection.execute("SELECT space_layer FROM characters WHERE id=? AND world_id=?",(character_id,world_id)).fetchone()
         location = self.resolve_location(
             connection,
             world_id=world_id,
             longitude=longitude,
             latitude=latitude,
+            space_layer=actor["space_layer"] if actor else "ground",
         )
         location_id = location["id"] if location is not None else None
         connection.execute(

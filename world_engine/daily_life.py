@@ -1,14 +1,18 @@
 """NPC 基于自身需要、既有目标与真实地点推进日常生活。"""
 
 import json
+import logging
 from datetime import timedelta
 from uuid import uuid4
 
+from world_engine.diagnostic_logging import diagnostic_json
 from world_engine.geo import great_circle_distance_km
 from world_engine.life import LifeActivityService
 from world_engine.repository import from_iso, to_iso
 from world_engine.routines import RoutinePlanSpec, RoutineService
 from world_engine.schedules import ScheduleService
+
+LOGGER = logging.getLogger("virtual-world.worker")
 
 
 class DailyLifeService:
@@ -113,7 +117,9 @@ class DailyLifeService:
     def _start(c, actor, at, kind, minutes=60, recipe_id=None):
         from world_engine.actions import ActionService
         from world_engine.activity_tasks import TaskService
+        from world_engine.domain import ActionProposal, ActionType
 
+        before = ActionService._observed_state(c, actor["id"])
         if kind == "rest":
             aid = LifeActivityService.start(c, actor, at, "rest", minutes)
             name = "休息"
@@ -133,6 +139,13 @@ class DailyLifeService:
         )
         c.execute("UPDATE character_life_activities SET source_event_id=? WHERE id=?", (event, aid))
         TaskService.attach_source(c, aid, actor["world_id"], actor["id"], event)
+        ActionService._record_effect(
+            c, actor["world_id"], event,
+            ActionProposal(actor_id=actor["id"], action=ActionType.REST if kind == "rest" else ActionType.ACTIVITY,
+                           reason="依据生活需求和已采纳的安排开始活动"),
+            at, before, ActionService._observed_state(c, actor["id"]), None, None,
+            "action.npc_activity_started",
+        )
         return name
 
     @staticmethod
@@ -210,6 +223,7 @@ class DailyLifeService:
         from world_engine.activity_tasks import TaskService
         from world_engine.domain import ActionProposal, ActionType
         from world_engine.economy import EconomyService
+        from world_engine.npc_agency import NpcAgencyService
 
         slot = at.strftime("%Y-%m-%dT%H")
         RoutineService.finish_due(c,wid,at)
@@ -269,7 +283,7 @@ class DailyLifeService:
             intention = "处理自己的事务"
             c.execute("SAVEPOINT npc_daily_action")
             try:
-                EconomyService.collect_outputs(c, npc, at)
+                EconomyService.collect_outputs(c, npc, at, defer_agency=True)
                 npc = c.execute("SELECT * FROM characters WHERE id=?", (npc["id"],)).fetchone()
                 local_places = [
                     loc
@@ -307,28 +321,34 @@ class DailyLifeService:
                     )
                 elif npc["satiety"] <= 30:
                     RoutineService.defer(c,routine,at,"先解决用饭需要，再继续日常安排")
-                    meal = ActionService().execute(
-                        c,
-                        world_id=wid,
-                        tick_id=str(uuid4()),
-                        occurred_at=at,
-                        proposal=ActionProposal(
-                            actor_id=npc["id"], action=ActionType.EAT, reason="饱食不足，先用饭"
-                        ),
-                    )
-                    if meal.accepted:
-                        intention = "用饭"
+                    agency_intention = NpcAgencyService.tick(c, wid, npc["id"], at)
+                    if agency_intention:
+                        intention = agency_intention
                     else:
+                        meal = ActionService().execute(
+                            c,
+                            world_id=wid,
+                            tick_id=str(uuid4()),
+                            occurred_at=at,
+                            proposal=ActionProposal(
+                                actor_id=npc["id"], action=ActionType.EAT, reason="饱食不足，先用饭"
+                            ),
+                        )
+                        if meal.accepted:
+                            intention = "用饭"
+                    if intention == "处理自己的事务":
                         if EconomyService.buy_food(c, npc, at):
                             intention = "买到了真实食物"
                         elif EconomyService.harvest(c, npc, at, food_only=True):
                             intention = "收取可以食用的资源"
-                        elif npc["money"] < 3:
-                            intention = (
-                                cls._rest_at_home(c, npc, at, 120)
-                                if npc["energy"] < 20
-                                else cls._find_work(c, npc, at, local_places, plan)
-                            )
+                        else:
+                            obstacle = EconomyService.supply_obstacle(c, npc, at, food_only=True)
+                            if obstacle.kind == "insufficient_funds":
+                                intention = (
+                                    cls._rest_at_home(c, npc, at, 120)
+                                    if npc["energy"] < 20
+                                    else cls._find_work(c, npc, at, local_places, plan)
+                                )
                         food_places = [
                             by_id[place_id]
                             for place_id in cls.food_places(
@@ -347,12 +367,23 @@ class DailyLifeService:
                             )
                             if npc["current_room_id"] or not near(destination):
                                 intention = cls._travel(c, npc, at, destination)
-                            else:
-                                intention = (
-                                    cls._rest_at_home(c, npc, at, 120)
-                                    if npc["energy"] < 20
-                                    else cls._find_work(c, npc, at, local_places, plan)
-                                )
+                            elif npc["energy"] < 20:
+                                intention = cls._rest_at_home(c, npc, at, 120)
+                        if intention == "处理自己的事务":
+                            intention = {
+                                "no_seller": "附近没有可交易的食物卖家，暂待其他食物来源",
+                                "out_of_stock": "附近卖家没有可用食物，暂待补货或其他来源",
+                                "inventory_full": "背包没有空间容纳食物，需先腾出空间",
+                                "actor_unavailable": "当前无法采购食物，稍后重新评估",
+                            }.get(obstacle.kind, "暂待其他食物来源")
+                elif npc["health"] < 80 and (care_intention := NpcAgencyService.tick(c, wid, npc["id"], at)):
+                    intention = care_intention
+                    RoutineService.defer(c, routine, at, "先处理身体伤势")
+                elif npc["energy"] > 25 and not sleep_time and c.execute(
+                    "SELECT 1 FROM research_programs WHERE character_id=? AND status='active'",
+                    (npc["id"],),
+                ).fetchone():
+                    intention = "继续自己已经采纳的研究程序"
                 elif npc["energy"] <= 25 or npc["health"] < 40 or (sleep_time and (routine is None or routine["slot"] is None)):
                     RoutineService.defer(c,routine,at,"身体需要休息，暂缓原定安排")
                     home = by_id.get(npc["location_id"])
@@ -363,6 +394,9 @@ class DailyLifeService:
                         if remaining is not None and not urgent_care:
                             minutes = min(minutes, max(1, remaining))
                         intention = cls._rest_at_home(c, npc, at, minutes)
+                elif agency_intention := NpcAgencyService.tick(c, wid, npc["id"], at):
+                    intention = agency_intention
+                    RoutineService.defer(c, routine, at, "自主目标正在推进")
                 elif routine is not None:
                     if has_goals and routine["slot"] is None:
                         intention=NpcGoalService.perform(c,npc,at,routine,plan) or "按自己的作息自由安排"
@@ -420,10 +454,31 @@ class DailyLifeService:
                     "UPDATE npc_daily_states SET last_slot=?,intention=?,next_world_time=?,last_error=NULL WHERE character_id=?",
                     (slot, intention, to_iso(next_time), npc["id"]),
                 )
+                current_activity = LifeActivityService.running(c, npc["id"])
+                current_movement = c.execute(
+                    "SELECT status,destination_location_id FROM character_movements "
+                    "WHERE character_id=? AND status='moving'",
+                    (npc["id"],),
+                ).fetchone()
+                LOGGER.info(
+                    "NPC自主生活行动 world_id=%s character_id=%s intention=%s "
+                    "activity=%s movement_destination=%s",
+                    wid,
+                    npc["id"],
+                    diagnostic_json(intention),
+                    current_activity["kind"] if current_activity else None,
+                    current_movement["destination_location_id"] if current_movement else None,
+                )
             except ValueError as exc:
                 c.execute("ROLLBACK TO SAVEPOINT npc_daily_action")
                 c.execute("RELEASE SAVEPOINT npc_daily_action")
                 c.execute(
                     "UPDATE npc_daily_states SET last_slot=?,intention=?,last_error=? WHERE character_id=?",
                     (slot, "当前条件不足，暂缓计划", str(exc)[:300], npc["id"]),
+                )
+                LOGGER.warning(
+                    "NPC自主生活行动受阻 world_id=%s character_id=%s reason=%s",
+                    wid,
+                    npc["id"],
+                    diagnostic_json(str(exc)[:300]),
                 )

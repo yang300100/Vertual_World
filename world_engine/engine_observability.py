@@ -110,8 +110,37 @@ class ObservabilityMixin:
             return
 
 
-    def _sync_history_safely(self, world_id: str) -> None:
+    def _sync_history_safely(self, world_id: str, *, background: bool = False) -> None:
         if self.history_logger is None:
+            return
+        if background:
+            from threading import Thread
+
+            with self._history_export_lock:
+                self._history_export_pending.add(world_id)
+                if world_id in self._history_export_running:
+                    return
+                self._history_export_running.add(world_id)
+
+            def export_pending() -> None:
+                # 哥哥连续输入时只补导最新状态，不排队重建整份历史。
+                while True:
+                    with self._history_export_lock:
+                        self._history_export_pending.discard(world_id)
+                    try:
+                        self.history_logger.sync_world(world_id)
+                    except Exception:
+                        LOGGER.exception("世界%s事务已完成，但后台历史日志同步失败", world_id)
+                    with self._history_export_lock:
+                        if world_id not in self._history_export_pending:
+                            self._history_export_running.discard(world_id)
+                            return
+
+            Thread(
+                target=export_pending,
+                daemon=True,
+                name=f"world-history-{world_id[:8]}",
+            ).start()
             return
         try:
             self.history_logger.sync_world(world_id)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
@@ -89,6 +90,39 @@ def test_submit_intent_without_player_raises(database, settings) -> None:
     engine = WorldEngine(database, settings)
     with pytest.raises(ValueError):
         engine.submit_player_intent(world_id, "去东澜港看看")
+
+
+def test_unaddressed_conversation_does_not_become_hunger_action(database, settings) -> None:
+    repo = WorldRepository()
+    with database.write() as connection:
+        world_id = repo.create_world(
+            connection, name="对话意图回归", minutes_per_tick=60, seed_demo=True
+        )
+        npc = repo.get_snapshot(connection, world_id).characters[0]
+        player = repo.create_player_character(
+            connection,
+            world_id=world_id,
+            name="测试玩家",
+            identity="旅人",
+            location_id=npc.location_id,
+            traits=[],
+            goal="交谈",
+        )
+        connection.execute(
+            "UPDATE characters SET satiety=0 WHERE id=?", (player.id,)
+        )
+    engine = WorldEngine(database, settings)
+
+    with pytest.raises(ValueError, match="选择要说话的 NPC"):
+        engine.submit_player_intent(
+            world_id, "没事，就是关心一下你，最近有什么不好的事发生吗"
+        )
+
+    with database.read() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM world_events WHERE world_id=? AND actor_id=?",
+            (world_id, player.id),
+        ).fetchone()[0] == 0
 
 
 def test_submit_intent_travel_settles(database, settings) -> None:
@@ -236,7 +270,7 @@ def test_target_npc_generates_its_own_reply_from_private_context(
         )
     provider = _IndependentNpcReplyProvider(target.id)
     result = WorldEngine(database, settings, decision_provider=provider).submit_player_intent(
-        world_id, "与对方谈谈粮食的事", target_character_id=target.id
+        world_id, "与对方谈谈货物的来源和占有人", target_character_id=target.id
     )
 
     assert result.outcome.accepted is True
@@ -324,6 +358,7 @@ def test_group_dialogue_selects_requested_speakers_and_records_each_reply(
     with database.write() as connection:
         snapshot = repo.get_snapshot(connection, world_id)
         targets = snapshot.characters[:2]
+        bystander = snapshot.characters[2]
         player = repo.create_player_character(
             connection,
             world_id=world_id,
@@ -333,7 +368,7 @@ def test_group_dialogue_selects_requested_speakers_and_records_each_reply(
             traits=[],
             goal="听取众人意见",
         )
-        for target in targets:
+        for target in [*targets, bystander]:
             connection.execute(
                 """
                 UPDATE characters
@@ -342,17 +377,26 @@ def test_group_dialogue_selects_requested_speakers_and_records_each_reply(
                 """,
                 (player.longitude, player.latitude, player.location_id, target.id),
             )
-    provider = _ConversationCapturingProvider(targets[0].id)
+    class _PerformingProvider(_ConversationCapturingProvider):
+        def respond_to_player(self, *, npc, player, context):  # type: ignore[no-untyped-def]
+            self.reply_contexts.append(context)
+            return NpcReply(
+                reply="我会查查这件事。",
+                stage_direction="他放轻了声音。",
+            )
+
+    provider = _PerformingProvider(targets[0].id)
     result = WorldEngine(
         database, settings, decision_provider=provider
     ).submit_group_dialogue(
         world_id,
         "你们觉得北门粮车应该先从哪里查起？",
         participant_ids=[target.id for target in targets],
-        max_speakers=2,
+        max_speakers=3,
     )
 
     assert len(result["replies"]) == 2
+    assert all(item["stage_direction"] == "他放轻了声音。" for item in result["replies"])
     assert {item["character_id"] for item in result["replies"]} == {
         target.id for target in targets
     }
@@ -363,11 +407,11 @@ def test_group_dialogue_selects_requested_speakers_and_records_each_reply(
     with database.read() as connection:
         events = connection.execute(
             """
-            SELECT COUNT(*) FROM world_events
+            SELECT payload_json FROM world_events
             WHERE tick_id = ? AND event_type = 'action.socialize'
             """,
             (f"group-dialogue:{result['group_dialogue_id']}",),
-        ).fetchone()[0]
+        ).fetchall()
         npc_memories = connection.execute(
             """
             SELECT COUNT(*) FROM character_memories
@@ -375,7 +419,12 @@ def test_group_dialogue_selects_requested_speakers_and_records_each_reply(
             """,
             tuple(target.id for target in targets),
         ).fetchone()[0]
-    assert events == 2
+    assert len(events) == 2
+    assert all(
+        json.loads(event["payload_json"])["metadata"]["addressed_participant_ids"]
+        == [target.id for target in targets]
+        for event in events
+    )
     assert npc_memories >= 2
 
 
@@ -410,6 +459,62 @@ def test_model_failure_does_not_write_a_preset_npc_reply(
             for event in repo.list_events(connection, world_id, limit=20)
             if event["event_type"] == "action.socialize"
         ]
+
+
+def test_dialogue_reports_billing_failure(database, settings) -> None:
+    from world_engine.model_availability import ModelBillingError
+
+    world_id = create_iserra_world(database)
+    repo = WorldRepository()
+    with database.write() as connection:
+        target = repo.get_snapshot(connection, world_id).characters[0]
+        player = repo.create_player_character(
+            connection, world_id=world_id, name="阿澈", identity="旅人",
+            location_id=target.location_id, traits=[], goal="打听消息",
+        )
+        connection.execute(
+            "UPDATE characters SET longitude=?,latitude=? WHERE id=?",
+            (player.longitude, player.latitude, target.id),
+        )
+
+    provider = _ConversationCapturingProvider(target.id)
+
+    def billing_failure(*, npc, player, context):
+        raise ModelBillingError("DeepSeek 返回 HTTP 402：账户余额或额度不足")
+
+    provider.respond_to_player = billing_failure
+    engine = WorldEngine(database, settings, decision_provider=provider)
+    with pytest.raises(DecisionProviderError, match="额度不足"):
+        engine.submit_player_intent(world_id, "说话：你好", target_character_id=target.id)
+
+
+def test_dialogue_reports_character_card_budget_overflow(database, settings) -> None:
+    from world_engine.roleplay_pipeline import NpcPromptOverflow
+
+    world_id = create_iserra_world(database)
+    repo = WorldRepository()
+    with database.write() as connection:
+        target = repo.get_snapshot(connection, world_id).characters[0]
+        player = repo.create_player_character(
+            connection, world_id=world_id, name="阿澈", identity="旅人",
+            location_id=target.location_id, traits=[], goal="打听消息",
+        )
+        connection.execute(
+            "UPDATE characters SET longitude=?, latitude=? WHERE id=?",
+            (player.longitude, player.latitude, target.id),
+        )
+
+    provider = _ConversationCapturingProvider(target.id)
+
+    def oversized_reply(*, npc, player, context):
+        raise DecisionProviderError("NPC 必需提示需要 7000 token，可用输入预算为 6000") from NpcPromptOverflow(
+            "NPC 必需提示需要 7000 token，可用输入预算为 6000"
+        )
+
+    provider.respond_to_player = oversized_reply
+    engine = WorldEngine(database, settings, decision_provider=provider)
+    with pytest.raises(DecisionProviderError, match="输入预算"):
+        engine.submit_player_intent(world_id, "说话：你好呀", target_character_id=target.id)
 
 
 def test_player_cannot_start_dialogue_with_npc_outside_one_hundred_meters(database, settings) -> None:

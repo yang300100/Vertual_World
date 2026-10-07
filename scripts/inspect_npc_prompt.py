@@ -11,7 +11,8 @@ from world_engine.config import Settings
 from world_engine.conversations import ConversationService
 from world_engine.knowledge import WorldKnowledgeBase
 from world_engine.repository import WorldRepository
-from world_engine.roleplay import build_npc_reply_messages, npc_reply_system_prompt
+from world_engine.roleplay import npc_reply_system_prompt
+from world_engine.roleplay_pipeline import build_npc_prompt
 
 
 def main() -> None:
@@ -53,13 +54,17 @@ def main() -> None:
             connection, snapshot=snapshot, npc=npc, player=player,
             player_text=args.text, conversation=None,
         )
-        messages = build_npc_reply_messages(npc_reply_system_prompt(), context)
+        prompt = build_npc_prompt(
+            npc_reply_system_prompt(), context,
+            max_input_tokens=settings.dialogue_context_max_tokens,
+        )
         result = {
             "npc_id": npc.id, "npc_name": npc.name,
             "budget_trace": context["budget_trace"],
-            "estimated_request_tokens": service.estimate_tokens(messages),
+            "prompt_trace": prompt.trace,
+            "estimated_request_tokens": prompt.input_tokens,
             "max_output_tokens": min(settings.deepseek_max_output_tokens, 1200),
-            "messages": messages,
+            "messages": prompt.messages,
         }
     finally:
         connection.close()

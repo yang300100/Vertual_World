@@ -40,6 +40,10 @@ class IntentPreview(BaseModel):
 
     requires_form: bool
     operation: IntentOperation
+    route_kind: Literal["action", "speech", "sequence", "form", "world"] = "world"
+    action_kind: Literal["gift", "approach"] | None = None
+    route_detail: str = ""
+    target_label: str = ""
     target_character_id: str | None = None
     target_options: list[IntentTargetOption] = Field(default_factory=list)
     item_name: str = ""
@@ -64,10 +68,17 @@ class IntentParserAgent:
     ) -> IntentPreview:
         targets = self._visible_targets(player, snapshot)
         explicit=explicit_steps(intent)
-        if explicit:return IntentPreview(requires_form=False,operation="none",sequence_steps=explicit)
+        if explicit:
+            return IntentPreview(
+                requires_form=False, operation="none", route_kind="sequence",
+                route_detail=intent, sequence_steps=explicit,
+            )
         parsed = self._parse(intent, targets, preferred_target_id)
         if len(parsed.sequence_steps)>=2:
-            return IntentPreview(requires_form=False,operation="none",sequence_steps=parsed.sequence_steps)
+            return IntentPreview(
+                requires_form=False, operation="none", route_kind="sequence",
+                route_detail=intent, sequence_steps=parsed.sequence_steps,
+            )
         if parsed.operation == "learn" and not self._is_explicit_learning_request(intent):
             # “怎样才肯教”是在交谈中询问条件，不是确认报名学习；不能据此弹出教学表单。
             parsed = IntentParseResult()
@@ -79,6 +90,8 @@ class IntentParserAgent:
         return IntentPreview(
             requires_form=True,
             operation=parsed.operation,
+            route_kind="form",
+            route_detail=intent,
             target_character_id=target_id,
             target_options=targets,
             item_name=parsed.item_name or "",

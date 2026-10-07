@@ -18,6 +18,7 @@ class ActionType(StrEnum):
     IDLE = "idle"
     ATTACK = "attack"
     USE = "use"
+    TRANSFER = "transfer"
     GATHER = "gather"
     ACTIVITY = "activity"
 
@@ -29,6 +30,8 @@ class LocationState(BaseModel):
     world_id: str
     name: str
     kind: str
+    space_layer: str = "ground"
+    altitude_m: float = 0
     resources: dict[str, int] = Field(default_factory=dict)
     longitude: float = Field(default=0.0, ge=-180, le=180)
     latitude: float = Field(default=0.0, ge=-90, le=90)
@@ -142,6 +145,8 @@ class CharacterState(BaseModel):
     movement_speed_kmh: float = Field(default=5.0, gt=0)
     active_vehicle_id: str | None = None
     current_location_id: str | None = None
+    space_layer: str = "ground"
+    altitude_m: float = 0
     current_room_id: str | None = None
     current_fixture_id: str | None = None
     activation_state: str = "background"
@@ -280,8 +285,11 @@ class PlayerActionResult(BaseModel):
     provider: str = "rules"
     fallback_used: bool = False
     registration_ids: list[str] = Field(default_factory=list)
+    player_dialogue: str | None = None
     npc_reply: str | None = None
+    npc_stage_direction: str | None = None
     npc_reply_error: str | None = None
+    npc_reply_pending: bool = False
     activity_progress: list[dict[str, object]] = Field(default_factory=list)
 
 

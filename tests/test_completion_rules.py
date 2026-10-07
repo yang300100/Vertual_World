@@ -203,10 +203,11 @@ def test_single_and_parallel_timeout_return_without_waiting_for_thread():
 
 
 def test_memory_job_failure_retry_and_idempotency(database, settings, world, monkeypatch):
-    wid, actor, _ = world
+    wid, _, actor = world
     engine = WorldEngine(database, settings)
     with database.write() as connection:
         connection.execute("DELETE FROM memory_jobs")
+        connection.execute("UPDATE characters SET is_player=1 WHERE id=?", (actor,))
         eid = event(connection, wid, actor)
     original = MemoryCuratorAgent.run
 
@@ -229,6 +230,49 @@ def test_memory_job_failure_retry_and_idempotency(database, settings, world, mon
             ).fetchone()[0]
             == 1
         )
+
+
+def test_rejected_action_does_not_create_memory_job(database, world):
+    wid, actor, _ = world
+    with database.write() as connection:
+        eid = event(connection, wid, actor, event_type="action.rejected")
+        job = connection.execute(
+            "SELECT 1 FROM memory_jobs WHERE event_id=?", (eid,)
+        ).fetchone()
+    assert job is None
+
+
+def test_background_event_does_not_create_model_memory_job(database, world):
+    wid, actor, _ = world
+    with database.write() as connection:
+        eid = event(connection, wid, actor)
+        job = connection.execute(
+            "SELECT 1 FROM memory_jobs WHERE event_id=?", (eid,)
+        ).fetchone()
+    assert job is None
+
+
+def test_memory_worker_batches_events_into_one_model_call(database, settings, world, monkeypatch):
+    wid, _, npc = world
+    engine = WorldEngine(database, settings)
+    event_ids = []
+    with database.write() as connection:
+        connection.execute("DELETE FROM memory_jobs")
+        connection.execute("UPDATE characters SET is_player=1 WHERE id=?", (npc,))
+        for _ in range(3):
+            event_ids.append(event(connection, wid, npc))
+
+    calls = []
+
+    def curate(_self, _ctx, *, events, max_output_tokens=1200):
+        calls.append([item["id"] for item in events])
+        return []
+
+    monkeypatch.setattr(MemoryCuratorAgent, "run", curate)
+    assert engine.process_memory_jobs(wid, limit=10) == 3
+    assert len(calls) == 1
+    assert set(calls[0]) == set(event_ids)
+    assert calls[0]
 
 
 def start_contract(connection, world, kind, terms):

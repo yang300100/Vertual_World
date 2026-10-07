@@ -30,7 +30,11 @@ class EventHistoryService:
         payload = json.loads(event["payload_json"] or "{}")
         kind = event["event_type"]
         local = kind.startswith(("world.resource_", "world.element_", "construction."))
+        scientific = kind in {"world.technology_breakthrough", "world.technology_revised", "world.technology_invalidated"}
+        local = local or scientific
         impact = 2 if kind in {"action.attack", "contract.overdue", "world.player_defeat"} else 1
+        if scientific:
+            impact = 2
         if kind == "world.major_death":
             local, impact = True, 3
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}

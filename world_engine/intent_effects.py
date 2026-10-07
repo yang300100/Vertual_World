@@ -192,5 +192,29 @@ class IntentEffectService:
 
     @staticmethod
     def _record(connection, world_id, event_id, effect_type, actor_id, target_id, status, payload, summary):  # type: ignore[no-untyped-def]
-        connection.execute("INSERT INTO action_effects(id, world_id, source_event_id, effect_type, actor_character_id, target_character_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (str(uuid4()), world_id, event_id, effect_type, actor_id, target_id, status, json.dumps(payload, ensure_ascii=False), to_iso(utc_now())))
+        generic = connection.execute(
+            "SELECT id,payload_json FROM action_effects WHERE source_event_id=? "
+            "AND effect_type LIKE 'action.%' LIMIT 1", (event_id,),
+        ).fetchone()
+        if generic:
+            from world_engine.actions import ActionService
+
+            action_observation = json.loads(generic["payload_json"])
+            before = action_observation.get("observed", {})
+            after = ActionService._observed_state(connection, actor_id, target_id)
+            combined = {
+                "action_observation": action_observation,
+                "observed_after": after,
+                "changes": {key: {"before": before.get(key), "after": value}
+                            for key, value in after.items() if before.get(key) != value},
+                **payload,
+            }
+            connection.execute(
+                "UPDATE action_effects SET effect_type=?,target_character_id=?,status=?,"
+                "payload_json=? WHERE id=?",
+                (effect_type, target_id, status,
+                 json.dumps(combined, ensure_ascii=False), generic["id"]),
+            )
+        else:
+            connection.execute("INSERT INTO action_effects(id, world_id, source_event_id, effect_type, actor_character_id, target_character_id, status, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (str(uuid4()), world_id, event_id, effect_type, actor_id, target_id, status, json.dumps(payload, ensure_ascii=False), to_iso(utc_now())))
         return IntentEffectResult(summary=summary, applied=status == "applied")

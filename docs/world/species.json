@@ -1,0 +1,7 @@
+[
+  {"id": "human", "display_name": "人类", "gestation_world_days": 270, "adult_age_world_years": 16, "compatible_species": ["human"]},
+  {"id": "elf", "display_name": "精灵", "gestation_world_days": 360, "adult_age_world_years": 60, "compatible_species": ["elf"]},
+  {"id": "dwarf", "display_name": "矮人", "gestation_world_days": 300, "adult_age_world_years": 18, "compatible_species": ["dwarf"]},
+  {"id": "goblin", "display_name": "地精", "gestation_world_days": 180, "adult_age_world_years": 10, "compatible_species": ["goblin"]},
+  {"id": "orc", "display_name": "兽人", "gestation_world_days": 240, "adult_age_world_years": 16, "compatible_species": ["orc"]}
+]

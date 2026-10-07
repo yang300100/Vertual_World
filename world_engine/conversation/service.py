@@ -24,7 +24,7 @@ class ConversationService(
         self,
         max_context_chars: int = 12000,
         *,
-        max_context_tokens: int = 3600,
+        max_context_tokens: int = 8192,
         memory_top_k: int = 6,
         knowledge_top_k: int = 4,
         episode_turn_threshold: int = 6,

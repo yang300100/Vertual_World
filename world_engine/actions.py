@@ -16,6 +16,7 @@ from world_engine.combat_rules import (
     offensive_damage,
 )
 from world_engine.domain import ActionOutcome, ActionProposal, ActionType
+from world_engine.event_history import EventHistoryService
 from world_engine.event_log import record_event
 from world_engine.geo import great_circle_distance_km
 from world_engine.inventory import InventoryError, InventoryService
@@ -48,11 +49,14 @@ class ActionService:
         occurred_at: datetime,
         proposal: ActionProposal,
     ) -> ActionOutcome:
+        before = self._observed_state(connection, proposal.actor_id, proposal.target_id)
+        connection.execute("SAVEPOINT action_attempt")
         try:
             actor = self._get_actor(connection, world_id, proposal.actor_id)
             inventory_before = (
                 InventoryService.snapshot(connection, world_id)
-                if proposal.action in {ActionType.USE, ActionType.GATHER, ActionType.EAT} else None
+                if proposal.action in {ActionType.USE, ActionType.GATHER, ActionType.EAT,
+                                       ActionType.TRANSFER} else None
             )
             summary, target_id = self._apply(
                 connection, world_id, actor, proposal, occurred_at
@@ -113,6 +117,13 @@ class ActionService:
                     summary=summary,
                     importance=self._importance(proposal.action),
                 )
+            self._record_effect(
+                connection, world_id, event_id, proposal, occurred_at,
+                before, self._observed_state(connection, proposal.actor_id,
+                                             target_id or proposal.target_id), None,
+                target_id,
+            )
+            connection.execute("RELEASE SAVEPOINT action_attempt")
             return ActionOutcome(
                 accepted=True,
                 actor_id=proposal.actor_id,
@@ -120,7 +131,9 @@ class ActionService:
                 summary=summary,
                 event_id=event_id,
             )
-        except (ActionRuleError, InventoryError, LifeActivityError) as exc:
+        except (ActionRuleError, InventoryError, LifeActivityError, ValueError) as exc:
+            connection.execute("ROLLBACK TO SAVEPOINT action_attempt")
+            connection.execute("RELEASE SAVEPOINT action_attempt")
             summary = f"{proposal.actor_id}的{proposal.action.value}行动未能成立：{exc}"
             event_id = self._record_event(
                 connection,
@@ -136,6 +149,11 @@ class ActionService:
                 summary=summary,
                 payload={"action": proposal.action.value, "reason": str(exc)},
             )
+            self._record_effect(
+                connection, world_id, event_id, proposal, occurred_at,
+                before, self._observed_state(connection, proposal.actor_id,
+                                             proposal.target_id), str(exc), None,
+            )
             return ActionOutcome(
                 accepted=False,
                 actor_id=proposal.actor_id,
@@ -144,6 +162,95 @@ class ActionService:
                 event_id=event_id,
                 rejection_reason=str(exc),
             )
+
+    @staticmethod
+    def _observed_state(connection: sqlite3.Connection, actor_id: str,
+                        target_id: str | None = None) -> dict[str, object]:
+        actor = connection.execute(
+            "SELECT health,energy,satiety,money,longitude,latitude,current_location_id "
+            "FROM characters WHERE id=?", (actor_id,),
+        ).fetchone()
+        if actor is None:
+            return {}
+        result = dict(actor)
+        result["items"] = [
+            (row["item_type_id"], row["quantity"])
+            for row in connection.execute(
+                "SELECT item_type_id,quantity FROM item_instances WHERE owner_character_id=? "
+                "AND container_type='character_inventory' ORDER BY item_type_id,id", (actor_id,),
+            )
+        ]
+        movement = connection.execute(
+            "SELECT id,destination_longitude,destination_latitude FROM character_movements "
+            "WHERE character_id=? AND status='moving' ORDER BY rowid DESC LIMIT 1", (actor_id,),
+        ).fetchone()
+        result["movement"] = dict(movement) if movement else None
+        activity = connection.execute(
+            "SELECT id,kind FROM character_life_activities WHERE character_id=? "
+            "AND status='running' ORDER BY rowid DESC LIMIT 1", (actor_id,),
+        ).fetchone()
+        result["activity"] = dict(activity) if activity else None
+        location = connection.execute(
+            "SELECT resources_json FROM locations WHERE id=?", (actor["current_location_id"],),
+        ).fetchone()
+        result["local_resources"] = json.loads(location[0]) if location else None
+        result["known_event_count"] = connection.execute(
+            "SELECT COUNT(*) FROM character_event_knowledge WHERE character_id=?",
+            (actor_id,),
+        ).fetchone()[0]
+        if target_id:
+            target = connection.execute(
+                "SELECT health,energy,satiety,money,longitude,latitude,current_location_id "
+                "FROM characters WHERE id=?", (target_id,),
+            ).fetchone()
+            result["target"] = dict(target) if target else None
+            result["target_items"] = [
+                (row["item_type_id"], row["quantity"])
+                for row in connection.execute(
+                    "SELECT item_type_id,quantity FROM item_instances WHERE owner_character_id=? "
+                    "AND container_type='character_inventory' ORDER BY item_type_id,id",
+                    (target_id,),
+                )
+            ]
+            result["relationships"] = [
+                dict(row) for row in connection.execute(
+                    "SELECT source_character_id,target_character_id,affinity,trust "
+                    "FROM relationships WHERE source_character_id IN (?,?) "
+                    "AND target_character_id IN (?,?) ORDER BY source_character_id,target_character_id",
+                    (actor_id, target_id, actor_id, target_id),
+                )
+            ]
+        return result
+
+    @staticmethod
+    def _record_effect(
+        connection: sqlite3.Connection, world_id: str, event_id: str,
+        proposal: ActionProposal, at: datetime, before: dict[str, object],
+        observed: dict[str, object], rejection: str | None, target_id: str | None,
+        effect_type: str | None = None,
+    ) -> None:
+        changes = {key: {"before": before.get(key), "after": value}
+                   for key, value in observed.items() if before.get(key) != value}
+        connection.execute(
+            "INSERT INTO action_effects(id,world_id,source_event_id,effect_type,"
+            "actor_character_id,target_character_id,status,payload_json,created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (str(uuid4()), world_id, event_id, effect_type or f"action.{proposal.action.value}",
+             proposal.actor_id if observed else None, target_id,
+             "rejected" if rejection else "applied",
+             json.dumps({"observed": observed, "changes": changes,
+                         "reason": rejection or "", "goal_id": proposal.metadata.get("goal_id")},
+                        ensure_ascii=False), to_iso(utc_now())),
+        )
+        causes = proposal.metadata.get("cause_event_ids") or []
+        if isinstance(causes, list):
+            for cause_id in causes[:8]:
+                if isinstance(cause_id, str):
+                    EventHistoryService.link(connection, event_id, cause_id, strict=False)
+        if not rejection:
+            from world_engine.action_results import bind_execution
+
+            bind_execution(connection, world_id, event_id, proposal, before, observed)
 
     def _apply(
         self,
@@ -169,7 +276,7 @@ class ActionService:
             proposal.metadata["life_activity_id"] = activity_id
             name = "休息" if kind == "rest" else "等待"
             return f"{actor['name']}开始原地{name}，计划持续{minutes}个世界分钟。", None
-        if actor["is_player"] and proposal.action is ActionType.ACTIVITY:
+        if proposal.action is ActionType.ACTIVITY:
             from world_engine.activity_tasks import TaskService
 
             aid, name, minutes = TaskService.start(
@@ -199,9 +306,41 @@ class ActionService:
             return self._attack(connection, world_id, actor, proposal)
         if proposal.action is ActionType.GATHER:
             return self._gather(connection, world_id, actor, proposal)
+        if proposal.action is ActionType.TRANSFER:
+            return self._transfer(connection, world_id, actor, proposal)
         if proposal.action is ActionType.USE:
             return self._use(connection, world_id, actor, proposal)
         raise ActionRuleError("未知行动类型")
+
+    def _transfer(
+        self, connection: sqlite3.Connection, world_id: str,
+        actor: sqlite3.Row, proposal: ActionProposal,
+    ) -> tuple[str, str]:
+        if not proposal.target_id or proposal.target_id == actor["id"]:
+            raise ActionRuleError("需要指定另一位收取者")
+        target = connection.execute(
+            "SELECT * FROM characters WHERE id=? AND world_id=? AND health>0",
+            (proposal.target_id, world_id),
+        ).fetchone()
+        if not target or not same_room(actor, target) or great_circle_distance_km(
+            actor["longitude"], actor["latitude"],
+            target["longitude"], target["latitude"],
+        ) > .1:
+            raise ActionRuleError("收取者不在可交付范围内")
+        item_name = proposal.metadata.get("item")
+        if not isinstance(item_name, str) or not item_name:
+            raise ActionRuleError("转交需要指定物品")
+        item = InventoryService.find(
+            connection, world_id, actor["id"], item_name,
+            "character_inventory", instance_id=proposal.metadata.get("item_id"),
+        )
+        if item is None or not InventoryService.owned(item, actor["id"]):
+            raise ActionRuleError("人物没有这件可转交的物品")
+        quantity = proposal.metadata.get("quantity", 1)
+        if not isinstance(quantity, int) or quantity < 1 or quantity > 20:
+            raise ActionRuleError("转交数量无效")
+        InventoryService.transfer(connection, item, target["id"], quantity)
+        return f"{actor['name']}向{target['name']}转交了{quantity}份{item['name']}。", target["id"]
 
     def _rest(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         # 一次休息代表完整地睡上一觉，因此远快于时间自然恢复。
@@ -324,14 +463,19 @@ class ActionService:
             raise ActionRuleError("没有指定目的地")
         destination = connection.execute(
             """
-            SELECT id, name, longitude, latitude
+            SELECT id, name, longitude, latitude, space_layer
             FROM locations WHERE id = ? AND world_id = ? AND is_active = 1
             """,
             (proposal.destination_id, world_id),
         ).fetchone()
         if destination is None:
             raise ActionRuleError("目的地不存在于当前世界")
-        if destination["id"] == current_location_id(actor):
+        if destination["space_layer"] != actor["space_layer"]:
+            raise ActionRuleError("目的地不在当前空间层，请经公共通道登城或离城")
+        if destination["id"] == current_location_id(actor) and great_circle_distance_km(
+            actor["longitude"], actor["latitude"],
+            destination["longitude"], destination["latitude"],
+        ) < 0.05:
             raise ActionRuleError("人物已经在目的地")
         if actor["energy"] < 8:
             raise ActionRuleError("精力不足以旅行")
@@ -395,14 +539,20 @@ class ActionService:
             energy=_clamp(actor["energy"] - 2),
             satiety=_clamp(actor["satiety"] - 2),
         )
-        dialogue = (
-            f"「{actor['name']}」开口道：“{proposal.dialogue}”。" if proposal.dialogue else ""
-        )
-        reply = f"「{target['name']}」回应道：“{proposal.reply}”。" if proposal.reply else ""
         return (
-            f"{actor['name']}与{target['name']}进行了一次交流。{dialogue}{reply}",
+            self.socialize_summary(
+                actor["name"], target["name"], proposal.dialogue, proposal.reply
+            ),
             target["id"],
         )
+
+    @staticmethod
+    def socialize_summary(
+        actor_name: str, target_name: str, dialogue: str | None, reply: str | None
+    ) -> str:
+        dialogue_part = f"「{actor_name}」开口道：“{dialogue}”。" if dialogue else ""
+        reply_part = f"「{target_name}」回应道：“{reply}”。" if reply else ""
+        return f"{actor_name}与{target_name}进行了一次交流。{dialogue_part}{reply_part}"
 
     def _idle(self, connection: sqlite3.Connection, actor: sqlite3.Row) -> str:
         energy = _clamp(actor["energy"] + 2)
@@ -473,7 +623,7 @@ class ActionService:
                 connection,
                 world_id=world_id,
                 tick_id=str(uuid4()),
-                occurred_at=utc_now(),
+                occurred_at=from_iso(world_time),
                 event_type=event_type,
                 actor_id=actor["id"],
                 target_id=target["id"],
@@ -492,7 +642,7 @@ class ActionService:
                 connection,
                 world_id=world_id,
                 tick_id=str(uuid4()),
-                occurred_at=utc_now(),
+                occurred_at=from_iso(world_time),
                 event_type="world.warden_intervention",
                 actor_id=actor["id"],
                 target_id=target["id"],
@@ -715,6 +865,7 @@ class ActionService:
             ActionType.ATTACK: 8,
             ActionType.USE: 5,
             ActionType.GATHER: 4,
+            ActionType.TRANSFER: 5,
             ActionType.TRAVEL: 5,
             ActionType.WORK: 4,
             ActionType.EAT: 3,

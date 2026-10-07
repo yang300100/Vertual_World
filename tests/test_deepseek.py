@@ -156,6 +156,18 @@ def test_deepseek_npc_reply_rejects_hidden_technology_terms(database, settings) 
         provider.respond_to_player(npc=npc, player=player, context={"player_text": "怎么了？"})
 
 
+def test_player_intent_prompt_does_not_prioritize_autonomous_hunger() -> None:
+    player_prompt = DeepSeekDecisionProvider._decision_system_prompt(
+        has_player_intent=True
+    )
+    autonomous_prompt = DeepSeekDecisionProvider._decision_system_prompt(
+        has_player_intent=False
+    )
+
+    assert "先满足紧急生存需要" not in player_prompt
+    assert "先满足紧急生存需要" in autonomous_prompt
+
+
 def test_deepseek_provider_rejects_hidden_author_terms(database, settings) -> None:
     snapshot = _create_snapshot(database)
     character = snapshot.characters[0]

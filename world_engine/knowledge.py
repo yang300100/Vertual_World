@@ -87,6 +87,7 @@ class WorldKnowledgeBase:
         paths: Iterable[Path],
         *,
         project_root: Path | None = None,
+        excluded_filenames: Iterable[str] | None = None,
     ) -> WorldKnowledgeBase:
         files: set[Path] = set()
         for raw_path in paths:
@@ -96,9 +97,10 @@ class WorldKnowledgeBase:
             elif path.is_dir():
                 files.update(item.resolve() for item in path.rglob("*.md") if item.is_file())
 
+        excluded = _RETIRED_POLITICAL_FILES if excluded_filenames is None else set(excluded_filenames)
         chunks: list[KnowledgeChunk] = []
         for path in sorted(files, key=lambda item: str(item).casefold()):
-            if path.name in _RETIRED_POLITICAL_FILES:
+            if path.name in excluded:
                 continue
             source = _display_path(path, project_root)
             chunks.extend(_parse_markdown(path, source))

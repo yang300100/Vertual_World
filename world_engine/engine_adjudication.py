@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from world_engine.config import PROJECT_ROOT
 from world_engine.contracts import ContractService
+from world_engine.diagnostic_logging import diagnostic_json
 from world_engine.domain import (
     ActionOutcome,
     ActionProposal,
@@ -75,9 +76,10 @@ class AdjudicationMixin:
                     """
                     SELECT character_id, title, details FROM npc_todos
                     WHERE world_id = ? AND status IN ('open', 'doing')
+                      AND (due_world_time IS NULL OR due_world_time > ?)
                     ORDER BY CASE status WHEN 'doing' THEN 0 ELSE 1 END, updated_at
                     """,
-                    (world_id,),
+                    (world_id, to_iso(snapshot.world.current_time)),
                 ).fetchall()
                 recent_events = (
                     self.repository.list_events(connection, world_id, limit=40)
@@ -367,6 +369,36 @@ class AdjudicationMixin:
                 self._sync_history_safely(world_id)
                 if self.settings.world_agent_enabled:
                     self._sync_memory_candidates_safely(world_id)
+                LOGGER.info(
+                    "世界裁判完成 world_id=%s run_id=%s trigger=%s provider=%s "
+                    "fallback=%s actors=%s accepted=%s rejected=%s",
+                    world_id,
+                    adjudication_id,
+                    trigger,
+                    provider_name,
+                    fallback_used,
+                    len(outcomes),
+                    sum(1 for item in outcomes if item.accepted),
+                    sum(1 for item in outcomes if not item.accepted),
+                )
+                for outcome in outcomes:
+                    proposal = proposal_by_actor.get(outcome.actor_id)
+                    LOGGER.info(
+                        "人物行动裁定 run_id=%s actor_id=%s action=%s accepted=%s "
+                        "event_id=%s reason=%s summary=%s",
+                        adjudication_id,
+                        outcome.actor_id,
+                        proposal.action.value if proposal else None,
+                        outcome.accepted,
+                        outcome.event_id,
+                        diagnostic_json(
+                            proposal.reason, (self.settings.deepseek_api_key, self.settings.image_api_key),
+                        ) if proposal else "",
+                        diagnostic_json(
+                            outcome.summary,
+                            (self.settings.deepseek_api_key, self.settings.image_api_key),
+                        ),
+                    )
                 return result
             except ConcurrentWorldUpdateError:
                 if attempt >= 1:

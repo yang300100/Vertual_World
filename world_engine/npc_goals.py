@@ -316,19 +316,6 @@ class NpcGoalService:
         missing = TaskService.missing_supplies(c, actor, recipe, at) if recipe else []
         available_money = max(0, actor["money"] - spec.income_reserve)
         remaining_budget = max(0, goal.purchase_budget - row["spent"])
-        prices = [
-            price[0]
-            for need in missing
-            if (
-                price := c.execute(
-                    "SELECT price FROM world_item_profiles WHERE world_id=? AND item_type_id=?",
-                    (actor["world_id"], need["item_type_id"]),
-                ).fetchone()
-            )
-        ]
-        must_fund = bool(
-            recipe and any(available_money < price <= remaining_budget for price in prices)
-        )
         location = (
             c.execute(
                 "SELECT * FROM locations WHERE id=? AND world_id=? AND is_active=1",
@@ -338,14 +325,6 @@ class NpcGoalService:
             else work_destination()
         )
         minutes = recipe["duration_minutes"] if recipe else 60
-        if must_fund:
-            # 先留在配方地点尝试免费合法收取；确实买不起时才转去工作。
-            at_recipe = (
-                actor["current_location_id"] or actor["location_id"]
-            ) == destination_id and not actor["current_room_id"]
-            if not at_recipe:
-                location = work_destination()
-                minutes = 60
         if not location:
             return cls.block(c, row, at, "已知场所不可用、工资不足或无法在空闲时间抵达")
         end = RoutineService.location_deadline(actor, location, deadline, appointment)
@@ -374,6 +353,7 @@ class NpcGoalService:
         if not working and missing:
             if (end - at).total_seconds() < 60 * (minutes + 15):
                 return cls.block(c, row, at, "来不及备料后完成工序")
+            obstacles = []
             for need in missing:
                 if actor["energy"] >= recipe["energy_cost"] + 3:
                     event = EconomyService.harvest(
@@ -404,7 +384,18 @@ class NpcGoalService:
                         event_id=purchase["source_event_id"],
                         spent=purchase["spent"],
                     )
-            if must_fund:
+                obstacles.append(EconomyService.supply_obstacle(
+                    c, actor, at, item_type_id=need["item_type_id"],
+                    minimum_condition=need["minimum_condition"],
+                    budget=min(remaining_budget, available_money),
+                ))
+            shortage = next(
+                (obstacle for obstacle in obstacles
+                 if obstacle.kind == "insufficient_funds"
+                 and obstacle.required_money <= remaining_budget),
+                None,
+            )
+            if shortage:
                 alternative = work_destination()
                 if alternative and daily_remaining >= 60:
                     if alternative["id"] == location["id"]:
@@ -416,7 +407,13 @@ class NpcGoalService:
                             return cls.block(c, row, at, str(exc))
                         return cls.step(c, row, at, "travel", result + "，先补足备料资金")
             if not working:
-                return cls.block(c, row, at, "缺少合法物资来源、背包空间或足够采购预算")
+                reason = {
+                    "no_seller": "附近没有出售所需物资的卖家",
+                    "out_of_stock": "附近卖家没有所需物资库存",
+                    "inventory_full": "背包空间不足，无法购入所需物资",
+                    "insufficient_funds": "生活储备或目标采购预算不足，暂无法备料",
+                }.get(obstacles[0].kind if obstacles else "", "缺少合法物资来源")
+                return cls.block(c, row, at, reason)
         c.execute("SAVEPOINT npc_goal_start")
         try:
             result = DailyLifeService._start(

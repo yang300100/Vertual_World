@@ -120,7 +120,7 @@ $("#life-advance").addEventListener("click", async () => {
   try {
     const result = await api(`/api/worlds/${worldId}/player/life/activities/${activityId}/advance`, {method:"POST",body:JSON.stringify(taskWaitRequest.body)});
     taskWaitRequest = null;
-    $("#action-result").textContent = result.summary; $("#action-result").hidden = false;
+    showActionResult(result.summary);
     await refreshAll();
   } catch (error) {
     if (error.status === 409) taskWaitRequest = null;

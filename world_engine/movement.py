@@ -68,6 +68,10 @@ class MovementService:
         from world_engine.life import LifeActivityService
 
         LifeActivityService.assert_available(connection, character_id)
+        from world_engine.player_steering import PlayerSteeringService
+
+        if PlayerSteeringService.active(connection, character_id):
+            PlayerSteeringService.stop(connection, world_id, world_time, "改为前往所选目标。")
         if actor["current_room_id"]:
             raise ValueError("请先从房间离开，再开始室外行程")
         active = connection.execute(
@@ -84,6 +88,10 @@ class MovementService:
         latitude = float(destination_latitude)
         if not -180 <= longitude <= 180 or not -90 <= latitude <= 90:
             raise ValueError("目标经纬度超出世界范围")
+        if actor["space_layer"] != "ground":
+            from world_engine.wonders import WonderService
+            if not WonderService.contains(connection,world_id,actor["space_layer"],longitude,latitude):
+                raise ValueError("目标超出本层城市边界，请经通道离城")
         if (
             great_circle_distance_km(
                 float(actor["longitude"]), float(actor["latitude"]), longitude, latitude
@@ -132,7 +140,7 @@ class MovementService:
                 raise ValueError("目标位置与当前位置过近")
             estimated_arrival = world_time + timedelta(hours=total_distance / speed_kmh)
 
-        destination_location = self._nearest_location(connection, world_id, longitude, latitude)
+        destination_location = self._nearest_location(connection, world_id, longitude, latitude, actor["space_layer"])
         initial_encounters = self._nearby_character_ids(
             connection,
             world_id=world_id,
@@ -141,6 +149,10 @@ class MovementService:
             latitude=float(actor["latitude"]),
         )
         movement_id = str(uuid4())
+        if record_log:
+            from world_engine.actions import ActionService
+
+            before = ActionService._observed_state(connection, character_id)
         connection.execute(
             """
             INSERT INTO character_movements(
@@ -204,7 +216,7 @@ class MovementService:
                     "route_available": route is not None,
                 },
             )
-            self._record_log(
+            event_id = self._record_log(
                 connection,
                 world_id=world_id,
                 world_time=world_time,
@@ -225,6 +237,15 @@ class MovementService:
                     "destination_latitude": latitude,
                 },
             )
+            from world_engine.domain import ActionProposal, ActionType
+
+            ActionService._record_effect(
+                connection, world_id, event_id,
+                ActionProposal(actor_id=character_id, action=ActionType.TRAVEL,
+                               reason="前往已选择的目标坐标"),
+                world_time, before, ActionService._observed_state(connection, character_id),
+                None, None, "action.movement_started",
+            )
         return WorldRepository.movement_from_row(
             connection.execute(
                 "SELECT * FROM character_movements WHERE id = ?", (movement_id,)
@@ -244,6 +265,8 @@ class MovementService:
         selected_vehicle_id: str | None,
     ) -> RoutePlan | None:
         """有审核通过数据集则规划可通行路线；否则返回 None 退回直线移动。"""
+        if actor["space_layer"] != "ground":
+            return None
         has_dataset = connection.execute(
             """
             SELECT 1 FROM navigation_datasets
@@ -287,7 +310,7 @@ class MovementService:
         now = created_at or utc_now()
         row = connection.execute(
             """
-            SELECT m.*, c.name, c.location_id, c.current_location_id
+            SELECT m.*, c.name, c.location_id, c.current_location_id, c.space_layer
             FROM character_movements m
             JOIN characters c ON c.id = m.character_id
             WHERE m.world_id = ? AND m.character_id = ? AND m.status = 'moving'
@@ -304,7 +327,7 @@ class MovementService:
             """,
             (to_iso(world_time), to_iso(now), row["id"]),
         )
-        self._record_log(
+        event_id = self._record_log(
             connection,
             world_id=world_id,
             world_time=world_time,
@@ -313,6 +336,12 @@ class MovementService:
             location_id=row["current_location_id"] or row["location_id"],
             summary=f"{row['name']}取消了当前移动，并停留在途中。",
             payload={"movement_id": row["id"]},
+        )
+        from world_engine.action_results import finish_execution
+
+        finish_execution(
+            connection, kind="movement", execution_id=row["id"], event_id=event_id,
+            world_id=world_id, actor_id=character_id, at=world_time, status="cancelled",
         )
         return WorldRepository.movement_from_row(
             connection.execute(
@@ -328,6 +357,10 @@ class MovementService:
         character_id: str,
         vehicle_id: str | None,
     ) -> None:
+        from world_engine.player_steering import PlayerSteeringService
+
+        if PlayerSteeringService.active(connection, character_id):
+            raise ValueError("移动过程中不能更换交通工具")
         moving = connection.execute(
             """
             SELECT 1 FROM character_movements
@@ -377,12 +410,15 @@ class MovementService:
         current_time: datetime,
         created_at: datetime,
     ) -> int:
+        from world_engine.player_steering import PlayerSteeringService
+
+        steering_updated = PlayerSteeringService.advance(connection, world_id, current_time, created_at)
         elapsed_hours = max(0.0, (current_time - previous_time).total_seconds() / 3600)
         if elapsed_hours <= 0:
-            return 0
+            return steering_updated
         rows = connection.execute(
             """
-            SELECT m.*, c.name, c.location_id, c.current_location_id
+            SELECT m.*, c.name, c.location_id, c.current_location_id, c.space_layer
             FROM character_movements m
             JOIN characters c ON c.id = m.character_id
             WHERE m.world_id = ? AND m.status = 'moving'
@@ -390,7 +426,7 @@ class MovementService:
             """,
             (world_id,),
         ).fetchall()
-        updated = 0
+        updated = steering_updated
         for row in rows:
             effective_time = current_time
             if row["vehicle_id"]:
@@ -415,6 +451,7 @@ class MovementService:
                 world_id=world_id,
                 longitude=longitude,
                 latitude=latitude,
+                space_layer=row["space_layer"],
             )
             current_location_id = resolved_location["id"] if resolved_location is not None else None
             connection.execute(
@@ -484,7 +521,7 @@ class MovementService:
                         payload={"movement_id": row["id"]},
                     )
             if arrived:
-                self._record_log(
+                event_id = self._record_log(
                     connection,
                     world_id=world_id,
                     world_time=current_time,
@@ -498,6 +535,13 @@ class MovementService:
                         "destination_latitude": row["destination_latitude"],
                     },
                 )
+                from world_engine.action_results import finish_execution
+
+                finish_execution(
+                    connection, kind="movement", execution_id=row["id"], event_id=event_id,
+                    world_id=world_id, actor_id=row["character_id"], at=current_time,
+                    status="completed",
+                )
             updated += 1
         return updated
 
@@ -507,10 +551,11 @@ class MovementService:
         world_id: str,
         longitude: float,
         latitude: float,
+        space_layer: str = "ground",
     ) -> sqlite3.Row | None:
         locations = connection.execute(
-            "SELECT id, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1",
-            (world_id,),
+            "SELECT id, longitude, latitude FROM locations WHERE world_id = ? AND is_active = 1 AND space_layer = ?",
+            (world_id, space_layer),
         ).fetchall()
         if not locations:
             return None
@@ -665,8 +710,10 @@ class MovementService:
             SELECT id, longitude, latitude
             FROM characters
             WHERE world_id = ? AND id <> ? AND health > 0
+            AND space_layer=(SELECT space_layer FROM characters WHERE id=?)
+            AND current_room_id IS (SELECT current_room_id FROM characters WHERE id=?)
             """,
-            (world_id, character_id),
+            (world_id, character_id,character_id,character_id),
         ).fetchall()
         return [
             row["id"]

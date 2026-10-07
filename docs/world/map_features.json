@@ -1,0 +1,342 @@
+[
+  {
+    "key": "state-13",
+    "name": "恩盖共和国",
+    "feature_type": "capital",
+    "location": "burg-13",
+    "longitude": -76.1,
+    "latitude": -16.06,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 13,
+      "state": "Engai",
+      "full_name": "Republic of Engai",
+      "form": "Republic",
+      "culture": "狗头人（哥布林）",
+      "population": 6294355
+    }
+  },
+  {
+    "key": "state-14",
+    "name": "奥勒林帝国",
+    "feature_type": "capital",
+    "location": "burg-14",
+    "longitude": 49.7,
+    "latitude": 35.77,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 14,
+      "state": "Olerin",
+      "full_name": "Olerin Empire",
+      "form": "Empire",
+      "culture": "昆雅（精灵）",
+      "population": 4230258
+    }
+  },
+  {
+    "key": "state-17",
+    "name": "吉鲁扎尔帝国",
+    "feature_type": "capital",
+    "location": "burg-17",
+    "longitude": 92.19,
+    "latitude": 2.96,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 17,
+      "state": "Giruzar",
+      "full_name": "Giruzar Empire",
+      "form": "Empire",
+      "culture": "尤顿（巨人）",
+      "population": 4597821
+    }
+  },
+  {
+    "key": "state-10",
+    "name": "泽里奥王国",
+    "feature_type": "capital",
+    "location": "burg-10",
+    "longitude": -108.45,
+    "latitude": -29.13,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 10,
+      "state": "Zrio",
+      "full_name": "Kingdom of Zrio",
+      "form": "Kingdom",
+      "culture": "狗头人（哥布林）",
+      "population": 3689428
+    }
+  },
+  {
+    "key": "state-18",
+    "name": "米尔斯塔王国",
+    "feature_type": "capital",
+    "location": "burg-18",
+    "longitude": 54.79,
+    "latitude": -30.56,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 18,
+      "state": "Milstar",
+      "full_name": "Kingdom of Milstar",
+      "form": "Kingdom",
+      "culture": "阿诺（人类）",
+      "population": 3154424
+    }
+  },
+  {
+    "key": "state-8",
+    "name": "弗瑞阿加布王国",
+    "feature_type": "capital",
+    "location": "burg-8",
+    "longitude": -62.34,
+    "latitude": 31.36,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 8,
+      "state": "Vreagab",
+      "full_name": "Kingdom of Vreagab",
+      "form": "Kingdom",
+      "culture": "狗头人（哥布林）",
+      "population": 2591834
+    }
+  },
+  {
+    "key": "state-15",
+    "name": "凯斯鲁利尔王国",
+    "feature_type": "capital",
+    "location": "burg-15",
+    "longitude": 22.48,
+    "latitude": 29.63,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 15,
+      "state": "Kyathlulil",
+      "full_name": "Kingdom of Kyathlulil",
+      "form": "Kingdom",
+      "culture": "昆雅（精灵）",
+      "population": 2455053
+    }
+  },
+  {
+    "key": "state-4",
+    "name": "索尔卡王国",
+    "feature_type": "capital",
+    "location": "burg-4",
+    "longitude": 127.63,
+    "latitude": 31.18,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 4,
+      "state": "Solka",
+      "full_name": "Kingdom of Solka",
+      "form": "Kingdom",
+      "culture": "尤顿（巨人）",
+      "population": 2533478
+    }
+  },
+  {
+    "key": "state-1",
+    "name": "唐瓦利亚侯国",
+    "feature_type": "capital",
+    "location": "burg-1",
+    "longitude": 100.68,
+    "latitude": -32.47,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 1,
+      "state": "Dawnwalia",
+      "full_name": "Principality of Dawnwalia",
+      "form": "Principality",
+      "culture": "阿诺（人类）",
+      "population": 1949616
+    }
+  },
+  {
+    "key": "state-9",
+    "name": "布拉特侯国",
+    "feature_type": "capital",
+    "location": "burg-9",
+    "longitude": -42.73,
+    "latitude": 26.08,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 9,
+      "state": "Brat",
+      "full_name": "Principality of Brat",
+      "form": "Principality",
+      "culture": "狗头人（哥布林）",
+      "population": 2131337
+    }
+  },
+  {
+    "key": "state-20",
+    "name": "卡里昂保护国",
+    "feature_type": "capital",
+    "location": "burg-20",
+    "longitude": 86.04,
+    "latitude": 35.61,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 20,
+      "state": "Karion",
+      "full_name": "Protectorate of Karion",
+      "form": "Protectorate",
+      "culture": "昆雅（精灵）",
+      "population": 945453
+    }
+  },
+  {
+    "key": "state-6",
+    "name": "托尔纳格大公国",
+    "feature_type": "capital",
+    "location": "burg-6",
+    "longitude": 137.74,
+    "latitude": -13.43,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 6,
+      "state": "Tolnarg",
+      "full_name": "Grand Duchy of Tolnarg",
+      "form": "Grand Duchy",
+      "culture": "尤顿（巨人）",
+      "population": 993519
+    }
+  },
+  {
+    "key": "state-19",
+    "name": "叶斯梅尔共和国",
+    "feature_type": "capital",
+    "location": "burg-19",
+    "longitude": 108.47,
+    "latitude": 43.81,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 19,
+      "state": "Yethmel",
+      "full_name": "Republic of Yethmel",
+      "form": "Republic",
+      "culture": "昆雅（精灵）",
+      "population": 1075481
+    }
+  },
+  {
+    "key": "state-11",
+    "name": "比奥克共和国",
+    "feature_type": "capital",
+    "location": "burg-11",
+    "longitude": -29.18,
+    "latitude": 30.65,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 11,
+      "state": "Biok",
+      "full_name": "Republic of Biok",
+      "form": "Republic",
+      "culture": "狗头人（哥布林）",
+      "population": 1434588
+    }
+  },
+  {
+    "key": "state-5",
+    "name": "厄特兰大公国",
+    "feature_type": "capital",
+    "location": "burg-5",
+    "longitude": 79.15,
+    "latitude": -39.66,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 5,
+      "state": "Eartland",
+      "full_name": "Grand Duchy of Eartland",
+      "form": "Grand Duchy",
+      "culture": "阿诺（人类）",
+      "population": 1142642
+    }
+  },
+  {
+    "key": "state-3",
+    "name": "迪盖兹政体",
+    "feature_type": "capital",
+    "location": "burg-3",
+    "longitude": 129.12,
+    "latitude": 1.2,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 3,
+      "state": "Digez",
+      "full_name": "Digezan League",
+      "form": "League",
+      "culture": "尤顿（巨人）",
+      "population": 910671
+    }
+  },
+  {
+    "key": "state-7",
+    "name": "斯拉克大公国",
+    "feature_type": "capital",
+    "location": "burg-7",
+    "longitude": -2.1,
+    "latitude": 35.53,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 7,
+      "state": "Srach",
+      "full_name": "Grand Duchy of Srach",
+      "form": "Grand Duchy",
+      "culture": "阿拉戈（蛛形）",
+      "population": 662395
+    }
+  },
+  {
+    "key": "state-2",
+    "name": "谢姆纳塞卢大公国",
+    "feature_type": "capital",
+    "location": "burg-2",
+    "longitude": 15.96,
+    "latitude": 14.48,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 2,
+      "state": "Shemnaselu",
+      "full_name": "Grand Duchy of Shemnaselu",
+      "form": "Grand Duchy",
+      "culture": "昆雅（精灵）",
+      "population": 718133
+    }
+  },
+  {
+    "key": "state-16",
+    "name": "格鲁尔政体",
+    "feature_type": "capital",
+    "location": "burg-16",
+    "longitude": -75.12,
+    "latitude": 20.01,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 16,
+      "state": "Grur",
+      "full_name": "Gruran Marches",
+      "form": "Marches",
+      "culture": "乌鲁克（兽人）",
+      "population": 596282
+    }
+  },
+  {
+    "key": "state-12",
+    "name": "巴格公国",
+    "feature_type": "capital",
+    "location": "burg-12",
+    "longitude": -58.68,
+    "latitude": -3.72,
+    "metadata": {
+      "source": "Noryia States 2026-08-29-11-38.csv",
+      "state_id": 12,
+      "state": "Bug",
+      "full_name": "Duchy of Bug",
+      "form": "Duchy",
+      "culture": "狗头人（哥布林）",
+      "population": 305179
+    }
+  }
+]

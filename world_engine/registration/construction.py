@@ -252,6 +252,11 @@ class ConstructionProjectService:
         updated = 0
         for row in rows:
             duration = self._duration_hours[row["project_type"]]
+            if row["project_type"] == "structure":
+                metadata = json.loads(row["payload_json"]).get("metadata", {})
+                if "wonder" in metadata:
+                    from world_engine.wonders import WonderSpec
+                    duration = WonderSpec.model_validate(metadata["wonder"]).construction_hours
             progress = min(1.0, float(row["progress"]) + world_delta_seconds / 3600 / duration)
             if progress < 1.0:
                 connection.execute(
@@ -328,6 +333,8 @@ class ConstructionProjectService:
                 "UPDATE world_structures SET status = 'active', updated_at = ? WHERE id = ?",
                 (to_iso(created_at), entity_id),
             )
+            from world_engine.wonders import WonderService
+            location_id = WonderService.complete(connection, row, world_time, created_at)
         else:
             payload = SettlementSpec.model_validate(json.loads(row["payload_json"]))
             existing = connection.execute(

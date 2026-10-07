@@ -24,7 +24,7 @@ def migrate_life_kinds(connection: sqlite3.Connection) -> None:
     row = connection.execute(
         "SELECT sql FROM sqlite_master WHERE name='character_life_activities'"
     ).fetchone()
-    if row is None or "map_review" in row["sql"]:
+    if row is None or "research" in row["sql"]:
         return
     connection.commit()
     connection.execute("PRAGMA foreign_keys=OFF")
@@ -35,7 +35,7 @@ def migrate_life_kinds(connection: sqlite3.Connection) -> None:
         )
         ddl = re.sub(
             r"kind IN \([^)]*\)",
-            "kind IN ('rest','wait','work','craft','repair','map_review')", ddl, count=1,
+            "kind IN ('rest','wait','work','craft','repair','map_review','research')", ddl, count=1,
         )
         connection.execute(ddl)
         connection.execute(
@@ -123,7 +123,14 @@ def migrate_completion_columns(connection: sqlite3.Connection) -> None:
         BEGIN
             UPDATE item_instances SET owner_character_id=NEW.container_id WHERE id=NEW.id;
         END;
-        CREATE TRIGGER IF NOT EXISTS enqueue_event_memory AFTER INSERT ON world_events
+        DROP TRIGGER IF EXISTS enqueue_event_memory;
+        CREATE TRIGGER enqueue_event_memory AFTER INSERT ON world_events
+        WHEN NEW.event_type != 'action.rejected'
+         AND EXISTS (
+            SELECT 1 FROM characters c
+            WHERE c.world_id=NEW.world_id AND c.is_player=1
+              AND (c.id=NEW.actor_id OR c.id=NEW.target_id)
+         )
         BEGIN
             INSERT OR IGNORE INTO memory_jobs(id,world_id,event_id,status,created_at,updated_at)
             VALUES ('memjob:'||NEW.id, NEW.world_id, NEW.id, 'pending',
@@ -133,7 +140,25 @@ def migrate_completion_columns(connection: sqlite3.Connection) -> None:
     connection.execute("""
         INSERT OR IGNORE INTO memory_jobs(id,world_id,event_id,status,created_at,updated_at)
         SELECT 'memjob:'||id, world_id, id, 'pending', created_at, created_at FROM world_events
+        WHERE event_type != 'action.rejected'
+          AND EXISTS (
+            SELECT 1 FROM characters c
+            WHERE c.world_id=world_events.world_id AND c.is_player=1
+              AND (c.id=world_events.actor_id OR c.id=world_events.target_id)
+          )
     """)
+    # 哥哥的旧存档中，拒绝动作已经积压为大量无意义任务；只删任务行，保留事件原貌。
+    connection.execute(
+        """DELETE FROM memory_jobs WHERE event_id IN
+           (SELECT id FROM world_events WHERE event_type='action.rejected')
+           OR event_id IN (
+             SELECT e.id FROM world_events e
+             WHERE NOT EXISTS (
+               SELECT 1 FROM characters c WHERE c.world_id=e.world_id AND c.is_player=1
+                 AND (c.id=e.actor_id OR c.id=e.target_id)
+             )
+           )"""
+    )
 
 
 def migrate_social_operation_columns(connection: sqlite3.Connection) -> None:
@@ -567,6 +592,8 @@ def migrate_movement_columns(connection: sqlite3.Connection) -> None:
 
 def migrate_area_and_activation_columns(
     connection: sqlite3.Connection,
+    *,
+    legacy_world_defaults: bool = True,
 ) -> None:
     """为旧库补分层区域、详细地图绑定和NPC激活生命周期。"""
     location_columns = {
@@ -607,18 +634,19 @@ def migrate_area_and_activation_columns(
                 END
             """
         )
-    connection.execute(
-        """
-        UPDATE locations AS child
-        SET parent_location_id = (
-            SELECT city.id FROM locations AS city
-            WHERE city.world_id = child.world_id AND city.name = '澜誓城'
+    if legacy_world_defaults:
+        connection.execute(
+            """
+            UPDATE locations AS child
+            SET parent_location_id = (
+                SELECT city.id FROM locations AS city
+                WHERE city.world_id = child.world_id AND city.name = '澜誓城'
+            )
+            WHERE child.name IN (
+                '河务档案区', '王室堤岸', '河畔大粮仓', '法师家族宅区'
+            ) AND child.parent_location_id IS NULL
+            """
         )
-        WHERE child.name IN (
-            '河务档案区', '王室堤岸', '河畔大粮仓', '法师家族宅区'
-        ) AND child.parent_location_id IS NULL
-        """
-    )
 
     map_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(world_maps)").fetchall()
@@ -696,9 +724,10 @@ def migrate_area_and_activation_columns(
         "灯判",
         "港守",
         "祭官",
-    )
+    ) if legacy_world_defaults else ()
     identity_clause = " OR ".join("COALESCE(identity, '') LIKE ?" for _ in persistent_keywords)
     identity_values = tuple(f"%{keyword}%" for keyword in persistent_keywords)
+    persistent_condition = f"is_player = 1 OR is_core = 1 OR {identity_clause}" if identity_clause else "is_player = 1 OR is_core = 1"
     connection.execute(
         f"""
         UPDATE characters
@@ -709,7 +738,7 @@ def migrate_area_and_activation_columns(
                 WHEN is_core = 1 THEN 'core'
                 ELSE 'special'
             END
-        WHERE is_player = 1 OR is_core = 1 OR {identity_clause}
+        WHERE {persistent_condition}
         """,  # noqa: S608 - 条件只由上方固定关键词生成
         identity_values,
     )
@@ -721,7 +750,7 @@ def migrate_area_and_activation_columns(
                 activation_state = 'background',
                 activation_reason = 'background'
             WHERE is_player = 0 AND is_core = 0
-              AND NOT ({identity_clause})
+              AND NOT ({persistent_condition})
             """,  # noqa: S608 - 条件只由上方固定关键词生成
             identity_values,
         )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from threading import Lock
 
 from world_engine.actions import ActionService
 from world_engine.activation import NPCActivationService
@@ -75,6 +76,15 @@ class WorldEngine(
         settings: Settings,
         decision_provider: DecisionProvider | None = None,
     ) -> None:
+        from dataclasses import replace
+
+        science_settings = settings
+        if settings.science_api_enabled:
+            # 哥哥，独立科研进程只允许统一预算入口持有密钥。
+            settings = replace(settings, deepseek_api_key=None, decision_provider="rules",
+                               world_agent_enabled=False, research_api_enabled=False,
+                               collective_api_enabled=False)
+            decision_provider = RuleDecisionProvider()
         self.database = database
         self.settings = settings
         self.repository = WorldRepository()
@@ -103,7 +113,28 @@ class WorldEngine(
         self.dialogue_speakers = DialogueSpeakerScheduler(max_speakers=2)
         self.intent_effects = IntentEffectService()
         self.agent_model_backend = build_agent_model_backend(settings)
+        from dataclasses import replace
+
+        from world_engine.research_runner import ResearchRunner
+
+        self.research_runner = ResearchRunner(
+            database,
+            build_agent_model_backend(replace(settings, deepseek_max_retries=0, debug_model_io=False))
+            if settings.research_api_enabled else None,
+            max_calls=settings.research_max_calls,
+            token_limit=settings.research_token_limit,
+            max_output_tokens=settings.deepseek_max_output_tokens,
+        )
         self.intent_parser = IntentParserAgent(self.agent_model_backend)
+        from world_engine.collective_runner import CollectiveRunner
+
+        self.collective_runner = CollectiveRunner(
+            database,
+            build_agent_model_backend(replace(settings,deepseek_max_retries=0,deepseek_timeout_seconds=180,debug_model_io=False)) if settings.collective_api_enabled else None,
+            max_calls=settings.collective_max_calls,
+            token_limit=settings.collective_token_limit,
+            max_output_tokens=settings.collective_max_output_tokens,
+        )
         self.registrar_agent = RegistrarAgent(
             self.agent_model_backend if settings.world_agent_enabled else None
         )
@@ -124,6 +155,12 @@ class WorldEngine(
             if settings.history_logging_enabled and settings.history_directory is not None
             else None
         )
+        self._history_export_lock = Lock()
+        self._history_export_pending: set[str] = set()
+        self._history_export_running: set[str] = set()
+        self.science_runners = {}
+        self.science_backend = build_agent_model_backend(replace(science_settings,
+            deepseek_max_retries=0, debug_model_io=False)) if science_settings.science_api_enabled else None
 
     def _build_knowledge_base(self) -> WorldKnowledgeBase | None:
         if not self.settings.knowledge_enabled:
@@ -132,6 +169,7 @@ class WorldEngine(
             return WorldKnowledgeBase.from_paths(
                 self.settings.knowledge_paths,
                 project_root=PROJECT_ROOT,
+                excluded_filenames=self.settings.knowledge_excluded_filenames,
             )
         except Exception:
             LOGGER.warning("知识库初始化失败，Agent将无RAG上下文", exc_info=True)
@@ -172,7 +210,24 @@ class WorldEngine(
             elapsed_seconds=elapsed_seconds,
             activity_skip=activity_skip,
         )
-        if result.adjudication_due and not result.time_skip_replayed:
+        from world_engine.collective_runner import is_collective_world
+
+        with self.database.read() as connection:
+            collective = is_collective_world(connection,world_id)
+            session = connection.execute("SELECT id FROM science_sessions WHERE world_id=?", (world_id,)).fetchone()
+        if session and self.science_backend is not None and not result.time_skip_replayed:
+            from world_engine.science_runner import ScienceRunner
+
+            if session[0] not in self.science_runners:
+                runner = ScienceRunner(self.database, self.science_backend, session_id=session[0])
+                runner.knowledge = self.knowledge_base
+                self.science_runners[session[0]] = runner
+            self.science_runners[session[0]].decide(world_id, result.current_time)
+        if not session and collective and self.settings.collective_api_enabled and not result.time_skip_replayed:
+            self.collective_runner.decide(world_id,result.current_time)
+        if not session and not collective and self.settings.research_api_enabled and not result.time_skip_replayed:
+            self.research_runner.decide(world_id, result.current_time)
+        if not session and not collective and result.adjudication_due and not result.time_skip_replayed:
             try:
                 with self.database.read() as connection:
                     snapshot = self.repository.get_snapshot(connection, world_id)
@@ -227,9 +282,18 @@ class WorldEngine(
         return self.adjudicate(world_id, trigger="manual")
 
     def close(self) -> None:
+        science_close = getattr(self.science_backend, "close", None)
+        if science_close is not None:
+            science_close()
         close = getattr(self.decision_provider, "close", None)
         if close is not None:
             close()
+        research_close = getattr(self.research_runner.backend, "close", None)
+        if research_close is not None:
+            research_close()
+        collective_close = getattr(self.collective_runner.backend,'close',None)
+        if collective_close is not None:
+            collective_close()
 
     def sync_history(self, world_id: str) -> HistoryExportResult:
         if self.history_logger is None:

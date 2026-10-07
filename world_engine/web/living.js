@@ -110,22 +110,24 @@ function renderAppointments() {
   if(!target.childElementCount)target.append(emptyElement("p","暂时没有进行中的见面约定。","muted"));
 }
 
-async function executeSequencePlan(steps = null) {
-  if (state.busy) return;
+async function executeSequencePlan(steps = null, inspectionText = null) {
+  if (state.busy || state.responsePending) return;
   if (steps) activeSequencePlan = {worldId:state.worldId, request_id:crypto.randomUUID(), steps,
     target_character_id:state.conversationTargetId, delivery:$("#player-delivery")?.value || "normal"};
   if (!activeSequencePlan || activeSequencePlan.worldId !== state.worldId) return;
   const {worldId,...payload}=activeSequencePlan;
-  setBusy(true,"正在依次执行动作与发言");
+  beginResponse("已提交多步行动，正在依次等待世界结算");
+  if (inspectionText) addResponseStep(inspectionText);
   try {
     const result=await api(`/api/worlds/${worldId}/player/sequence`,{method:"POST",body:JSON.stringify(payload)});
     const text=result.results.map((step)=>`${step.step}. ${step.summary}`).join("\n")+(result.error?`\n后续尚未执行：${result.error}`:"");
-    elements.actionResult.textContent=text;elements.actionResult.hidden=false;
+    result.results.forEach((step)=>addResponseStep(`第 ${step.step} 步：${step.summary}`));
+    showActionResult(text,{sticky:result.status!=="completed"});
     if (result.status==="completed") {activeSequencePlan=null;elements.playerIntent.value="";saveIntentDraft();}
     $("#sequence-resume").hidden=result.status==="completed";
     await refreshAll();
-  } catch(error) {showToast(error.message,true);}
-  finally {setBusy(false);}
+    finishResponse(result.status==="completed"?"多步行动已完成":"部分步骤尚未执行，请查看结果",result.status!=="completed");
+  } catch(error) {showToast(error.message,true);finishResponse(error.message,true);}
 }
 $("#sequence-resume").addEventListener("click",()=>executeSequencePlan());
 
@@ -169,6 +171,8 @@ function openKnownProfile(characterId) {
     contact.addEventListener("click",()=>{elements.characterDialog.close();perform("正在询问对方是否交换信笺",()=>api(`/api/worlds/${state.worldId}/contacts`,{method:"POST",body:JSON.stringify({recipient_id:characterId})}),"联络请求已得到回应");});elements.characterProfile.querySelector(".profile-actions").append(contact);
     const attack=document.createElement("button");attack.type="button";attack.className="button danger";attack.textContent="发起攻击";
     attack.addEventListener("click",()=>{fillIntent(`动作：攻击${name}`,characterId);elements.characterDialog.close();});elements.characterProfile.querySelector(".profile-actions").append(attack);
+    const bind=document.createElement("button");bind.type="button";bind.className="button secondary";bind.textContent="绑定角色卡";
+    bind.addEventListener("click",()=>openSillyTavernImport("bind",characterId));elements.characterProfile.querySelector(".profile-actions").append(bind);
   }
   elements.characterDialog.showModal();
 }

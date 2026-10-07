@@ -21,6 +21,7 @@ from world_engine.bounded_calls import submit_call
 from world_engine.character_growth import CharacterGrowthService
 from world_engine.contracts import KINDS, ContractError, ContractService
 from world_engine.geo import great_circle_distance_km
+from world_engine.model_availability import is_model_billing_error
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import from_iso, to_iso, utc_now
 from world_engine.roleplay import npc_reply_system_prompt
@@ -183,8 +184,13 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             ).result(timeout=resolved_settings.world_agent_timeout_seconds)
             reply = result.data.reply.strip()
         except (AgentLLMError, ValueError, TypeError, KeyError, TimeoutError, RuntimeError) as exc:
+            detail = (
+                "DeepSeek 账户余额或额度不足，请检查账户后重试"
+                if is_model_billing_error(exc)
+                else "NPC 对话模型暂时不可用，请稍后重试"
+            )
             raise HTTPException(
-                status_code=503, detail="NPC 对话模型暂时不可用，请稍后重试"
+                status_code=503, detail=detail
             ) from exc
         forbidden = ("纳米机器人", "人工智能", "系统权限", "RAG", "prompt", "数据库")
         if not reply or any(term in reply for term in forbidden):

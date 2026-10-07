@@ -12,6 +12,7 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "httpx>=0.28,<1.0",
     "pydantic>=2.10,<3.0",
+    "typing-extensions>=4.12,<5.0",
     "python-dotenv>=1.1,<2.0",
     "uvicorn[standard]>=0.34,<1.0",
 ]
@@ -33,7 +34,7 @@ virtual-world = "world_engine.cli:main"
 include = ["world_engine*"]
 
 [tool.setuptools.package-data]
-world_engine = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg"]
+world_engine = ["web/*.html", "web/*.css", "web/*.js", "web/*.svg", "web/assets/*.svg", "web/assets/*.png"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

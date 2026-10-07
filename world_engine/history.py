@@ -53,12 +53,6 @@ class WorldHistoryLogger:
                     event["history"]=EventHistoryService.view(connection,event["id"])
                     profile=connection.execute("SELECT scope_type,scope_id FROM event_profiles WHERE event_id=?",(event["id"],)).fetchone()
                     event["history_scope"]=dict(profile) if profile else {"scope_type":"interpersonal","scope_id":None}
-                heartbeats = self.repository.list_heartbeats_since(
-                    connection, safe_world_id, 0
-                )
-                state_updates = self.repository.list_state_updates_since(
-                    connection, safe_world_id, 0
-                )
 
             tick_groups = self._group_ticks(events)
             scope_groups={}
@@ -108,24 +102,16 @@ class WorldHistoryLogger:
                 jsonl_path,
                 self._render_jsonl(snapshot.world.name, tick_groups),
             )
-            self._write_state_logs(
-                world_directory,
-                world_id=safe_world_id,
-                world_name=snapshot.world.name,
-                character_names={item.id: item.name for item in snapshot.characters},
-                heartbeats=heartbeats,
-                state_updates=state_updates,
-                totals=(len(heartbeats), len(state_updates)),
-                rebuild=True,
-            )
+            # Yuki 把状态日志交给独立写锁，重建历史时也只增量补齐最新心跳。
+            heartbeat_count, state_update_count = self.sync_state_logs(safe_world_id)
             manifest = {
                 "schema_version": 1,
                 "world_id": safe_world_id,
                 "world_name": snapshot.world.name,
                 "tick_count": len(tick_groups),
                 "event_count": len(events),
-                "heartbeat_count": len(heartbeats),
-                "state_update_count": len(state_updates),
+                "heartbeat_count": heartbeat_count,
+                "state_update_count": state_update_count,
                 "exported_at": to_iso(utc_now()),
             }
             self._atomic_write(
@@ -142,8 +128,8 @@ class WorldHistoryLogger:
             markdown_file=str(markdown_path),
             jsonl_file=str(jsonl_path),
             tick_files=len(tick_groups),
-            heartbeat_count=len(heartbeats),
-            state_update_count=len(state_updates),
+            heartbeat_count=heartbeat_count,
+            state_update_count=state_update_count,
             heartbeat_file=str(heartbeat_path),
             state_update_file=str(state_update_path),
         )
@@ -159,7 +145,7 @@ class WorldHistoryLogger:
         safe_world_id = self._safe_uuid(world_id)
         world_directory = self.root_directory / safe_world_id
         world_directory.mkdir(parents=True, exist_ok=True)
-        with self._export_lock(world_directory):
+        with self._export_lock(world_directory, kind="state"):
             watermark = self._load_state_watermark(
                 world_directory / "state_manifest.json",
                 world_directory / "heartbeats.jsonl",
@@ -488,28 +474,43 @@ class WorldHistoryLogger:
                 temporary.unlink()
 
     @contextmanager
-    def _export_lock(self, world_directory: Path) -> Iterator[None]:
-        lock_directory = world_directory / ".history-write.lock"
+    def _export_lock(self, world_directory: Path, *, kind: str = "history") -> Iterator[None]:
+        """Yuki 用进程级文件锁串行写同类日志，进程退出时系统自动释放。"""
+        lock_path = world_directory / f".{kind}-write.lockfile"
         deadline = time.monotonic() + 10.0
-        while True:
-            try:
-                lock_directory.mkdir()
-                break
-            except FileExistsError:
+        with lock_path.open("a+b") as handle:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+                def acquire() -> None:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+
+                def release() -> None:
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                def acquire() -> None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                def release() -> None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+            while True:
                 try:
-                    age = time.time() - lock_directory.stat().st_mtime
-                    if age > 60:
-                        lock_directory.rmdir()
-                        continue
-                except FileNotFoundError:
-                    continue
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("等待世界历史日志写锁超时") from None
-                time.sleep(0.1)
-        try:
-            yield
-        finally:
+                    acquire()
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError(f"等待世界{kind}日志写锁超时") from None
+                    time.sleep(0.1)
             try:
-                lock_directory.rmdir()
-            except FileNotFoundError:
-                pass
+                yield
+            finally:
+                release()

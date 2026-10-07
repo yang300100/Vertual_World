@@ -13,6 +13,11 @@ from world_engine.conversations import DialogueSpeakerScheduler
 from world_engine.decisions import DecisionProviderError
 from world_engine.domain import ActionProposal, ActionType
 from world_engine.engine_errors import ConcurrentWorldUpdateError
+from world_engine.npc_performance import (
+    finalize_social_event,
+    safe_npc_speech,
+    settle_npc_reply,
+)
 from world_engine.repository import to_iso, utc_now
 
 LOGGER = logging.getLogger("virtual-world.engine")
@@ -38,7 +43,8 @@ class GroupDialogueMixin:
                 raise ValueError("当前世界还没有玩家角色，无法发起多人对话")
             scheduler = DialogueSpeakerScheduler(max_speakers=max_speakers)
             from world_engine.proximity import VOICE_RADIUS_KM
-            if delivery not in VOICE_RADIUS_KM:raise ValueError("说话方式无效")
+            if delivery not in VOICE_RADIUS_KM:
+                raise ValueError("说话方式无效")
             selected = scheduler.select(
                 connection,
                 snapshot=snapshot,
@@ -48,7 +54,7 @@ class GroupDialogueMixin:
                 radius_km=VOICE_RADIUS_KM[delivery],
             )
         if not selected:
-            raise ValueError("100米内没有可以参与多人对话的 NPC")
+            raise ValueError("当前说话方式下没有可以参与对话的 NPC")
         responder = getattr(self.decision_provider, "respond_to_player", None)
         if not callable(responder):
             raise DecisionProviderError("当前决策器不支持 NPC 模型对话")
@@ -100,7 +106,7 @@ class GroupDialogueMixin:
                     "context_budget": context.get("budget_trace", {}),
                 }
             )
-            prior_replies.append({"speaker": npc.name, "reply": reply.reply})
+            prior_replies.append({"speaker": npc.name, "reply": safe_npc_speech(reply.reply)})
 
         group_dialogue_id = str(uuid4())
         previous_version = snapshot.world.version
@@ -125,9 +131,12 @@ class GroupDialogueMixin:
                     target_id=npc.id,
                     reason=f"我向在场众人发言，{npc.name}作出回应。",
                     dialogue=intent,
-                    reply=reply.reply,
+                    reply=safe_npc_speech(reply.reply) or "……",
                     metadata={
                         "group_dialogue_id": group_dialogue_id,
+                        "addressed_participant_ids": participant_ids or [
+                            selected_choice.character.id for selected_choice in selected
+                        ],
                         "delivery": delivery,
                         "group_turn_order": turn_order,
                         "npc_social_move": reply.social_move,
@@ -142,6 +151,26 @@ class GroupDialogueMixin:
                 )
                 if not outcome.accepted or outcome.event_id is None:
                     raise ValueError(outcome.rejection_reason or "多人对话未通过世界规则校验")
+                npc_actor = connection.execute(
+                    "SELECT * FROM characters WHERE id=? AND world_id=?", (npc.id, world_id)
+                ).fetchone()
+                settled = settle_npc_reply(
+                    connection,
+                    npc=npc_actor,
+                    player_id=player.id,
+                    at=snapshot.world.current_time,
+                    channel="group_scene",
+                    reply=reply,
+                )
+                outcome.summary = self.actions.socialize_summary(
+                    player.name, npc_actor["name"], intent, settled.reply
+                )
+                finalize_social_event(
+                    connection,
+                    event_id=outcome.event_id,
+                    summary=outcome.summary,
+                    reply=settled,
+                )
                 self.conversations.get_card(
                     connection,
                     world_id=world_id,
@@ -156,13 +185,14 @@ class GroupDialogueMixin:
                     event_id=outcome.event_id,
                     world_time=snapshot.world.current_time,
                     player_text=intent,
-                    npc_text=reply.reply,
+                    npc_text=settled.reply,
                 )
                 replies.append(
                     {
                         "character_id": npc.id,
                         "name": npc.name,
-                        "reply": reply.reply,
+                        "reply": settled.reply,
+                        "stage_direction": settled.stage_direction,
                         "social_move": reply.social_move,
                         "event_id": outcome.event_id,
                         "turn_order": turn_order,
@@ -176,12 +206,15 @@ class GroupDialogueMixin:
                 "UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?",
                 (now, world_id),
             )
-        self._sync_history_safely(world_id)
+            current_version = int(connection.execute(
+                "SELECT version FROM worlds WHERE id=?", (world_id,)
+            ).fetchone()[0])
+        self._sync_history_safely(world_id, background=True)
         return {
             "group_dialogue_id": group_dialogue_id,
             "provider": self.decision_provider.name,
             "player_text": intent,
             "previous_version": previous_version,
-            "current_version": previous_version + 1,
+            "current_version": current_version,
             "replies": replies,
         }

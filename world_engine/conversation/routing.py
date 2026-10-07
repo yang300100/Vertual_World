@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import timedelta
 
 from world_engine.domain import CharacterState, WorldSnapshot
 from world_engine.geo import great_circle_distance_km
-from world_engine.player_inputs import parse_player_input
+from world_engine.player_inputs import parse_player_input, unprefixed_action_text
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import to_iso
 
@@ -16,16 +17,41 @@ class ConversationRoutingMixin:
     """`ConversationService` 的对话判定与目标解析职责切片。"""
 
     @staticmethod
+    def is_addressed_question(intent: str) -> bool:
+        return (
+            any(pronoun in intent for pronoun in ("你", "您"))
+            and any(
+                mark in intent
+                for mark in ("吗", "么", "呢", "？", "?", "什么", "怎么", "如何")
+            )
+        )
+
+    @staticmethod
     def is_non_dialogue_intent(intent: str) -> bool:
         message = parse_player_input(intent)
         if message.kind != "auto":
             return message.kind == "action"
+        if ConversationRoutingMixin.is_addressed_question(intent):
+            return False
+        if unprefixed_action_text(intent) is not None:
+            return True
+        if re.search(r"想知道|想问|请问|询问|打听|如何|怎么|怎样|为什么|什么|是否|能否|可不可以", intent):
+            return False
+        if any(
+            marker in intent
+            for marker in ("告诉", "询问", "打听", "请教", "聊天", "交谈", "谈谈", "打招呼")
+        ):
+            return False
+        if re.search(r"打(?!算|听|招呼|工)", intent):
+            return True
+        if re.match(r"^(?:我)?(?:(?:现在|先|想|要|打算|准备)\s*)*(?:去(?!过)|到|赶往)\S+", intent.strip()):
+            return True
         return any(
             marker in intent
             for marker in (
-                "攻击", "袭击", "砍", "杀", "打", "前往", "赶路", "动身", "休息",
+                "攻击", "袭击", "砍", "杀", "前往", "赶路", "动身", "休息",
                 "睡", "吃", "喝", "捡", "拾", "使用", "装备", "开始工作", "去工作",
-                "干活", "建造",
+                "干活", "打工", "建造",
             )
         )
 
@@ -35,12 +61,14 @@ class ConversationRoutingMixin:
             return True
         if ConversationRoutingMixin.is_non_dialogue_intent(intent):
             return False
-        markers = ("是", "对", "嗯", "好", "那", "所以", "需要", "吗", "？", "?")
+        markers = ("是", "对", "嗯", "好", "那", "所以", "需要", "吗", "？", "?", "怎么", "如何", "想知道")
         return any(marker in intent for marker in markers)
 
     @staticmethod
     def looks_like_directed_dialogue(intent: str) -> bool:
         """区分“向人物说话”和“只是在陈述中提到人物”，避免误锁对话目标。"""
+        if ConversationRoutingMixin.is_addressed_question(intent):
+            return True
         markers = (
             "交谈",
             "对话",
@@ -54,6 +82,7 @@ class ConversationRoutingMixin:
             "请教",
             "请求",
             "你好",
+            "打招呼",
         )
         return any(marker in intent for marker in markers)
 

@@ -99,6 +99,7 @@ class InteriorService:
         ).fetchone()
         return bool(
             location
+            and location["space_layer"] == actor["space_layer"]
             and great_circle_distance_km(
                 actor["longitude"],
                 actor["latitude"],
@@ -241,6 +242,10 @@ class InteriorService:
             raise InteriorError("请先走到这扇门旁边")
         inside = actor["current_room_id"] == room_id
         if operation in {"enter", "exit"}:
+            from world_engine.player_steering import PlayerSteeringService
+
+            if PlayerSteeringService.active(connection, actor["id"]):
+                raise InteriorError("请先松开方向键，再进出房间")
             if actor["current_fixture_id"]:
                 raise InteriorError("请先从座位起身")
             if connection.execute(
@@ -266,7 +271,8 @@ class InteriorService:
                 "current_location_id=?,updated_at=? WHERE id=?",
                 (destination, room["location_id"], to_iso(utc_now()), actor["id"]),
             )
-            summary = f"你{'离开' if inside else '进入'}了{room['name']}。"
+            subject = "你" if actor["is_player"] else actor["name"]
+            summary = f"{subject}{'离开' if inside else '进入'}了{room['name']}。"
         else:
             if operation not in {"open", "close", "lock", "unlock"}:
                 raise InteriorError("未知的门操作")
@@ -307,7 +313,8 @@ class InteriorService:
                 (opened, locked, room_id),
             )
             verb = {"open": "打开", "close": "关上", "lock": "锁上", "unlock": "解锁"}[operation]
-            summary = f"你{verb}了{room['name']}的门。"
+            subject = "你" if actor["is_player"] else actor["name"]
+            summary = f"{subject}{verb}了{room['name']}的门。"
         event = cls.record(connection, actor, at, operation, summary, {"room_id": room_id})
         return {"summary": summary, "event_id": event}
 
@@ -421,6 +428,8 @@ class InteriorService:
         if not deposit:
             InventoryService.transfer(connection, item, actor["id"], quantity)
         else:
+            from world_engine.materials import MaterialService
+
             stored = connection.execute(
                 "SELECT i.*,t.slot_size,t.stack_limit FROM item_instances i JOIN item_types t "
                 "ON t.id=i.item_type_id WHERE i.container_type='fixture_storage' "
@@ -435,6 +444,7 @@ class InteriorService:
                     and row["owner_character_id"] == actor["id"]
                     and row["condition"] == item["condition"]
                     and InventoryService.same_freshness(row, item)
+                    and MaterialService.compatible(connection, row, item)
                     and row["quantity"] + quantity <= max(1, item["stack_limit"])
                 ),
                 None,
@@ -450,7 +460,10 @@ class InteriorService:
             )
             if used + required > fixture["capacity"]:
                 raise InventoryError("容器空间不足")
-            if stack:
+            if MaterialService.state(connection, item['id']) is not None:
+                MaterialService.move(connection, item, quantity, 'fixture_storage', fixture_id,
+                                     actor['id'], target=stack)
+            elif stack:
                 connection.execute(
                     "UPDATE item_instances SET quantity=quantity+? WHERE id=?",
                     (quantity, stack["id"]),

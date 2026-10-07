@@ -70,13 +70,22 @@ class InventoryService:
             )
 
     @staticmethod
-    def _capacity(connection, character_id, item, quantity):
+    def _capacity(connection, character_id, item, quantity, *, allow_merge=True):
+        from world_engine.materials import MaterialService
+
         rows = connection.execute(
             """SELECT i.*, t.stack_limit, t.slot_size FROM item_instances i
                JOIN item_types t ON t.id=i.item_type_id
                WHERE i.container_id=? AND i.container_type='character_inventory'""",
             (character_id,),
         ).fetchall()
+        limit = connection.execute('SELECT max_load FROM collective_carry_limits WHERE actor_id=?', (character_id,)).fetchone()
+        if limit:
+            def load(row):
+                state = MaterialService.state(connection, row['id'])
+                return state.mass + state.water if state else max(1, row['slot_size']) * row['quantity']
+            if sum(load(row) for row in rows) + load(item) * quantity / item['quantity'] > limit[0] + 1e-8:
+                raise InventoryError('接收者实际背包负重不足')
         used = sum(
             math.ceil(row["quantity"] / max(1, row["stack_limit"])) * max(1, row["slot_size"])
             for row in rows
@@ -89,12 +98,13 @@ class InventoryService:
                 if row["item_type_id"] == item["item_type_id"]
                 and row["condition"] == item["condition"]
                 and InventoryService.same_freshness(row, item)
+                and MaterialService.compatible(connection, row, item)
                 and row["owner_character_id"] == character_id
                 and row["quantity"] + quantity <= max(1, item["stack_limit"])
             ),
             None,
         )
-        if stack is not None:
+        if stack is not None and allow_merge:
             return stack
         required = math.ceil(quantity / max(1, item["stack_limit"])) * max(1, item["slot_size"])
         row = connection.execute(
@@ -105,13 +115,21 @@ class InventoryService:
         return None
 
     @classmethod
-    def transfer(cls, connection, item, recipient_id, quantity=1, *, change_owner=True):
+    def transfer(cls, connection, item, recipient_id, quantity=1, *, change_owner=True, preserve_identity=False):
         if quantity < 1 or quantity > item["quantity"]:
             raise InventoryError("物品数量不足")
-        stack = cls._capacity(connection, recipient_id, item, quantity)
+        # 哥哥，需要追溯来源的货物单独占位，保留实物编号也要遵守背包容量。
+        stack = cls._capacity(connection, recipient_id, item, quantity,
+                              allow_merge=change_owner and not preserve_identity)
         if not change_owner:
             stack = None
         owner = recipient_id if change_owner else item["owner_character_id"]
+        from world_engine.materials import MaterialService
+
+        if MaterialService.state(connection, item["id"]) is not None:
+            MaterialService.move(connection, item, quantity, 'character_inventory', recipient_id,
+                                 owner, target=stack)
+            return
         if stack is not None:
             connection.execute(
                 "UPDATE item_instances SET quantity=quantity+? WHERE id=?", (quantity, stack["id"])
@@ -143,7 +161,11 @@ class InventoryService:
             cls.copy_freshness(connection, item, new_id)
 
     @staticmethod
-    def consume(connection, item, quantity=1):
+    def consume(connection, item, quantity=1, *, destination=None):
+        from world_engine.materials import MaterialService
+
+        if MaterialService.state(connection, item["id"]) is not None:
+            return MaterialService.consume(connection, item, quantity, destination)
         if item["quantity"] < quantity or quantity < 1:
             raise InventoryError("物品数量不足")
         if item["quantity"] == quantity:

@@ -37,9 +37,10 @@ class NpcCharacterCard:
     initiative_notes: str
     preferred_address: str
     dialogue_examples: tuple[str, ...]
+    sillytavern_card: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "public_role": self.public_role,
             "current_preoccupation": self.current_preoccupation,
             "private_tension": self.private_tension,
@@ -50,6 +51,9 @@ class NpcCharacterCard:
             "preferred_address": self.preferred_address,
             "dialogue_examples": list(self.dialogue_examples),
         }
+        if self.sillytavern_card is not None:
+            result["sillytavern_card"] = dict(self.sillytavern_card)
+        return result
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> NpcCharacterCard:
@@ -83,6 +87,10 @@ class NpcCharacterCard:
                 for item in (value.get("dialogue_examples") or [])
                 if str(item).strip()
             )[:4],
+            sillytavern_card=(
+                dict(value["sillytavern_card"])
+                if isinstance(value.get("sillytavern_card"), dict) else None
+            ),
         )
 
 

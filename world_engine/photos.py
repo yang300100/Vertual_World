@@ -288,6 +288,16 @@ class PhotoService:
             created_at=now,
         )
 
+    def store_card_avatar(self, *, world_id: str, character_id: str, png_data: bytes) -> str:
+        """Yuki 保存角色卡卡面，界面会在圆形框里按最大正方形区域裁切。"""
+        digest = hashlib.sha256(png_data).hexdigest()
+        relative_path = Path(world_id) / "card-avatars" / character_id / f"{digest}.png"
+        destination = self.media_directory / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists():
+            destination.write_bytes(png_data)
+        return relative_path.as_posix()
+
     def prepare_capture(
         self,
         connection: sqlite3.Connection,
@@ -472,7 +482,11 @@ class PhotoService:
             longitude=longitude,
             latitude=latitude,
             direction=request.direction,
+            space_layer=photographer["space_layer"],
         )
+        from world_engine.wonders import WonderService
+        landmarks += WonderService.visible(connection,world["id"],photographer,request.direction)
+        environment = WonderService.context(connection,world["id"],photographer["id"])["environment"]
         terrain = self._terrain_context(
             connection, world_id=world["id"], longitude=longitude, latitude=latitude
         )
@@ -488,7 +502,10 @@ class PhotoService:
                 "latitude": latitude,
                 "location_name": location["name"] if location is not None else "未命名地域",
                 "location_kind": location["kind"] if location is not None else "荒野",
+                "space_layer":photographer["space_layer"],
+                "altitude_m":photographer["altitude_m"],
             },
+            "wonder_environment":environment,
             "terrain": terrain,
             "landmarks": landmarks,
             "characters": visible,
@@ -509,16 +526,16 @@ class PhotoService:
         ).fetchall()
         nearby_by_id: dict[str, sqlite3.Row] = {}
         for character in nearby:
+            from world_engine.proximity import same_room
+            if not same_room(photographer,character):
+                continue
             distance = great_circle_distance_km(
                 float(photographer["longitude"]),
                 float(photographer["latitude"]),
                 float(character["longitude"]),
                 float(character["latitude"]),
             )
-            same_location = character["current_location_id"] and character[
-                "current_location_id"
-            ] == (photographer["current_location_id"] or photographer["location_id"])
-            if distance <= 1.5 or same_location:
+            if distance <= 1.5:
                 nearby_by_id[character["id"]] = character
         requested_ids = set(request.included_character_ids)
         invalid = requested_ids - set(nearby_by_id)
@@ -560,11 +577,12 @@ class PhotoService:
         longitude: float,
         latitude: float,
         direction: str,
+        space_layer: str = "ground",
     ) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
         sources = (
-            ("buildings", "building", "name", "building_type", "status NOT IN ('ruined')"),
-            ("world_structures", "structure", "name", "structure_type", "status NOT IN ('ruined')"),
+            ("buildings", "building", "name", "building_type", "status = 'completed'"),
+            ("world_structures", "structure", "name", "structure_type", "status IN ('active','dormant','discovered') AND id NOT IN (SELECT id FROM world_wonders)"),
             ("map_features", "map_feature", "name", "feature_type", "is_known = 1"),
         )
         for table, entity_type, name_col, kind_col, state_clause in sources:
@@ -572,8 +590,10 @@ class PhotoService:
                 f"""
                 SELECT id, {name_col} AS name, {kind_col} AS kind, longitude, latitude
                 FROM {table} WHERE world_id = ? AND {state_clause}
+                AND (location_id IN (SELECT id FROM locations WHERE space_layer = ?)
+                     OR (location_id IS NULL AND ? = 'ground'))
                 """,  # noqa: S608 - 表/列/状态均是固定映射。
-                (world_id,),
+                (world_id,space_layer,space_layer),
             ).fetchall()
             for row in rows:
                 distance = great_circle_distance_km(
@@ -695,7 +715,8 @@ class PhotoService:
         landmarks = context["landmarks"]
         landmark_text = (
             "；".join(
-                f"{item['distance_km']}公里处的{item['kind']}“{item['name']}”" for item in landmarks
+                f"{item['distance_km']}公里处的{item['kind']}“{item['name']}”"
+                + (f"，浮于地面上方{item['altitude_m']:g}米" if 'altitude_m' in item else "") for item in landmarks
             )
             if landmarks
             else "视野内没有已登记的建筑、遗迹或奇观"
@@ -721,7 +742,9 @@ class PhotoService:
                 f"相机位于{camera['location_name']}（{camera['location_kind']}），坐标"
                 f"({camera['longitude']:.5f}, {camera['latitude']:.5f}），"
                 f"镜头明确朝向{camera['direction_label']}。",
-                f"高程与地形：{terrain_text}。",
+                (f"所在奇观环境：{context['wonder_environment']['name']}，{context['wonder_environment']['description']}"
+                 f"平台高于地面{camera['altitude_m']:g}米；镜头背景应呈现本城的悬空街道与平台环境。"
+                 if context.get("wonder_environment") else f"高程与地形：{terrain_text}。"),
                 f"同一方向可见地标：{landmark_text}。",
                 f"画面人物：{character_text}。上传的人设图只用于保持对应人物外观一致。",
                 "画面必须遵循上述空间方向、地形、建筑/遗迹与人物在场信息，避免凭空加入相互矛盾的地标。",

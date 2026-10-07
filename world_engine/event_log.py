@@ -22,7 +22,12 @@ IMPORTANCE_MAJOR = "major"
 IMPORTANCE_ROUTINE = "routine"
 
 # 只有这些事件类型会被标记为重大历史事件。
-MAJOR_EVENT_TYPES = frozenset({"world.major_death"})
+MAJOR_EVENT_TYPES = frozenset({
+    "world.major_death", "world.incident_started", "world.incident_observed",
+    "social.incident_supply_requested", "world.incident_site_restored",
+    "world.incident_resolved",
+    "world.technology_breakthrough", "world.technology_revised", "world.technology_invalidated",
+})
 
 
 def importance_for(event_type: str) -> str:

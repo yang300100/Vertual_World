@@ -30,6 +30,14 @@ class WorldClockService:
 
         now = real_now or utc_now()
         with self.database.write() as connection:
+            from world_engine.player_steering import PlayerSteeringService
+
+            for row in connection.execute(
+                "SELECT s.world_id,w.current_time FROM player_steering s JOIN worlds w ON w.id=s.world_id "
+                "WHERE s.dx!=0 OR s.dy!=0",
+            ).fetchall():
+                PlayerSteeringService.stop(connection, row["world_id"], from_iso(row["current_time"]),
+                                           "服务器重启，停止方向移动。")
             cursor = connection.execute(
                 """
                 UPDATE world_clock
@@ -117,6 +125,18 @@ class WorldClockService:
                 )
                 real_elapsed_seconds = 0.0
             current_time = previous_time + timedelta(seconds=world_delta_seconds)
+            from world_engine.collective_runner import is_collective_world
+            from world_engine.science_runner import is_science_world
+
+            collective = is_collective_world(connection,world_id)
+            science = is_science_world(connection,world_id)
+            if (collective or science) and world_delta_seconds>0:
+                from world_engine.collective_clock import next_boundary
+
+                boundary=next_boundary(connection,world_id,previous_time)
+                if current_time>boundary+timedelta(microseconds=1):
+                    raise ValueError(f'追踪模式心跳不能跳过更早的世界事件边界：目标={to_iso(current_time)}，边界={to_iso(boundary)}，上一时间={to_iso(previous_time)}，比例={time_scale}')
+                connection.execute('UPDATE worlds SET current_time=? WHERE id=?',(to_iso(current_time),world_id))
             clock_revision = int(row["clock_revision"]) + 1
             adjudication_due = current_time >= from_iso(
                 row["next_adjudication_world_time"]
@@ -152,6 +172,10 @@ class WorldClockService:
                 world_delta_seconds=world_delta_seconds,
                 created_at=now,
             )
+            if (collective or science) and world_delta_seconds>0:
+                from world_engine.collective_clock import advance_materials
+
+                advance_materials(connection,world_id,world_delta_seconds/3600)
             movements_updated = self.movement.advance(
                 connection,
                 world_id=world_id,
@@ -183,12 +207,43 @@ class WorldClockService:
             from world_engine.daily_life import DailyLifeService
             from world_engine.economy import EconomyService
             from world_engine.society import SocietyService
-            if world_delta_seconds > 0:
+            if science and world_delta_seconds>0:
+                from world_engine.science_programs import ScienceService
+                from world_engine.collective_clock import basic_life
                 from world_engine.visits import VisitService
+
+                ScienceService.tick(connection, world_id, current_time, heartbeat_id=heartbeat_id)
+                basic_life(connection, world_id, current_time)
+                VisitService.tick(connection, world_id, current_time)
+                EconomyService.tick(connection, world_id, current_time)
+                SocietyService.tick(connection, world_id, current_time)
+                if adjudication_due:
+                    connection.execute('UPDATE world_clock SET next_adjudication_world_time=? WHERE world_id=?',
+                        (to_iso(current_time+timedelta(hours=12)),world_id))
+            elif collective and world_delta_seconds>0:
+                from world_engine.collective_clock import settle,basic_life
+
+                settle(connection,world_id,current_time)
+                basic_life(connection,world_id,current_time)
+                if adjudication_due:
+                    connection.execute('UPDATE world_clock SET next_adjudication_world_time=? WHERE world_id=?',(to_iso(current_time+timedelta(hours=12)),world_id))
+            elif world_delta_seconds > 0:
+                from world_engine.cooperation import CooperationService
+                from world_engine.incidents import IncidentService
+                from world_engine.visits import VisitService
+                IncidentService.tick(connection, world_id, current_time)
+                CooperationService.tick(connection, world_id, current_time)
+                from world_engine.wonders import WonderService
+                WonderService.tick(connection, world_id, current_time)
+                from world_engine.autonomous_research import ResearchService
+
+                ResearchService.tick(connection, world_id, current_time, heartbeat_id=heartbeat_id)
                 VisitService.tick(connection, world_id, current_time)
                 EconomyService.tick(connection, world_id, current_time)
                 DailyLifeService.tick(connection, world_id, current_time, adjudication_due=adjudication_due)
                 SocietyService.tick(connection, world_id, current_time)
+                IncidentService.tick(connection, world_id, current_time)
+                CooperationService.tick(connection, world_id, current_time)
             version_increment = int(bool(
                 world_delta_seconds > 0 or contracts_updated or life_updates
             ))
@@ -398,6 +453,12 @@ class WorldClockService:
                 DailyLifeService.tick(connection, world_id, current_time, adjudication_due=adjudication_due)
                 SocietyService.tick(connection, world_id, current_time)
             new_world_version = int(row["version"]) + 1
+            if world_delta_seconds > 0:
+                from world_engine.wonders import WonderService
+                WonderService.tick(connection, world_id, current_time)
+            from world_engine.player_steering import PlayerSteeringService
+
+            PlayerSteeringService.stop(connection, world_id, current_time, "世界流速改变，请重新输入方向。")
             connection.execute(
                 """
                 UPDATE world_clock
@@ -506,7 +567,7 @@ class WorldClockService:
         )
         rows = connection.execute(
             """
-            SELECT c.id, c.satiety, c.energy,
+            SELECT c.id, c.satiety, c.energy, c.health,
                    a.satiety_residual, a.energy_residual
             FROM characters c
             JOIN character_state_accumulators a ON a.character_id = c.id
@@ -518,6 +579,8 @@ class WorldClockService:
         world_hours = world_delta_seconds / 3600
         state_update_count = 0
         characters_updated = 0
+        from world_engine.collective_runner import is_collective_world
+        collective=is_collective_world(connection,world_id)
         for row in rows:
             satiety_total = float(row["satiety_residual"]) + (
                 self.settings.satiety_loss_per_world_hour * world_hours
@@ -549,6 +612,13 @@ class WorldClockService:
                 ),
             )
             changes: dict[str, object] = {}
+            if collective and world_hours>0:
+                from world_engine.collective_regions import RegionService
+                rate=self.settings.satiety_loss_per_world_hour
+                exhausted=max(0,world_hours-max(0,satiety_before-float(row['satiety_residual']))/rate) if rate>0 else (world_hours if satiety_before==0 else 0)
+                damage=RegionService.starve(connection,row['id'],exhausted,current_time)
+                if damage:
+                    changes['health']={'before':row['health'],'after':row['health']-damage,'delta':-damage,'starvation_hours':exhausted}
             if satiety_after != satiety_before:
                 changes["satiety"] = {
                     "before": satiety_before,

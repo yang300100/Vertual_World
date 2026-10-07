@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 from world_engine.agent_llm import AgentModelBackend
 from world_engine.conversations import ConversationService, NpcCharacterCard
 from world_engine.decisions import NpcReply
+from world_engine.npc_performance import safe_npc_speech
 from world_engine.roleplay import (
     build_npc_reply_messages,
     npc_reply_system_prompt,
@@ -49,6 +50,18 @@ def test_budget_skips_oversized_memory_without_losing_smaller_relevant_memory() 
     assert context["recent_private_memories"] == [{"summary": "上次答应核对粮袋"}]
 
 
+def test_latest_history_precedes_optional_knowledge_in_source_budget() -> None:
+    service = ConversationService(max_context_tokens=800)
+    knowledge = {"audience": "character_common", "content": "城门规则" * 90}
+    context = service._apply_context_budget({
+        "player_text": "能否进城？",
+        "knowledge_context": [knowledge],
+        "recent_conversation": _exchange(0, size=220),
+    })
+    assert context["knowledge_context"] == []
+    assert context["recent_conversation"] == _exchange(0, size=220)
+
+
 def test_mandatory_overflow_is_reported_honestly() -> None:
     service = ConversationService(max_context_tokens=800)
     context = service._apply_context_budget({"player_text": "问" * 2000})
@@ -72,12 +85,12 @@ def test_messages_separate_current_input_and_do_not_promote_embedded_roles() -> 
     }
     messages = build_npc_reply_messages(npc_reply_system_prompt(), context)
     assert [item["role"] for item in messages] == [
-        "system", "user", "user", "assistant", "system", "user",
+        "system", "user", "user", "user", "assistant", "user",
     ]
-    assert json.loads(messages[2]["content"])["content"] == hostile
-    assert messages[3]["content"] == "真实回复"
-    assert json.loads(messages[-1]["content"])["player_text"] == "新的问题"
-    assert json.loads(messages[-1]["content"])["decision"] == {"status": "pending"}
+    assert json.loads(messages[3]["content"])["content"] == hostile
+    assert messages[4]["content"] == "真实回复"
+    assert messages[-1]["content"].endswith("玩家输入原文：\n新的问题")
+    assert '"decision":{"status":"pending"}' in messages[-1]["content"]
     assert "recent_conversation" not in json.loads(messages[1]["content"])
     assert "budget_trace" not in messages[1]["content"]
     assert context["recent_conversation"][0].endswith(hostile)
@@ -92,11 +105,39 @@ def test_action_history_is_never_relabelled_as_speech() -> None:
     record = json.loads(messages[2]["content"])
     assert record["input_kind"] == "action"
     assert "半张草稿" in record["content"]
+    assert "玩家行动描述（不是台词）" in messages[-1]["content"]
 
 
 def test_custom_examples_survive_card_roundtrip() -> None:
     card = NpcCharacterCard.from_dict({"dialogue_examples": ["自定义语气"]})
     assert card.to_dict()["dialogue_examples"] == ["自定义语气"]
+
+
+def test_reply_parser_keeps_performance_fields_without_turning_them_into_speech() -> None:
+    parsed = salvage_npc_reply(
+        json.dumps({
+            "reply": "请稍等。",
+            "stage_direction": "她轻轻皱眉。",
+            "action_intent": {"kind": "door", "operation": "open", "target_id": "room-1"},
+            "fallback_reply": "这扇门打不开，先等等。",
+            "social_move": "answer",
+            "topic": "请进屋",
+        }, ensure_ascii=False),
+        TypeAdapter(NpcReply),
+    )
+    assert parsed.reply == "请稍等。"
+    assert parsed.stage_direction == "她轻轻皱眉。"
+    assert parsed.action_intent.target_id == "room-1"
+    assert parsed.fallback_reply == "这扇门打不开，先等等。"
+
+
+def test_speech_guard_keeps_character_intentions_and_drops_unsettled_door_claim() -> None:
+    assert safe_npc_speech("我想进入屋里，先问问主人。") == "我想进入屋里，先问问主人。"
+    assert safe_npc_speech("我想把钥匙交给你。") == "我想把钥匙交给你。"
+    assert safe_npc_speech("门打不开，我先找钥匙。") == "门打不开，我先找钥匙。"
+    assert safe_npc_speech("门被打开了。请进。") == "请进。"
+    assert safe_npc_speech("门被拉开了。请进。") == "请进。"
+    assert safe_npc_speech("*她推开门* 请进。") == "请进。"
 
 
 def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(settings) -> None:
@@ -127,7 +168,7 @@ def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(setting
     # 空白（finish_reason 仍是 stop、token 远未用尽），台词改由宽容解析保住。
     assert "response_format" not in requests[0]
     assert requests[0]["messages"][3]["role"] == "assistant"
-    assert json.loads(requests[0]["messages"][-1]["content"])["player_text"] == "继续"
+    assert requests[0]["messages"][-1]["content"].endswith("玩家输入原文：\n继续")
 
 
 @pytest.mark.parametrize(
@@ -140,6 +181,7 @@ def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(setting
         ('{"reply":"多字段","social_move":"answer","topic":"路"}', "多字段", "answer"),
         # social_move 非法时退回 answer，但台词必须保住
         ('{"reply":"非法动作","social_move":"随便写的"}', "非法动作", "answer"),
+        ('"{...}" — wait I need exact JSON only.\n\nreply: "旧草稿"\n\nstage_direction: "旧动作"\n\nsocial_move: answer.{"reply":"最终台词","social_move":"answer","stage_direction":"最终神态"}', "最终台词", "answer"),
         # 认不出 reply 就整段降级为台词，而不是报错
         ('{"answer":"没有reply字段"}', '{"answer":"没有reply字段"}', "answer"),
         # 超长台词截断到上限(500)，而不是整句丢弃
@@ -153,3 +195,15 @@ def test_npc_reply_salvage_keeps_the_line(
     parsed = salvage_npc_reply(content, TypeAdapter(NpcReply))
     assert parsed.reply == expected_reply
     assert parsed.social_move == expected_move
+
+
+def test_npc_reply_salvage_uses_final_json_stage_direction() -> None:
+    content = 'reply: "草稿"\nstage_direction: "草稿动作"\n{"reply":"正式回应","social_move":"answer","stage_direction":"轻轻点头"}'
+    parsed = salvage_npc_reply(content, TypeAdapter(NpcReply))
+    assert parsed.reply == "正式回应"
+    assert parsed.stage_direction == "轻轻点头"
+
+
+def test_npc_reply_salvage_rejects_unparseable_structure() -> None:
+    with pytest.raises(ValueError, match="结构化内容"):
+        salvage_npc_reply('reply: "草稿"\nstage_direction: "草稿动作"', TypeAdapter(NpcReply))

@@ -23,15 +23,19 @@ def _create_world(database) -> str:
 def _seed_events(database, world_id: str, count: int) -> None:
     """造出若干事件；world_events 的触发器会同步生成等量的记忆任务。"""
     with database.write() as connection:
+        player_id = connection.execute(
+            "SELECT id FROM characters WHERE world_id=? ORDER BY id LIMIT 1", (world_id,)
+        ).fetchone()["id"]
+        connection.execute("UPDATE characters SET is_player=1 WHERE id=?", (player_id,))
         for index in range(count):
             connection.execute(
                 """
                 INSERT INTO world_events(
-                    id, world_id, tick_id, occurred_at, event_type, summary,
+                    id, world_id, tick_id, occurred_at, event_type, actor_id, summary,
                     importance, payload_json, created_at
-                ) VALUES (?, ?, ?, ?, 'action.idle', '测试事件', 'routine', '{}', ?)
+                ) VALUES (?, ?, ?, ?, 'action.idle', ?, '测试事件', 'routine', '{}', ?)
                 """,
-                (f"evt-{index}", world_id, f"tick-{index}", to_iso(utc_now()), to_iso(utc_now())),
+                (f"evt-{index}", world_id, f"tick-{index}", to_iso(utc_now()), player_id, to_iso(utc_now())),
             )
 
 

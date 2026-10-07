@@ -32,3 +32,20 @@ def test_start_and_stop_scripts_keep_process_scope_narrow() -> None:
     assert "StartsWith" in stop_script
     assert "world_engine.api:app" in stop_script
     assert "world_engine.worker" in stop_script
+
+
+def test_windows_tray_starts_once_and_uses_project_stop_script() -> None:
+    start_script = (PROJECT_ROOT / "scripts" / "start_world.ps1").read_text(
+        encoding="utf-8"
+    )
+    tray_script = (PROJECT_ROOT / "scripts" / "tray_world.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "tray_world.ps1" in start_script
+    assert "-WindowStyle Hidden" in start_script
+    assert "tray.pid" in start_script
+    assert "NotifyIcon" in tray_script
+    assert "停止运行" in tray_script
+    assert "stop_world.ps1" in tray_script
+    assert "Application]::ExitThread" in tray_script

@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Annotated
 
@@ -21,7 +22,7 @@ from world_engine.api_deps import require_world_time_text as _world_time
 from world_engine.domain import ClockUpdateResult, HeartbeatResult, TickResult
 from world_engine.engine import ConcurrentWorldUpdateError
 from world_engine.history import HistoryExportResult
-from world_engine.repository import WorldNotFoundError
+from world_engine.repository import WorldNotFoundError, from_iso
 
 
 class ClockUpdateRequest(BaseModel):
@@ -38,10 +39,180 @@ class AdjudicationRequest(BaseModel):
     character_ids: list[str] | None = Field(default=None, max_length=10)
 
 
+class OpportunityPublishRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issuer_id: str
+    issuer_location_id: str
+    objective_location_id: str
+    condition: dict[str, object]
+    reward_money: int = Field(ge=0)
+
+
+class IncidentSiteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: str
+    custodian_id: str
+    item_id: str
+    recipe_id: str
+    resource_keys: list[str] = Field(min_length=1, max_length=20)
+    damaged_condition: int = Field(ge=1, le=99)
+    required_condition: int = Field(ge=2, le=100)
+
+
+class IncidentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=100)
+    description: str = Field(min_length=1, max_length=2000)
+    idempotency_key: str = Field(min_length=1, max_length=100)
+    sites: list[IncidentSiteRequest] = Field(min_length=1, max_length=1000)
+
+
 def build_world_router(database, engine, repository) -> APIRouter:
     """世界的时钟、推进、事件与待办接口。"""
 
     router = APIRouter(prefix="/api/worlds/{world_id}", tags=["世界推进"])
+
+    @router.get("/incidents")
+    def list_incidents(world_id: str) -> list[dict[str, object]]:
+        from world_engine.incidents import IncidentService
+
+        with database.read() as connection:
+            _world_time(connection, world_id)
+            return IncidentService.view(connection, world_id)
+
+    @router.post("/incidents", status_code=201)
+    def create_incident(world_id: str, payload: IncidentCreateRequest) -> dict[str, str]:
+        from world_engine.incidents import IncidentService
+
+        with database.write() as connection:
+            try:
+                at = from_iso(_world_time(connection, world_id))
+                incident = IncidentService.create(
+                    connection, world_id, payload.title, payload.description,
+                    [site.model_dump() for site in payload.sites], at,
+                    idempotency_key=payload.idempotency_key,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail="世界不存在") from exc
+        return {"id": incident}
+
+    @router.get("/opportunities")
+    def list_opportunities(world_id: str) -> list[dict[str, object]]:
+        with database.read() as connection:
+            _world_time(connection, world_id)
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM npc_opportunities WHERE world_id=? "
+                "ORDER BY created_world_time DESC LIMIT 100", (world_id,),
+            )]
+
+    @router.post("/opportunities", status_code=201)
+    def publish_opportunity(world_id: str, payload: OpportunityPublishRequest) -> dict[str, str]:
+        from world_engine.opportunities import OpportunityService
+
+        with database.write() as connection:
+            try:
+                at = from_iso(_world_time(connection, world_id))
+                opportunity_id = OpportunityService.publish(
+                    connection, world_id, payload.issuer_id,
+                    payload.issuer_location_id, payload.objective_location_id,
+                    payload.condition, payload.reward_money, at,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail="世界不存在") from exc
+        return {"id": opportunity_id}
+
+    @router.get("/game-scene")
+    def game_scene(world_id: str) -> dict[str, object]:
+        from world_engine.game_scene import GameSceneService
+
+        with database.read() as connection:
+            try:
+                return GameSceneService.snapshot(connection, world_id)
+            except LookupError as exc:
+                raise HTTPException(status_code=404, detail="世界不存在") from exc
+
+    @router.get("/npc-agency/{character_id}")
+    def npc_agency(world_id: str, character_id: str) -> dict[str, object]:
+        from world_engine.npc_agency import NpcAgencyService
+
+        with database.read() as connection:
+            character = connection.execute(
+                "SELECT id,name FROM characters WHERE id=? AND world_id=? AND is_player=0",
+                (character_id, world_id),
+            ).fetchone()
+            if character is None:
+                raise HTTPException(status_code=404, detail="人物不存在")
+            goals = NpcAgencyService.view(connection, character_id)
+            for goal in goals:
+                adopted = connection.execute(
+                    "SELECT id,payload_json FROM world_events WHERE world_id=? AND actor_id=? "
+                    "AND event_type='agency.goal_adopted' "
+                    "AND json_extract(payload_json,'$.goal_id')=? LIMIT 1",
+                    (world_id, character_id, goal["id"]),
+                ).fetchone()
+                goal["adoption_event_id"] = adopted["id"] if adopted else None
+                goal["trigger_state"] = json.loads(adopted["payload_json"]).get("trigger_state", {}) if adopted else {}
+                completed = connection.execute(
+                    "SELECT id FROM world_events WHERE world_id=? AND actor_id=? "
+                    "AND event_type='agency.goal_completed' AND json_extract(payload_json,'$.goal_id')=?",
+                    (world_id, character_id, goal["id"]),
+                ).fetchone()
+                goal["completion_event_id"] = completed["id"] if completed else None
+                source = connection.execute(
+                    "SELECT summary FROM world_events WHERE id=?", (goal["source_event_id"],),
+                ).fetchone() if goal["source_event_id"] else None
+                goal["source_summary"] = source["summary"] if source else None
+                steps = [dict(row) for row in connection.execute(
+                    "SELECT * FROM npc_agency_steps WHERE goal_id=? ORDER BY world_time,id",
+                    (goal["id"],),
+                )]
+                for step in steps:
+                    step["expected"] = json.loads(step["expected_json"])
+                    step["observed"] = json.loads(step["observed_json"])
+                    event = connection.execute(
+                        "SELECT summary FROM world_events WHERE id=?", (step["event_id"],),
+                    ).fetchone()
+                    step["event_summary"] = event["summary"] if event else None
+                    step["causes"] = [dict(row) for row in connection.execute(
+                        "SELECT r.cause_event_id,r.relation,e.summary FROM event_causes r "
+                        "JOIN world_events e ON e.id=r.cause_event_id WHERE r.event_id=?",
+                        (step["event_id"],),
+                    )]
+                    effects = connection.execute(
+                        "SELECT effect_type,status,payload_json FROM action_effects "
+                        "WHERE source_event_id=?", (step["event_id"],),
+                    ).fetchall()
+                    step["effects"] = [{**dict(row), "payload": json.loads(row["payload_json"])}
+                                       for row in effects]
+                    result = connection.execute(
+                        "SELECT l.result_event_id,l.result_status,e.summary "
+                        "FROM action_execution_links l LEFT JOIN world_events e ON e.id=l.result_event_id "
+                        "WHERE l.source_event_id=? LIMIT 1", (step["event_id"],),
+                    ).fetchone()
+                    step["result_event_id"] = result["result_event_id"] if result else None
+                    step["result_summary"] = result["summary"] if result else None
+                    step["execution_status"] = (result["result_status"] or "running") if result else step["status"]
+                    step["result_causes"] = [dict(row) for row in connection.execute(
+                        "SELECT r.cause_event_id,r.relation,e.summary FROM event_causes r "
+                        "JOIN world_events e ON e.id=r.cause_event_id WHERE r.event_id=?",
+                        (step["result_event_id"],),
+                    )]
+                    step["result_effects"] = [
+                        {**dict(row), "payload": json.loads(row["payload_json"])}
+                        for row in connection.execute(
+                            "SELECT effect_type,status,payload_json FROM action_effects "
+                            "WHERE source_event_id=?", (step["result_event_id"],),
+                        )
+                    ]
+                goal["steps"] = steps
+            return {"character": dict(character), "goals": goals}
 
     @router.post(
         "/tick",

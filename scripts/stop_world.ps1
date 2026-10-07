@@ -49,7 +49,7 @@ function Stop-ProjectProcesses {
 $workerCount = Stop-ProjectProcesses "world_engine.worker" "worker"
 $apiCount = Stop-ProjectProcesses "world_engine.api:app" "API"
 
-foreach ($pidName in @("api.pid", "worker.pid")) {
+foreach ($pidName in @("api.pid", "worker.pid", "worker-debug.json")) {
     $pidPath = Join-Path $RunDirectory $pidName
     if (Test-Path -LiteralPath $pidPath) {
         Remove-Item -LiteralPath $pidPath -Force

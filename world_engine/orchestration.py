@@ -658,15 +658,25 @@ class MemoryCuratorAgent:
 
     name = AGENT_MEMORY_CURATOR
 
-    def run(self, ctx: AgentContext, *, events: list[dict[str, object]]) -> list[MemoryCandidate]:
+    def run(
+        self,
+        ctx: AgentContext,
+        *,
+        events: list[dict[str, object]],
+        max_output_tokens: int = 1200,
+    ) -> list[MemoryCandidate]:
         return _agent_run(
             ctx,
-            lambda c: self._run_llm(c, events),
+            lambda c: self._run_llm(c, events, max_output_tokens=max_output_tokens),
             lambda c: self._run_rules(c, events),
         )
 
     def _run_llm(
-        self, ctx: AgentContext, events: list[dict[str, object]]
+        self,
+        ctx: AgentContext,
+        events: list[dict[str, object]],
+        *,
+        max_output_tokens: int = 1200,
     ) -> list[MemoryCandidate]:
         schema = TypeAdapter(MemoryCandidateBatch)
         system = _agent_system(
@@ -690,8 +700,14 @@ class MemoryCuratorAgent:
             }
             for e in events[:12]
         ]
+        if not payload["events_to_curate"]:
+            return []
         completion = ctx.model_backend.complete(
-            system_prompt=system, user_payload=payload, schema=schema, label=self.name
+            system_prompt=system,
+            user_payload=payload,
+            schema=schema,
+            label=self.name,
+            max_output_tokens=max_output_tokens,
         )
         ctx.model_metrics = completion
         event_by_id = {str(e.get("id") or ""): e for e in events[:12]}

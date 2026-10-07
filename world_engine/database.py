@@ -908,8 +908,9 @@ ON character_messages(contact_id, world_time, created_at);
 class Database:
     """负责SQLite连接、WAL设置与显式写事务。"""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, legacy_world_defaults: bool = True) -> None:
         self.path = path
+        self.legacy_world_defaults = legacy_world_defaults
 
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -935,7 +936,7 @@ class Database:
             migrations.migrate_skills_column(connection)
             migrations.migrate_spatial_columns(connection)
             migrations.migrate_movement_columns(connection)
-            migrations.migrate_area_and_activation_columns(connection)
+            migrations.migrate_area_and_activation_columns(connection, legacy_world_defaults=self.legacy_world_defaults)
             migrations.migrate_event_importance(connection)
             migrations.migrate_navigation_columns(connection)
             migrations.migrate_registration_columns(connection)
@@ -955,6 +956,35 @@ class Database:
             connection.executescript(world_schema.SCHEDULE_SCHEMA)
             connection.executescript(world_schema.ROUTINE_SCHEMA)
             connection.executescript(world_schema.GOAL_SCHEMA)
+            connection.executescript(world_schema.AGENCY_SCHEMA)
+            from world_engine.incident_schema import INCIDENT_SCHEMA
+
+            connection.executescript(INCIDENT_SCHEMA)
+            from world_engine.cooperation_schema import COOPERATION_SCHEMA
+
+            connection.executescript(COOPERATION_SCHEMA)
+            from world_engine.research_schema import install_research_schema
+
+            install_research_schema(connection)
+            from world_engine.material_schema import install_material_schema
+
+            install_material_schema(connection)
+            from world_engine.collective_schema import install_collective_schema
+
+            install_collective_schema(connection)
+            from world_engine.collective_region_schema import install_region_schema
+
+            install_region_schema(connection)
+            from world_engine.science_schema import install_science_schema
+
+            install_science_schema(connection)
+            steering_columns = {row["name"] for row in connection.execute(
+                "PRAGMA table_info(player_steering)")}
+            for column in ("advanced_world", "expires_world", "expires_real", "started_state_json"):
+                if column not in steering_columns:
+                    connection.execute(f"ALTER TABLE player_steering ADD COLUMN {column} TEXT")
+            # 旧版方向输入依附于目标行程，不能恢复成无限方向控制。
+            connection.execute("UPDATE player_steering SET dx=0,dy=0 WHERE advanced_world IS NULL")
             connection.executescript(world_schema.EVENT_HISTORY_SCHEMA)
             connection.executescript(world_schema.EPISTEMIC_SCHEMA)
             connection.executescript(world_schema.CHARACTER_GROWTH_SCHEMA)
@@ -983,19 +1013,25 @@ class Database:
                 "ON characters(current_fixture_id) "
                 "WHERE current_fixture_id IS NOT NULL"
             )
+            from world_engine.wonder_schema import initialize as initialize_wonders
+            initialize_wonders(connection)
             migrations.remove_legacy_player_controlled_social_records(connection)
-            migrations.ensure_default_species_profiles(connection)
+            if self.legacy_world_defaults:
+                migrations.ensure_default_species_profiles(connection)
             migrations.ensure_npc_demographics(connection)
-            migrations.ensure_known_map_features(connection)
-            migrations.ensure_default_world_maps(connection)
-            migrations.ensure_noryia_city_detail_maps(connection)
-            migrations.ensure_noryia_display_names(connection)
-            migrations.ensure_detail_world_maps(connection)
+            if self.legacy_world_defaults:
+                migrations.ensure_known_map_features(connection)
+                migrations.ensure_default_world_maps(connection)
+                migrations.ensure_noryia_city_detail_maps(connection)
+                migrations.ensure_noryia_display_names(connection)
+                migrations.ensure_detail_world_maps(connection)
             migrations.ensure_clock_and_accumulator_rows(connection)
             migrations.repair_time_only_timestamps(connection)
             self._synchronize_world_element_catalog(connection)
             from world_engine.society import SocietyService
             SocietyService.bootstrap(connection)
+            from world_engine.epistemics import KnowledgeService
+            KnowledgeService.backfill_final_reply_names(connection)
             from world_engine.character_growth import CharacterGrowthService
             from world_engine.event_history import EventHistoryService
             EventHistoryService.bootstrap(connection)

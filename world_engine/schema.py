@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS character_life_activities (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('rest','wait','work','craft','repair','map_review')),
+    kind TEXT NOT NULL CHECK(kind IN ('rest','wait','work','craft','repair','map_review','research')),
     status TEXT NOT NULL CHECK(status IN ('running','completed','cancelled','interrupted')),
     location_id TEXT REFERENCES locations(id) ON DELETE SET NULL,
     longitude REAL NOT NULL,
@@ -284,6 +284,86 @@ CREATE TABLE IF NOT EXISTS npc_goal_steps (
  summary TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_npc_life_goals_actor ON npc_life_goals(character_id,status);
+"""
+
+
+AGENCY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS npc_agency_goals (
+ id TEXT PRIMARY KEY,
+ world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+ character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL,
+ predicate_json TEXT NOT NULL,
+ motive TEXT NOT NULL,
+ source_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+ status TEXT NOT NULL DEFAULT 'active'
+  CHECK(status IN ('waiting','active','blocked','paused','completed','failed','cancelled')),
+ priority INTEGER NOT NULL DEFAULT 5,
+ next_step_json TEXT NOT NULL DEFAULT '{}',
+ retry_world_time TEXT,
+ created_world_time TEXT NOT NULL,
+ updated_world_time TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_npc_agency_active_goal
+ON npc_agency_goals(world_id,character_id,kind,predicate_json)
+WHERE status IN ('waiting','active','blocked','paused');
+CREATE TABLE IF NOT EXISTS npc_agency_steps (
+ id TEXT PRIMARY KEY,
+ goal_id TEXT NOT NULL REFERENCES npc_agency_goals(id) ON DELETE CASCADE,
+ world_time TEXT NOT NULL,
+ action_type TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('proposed','accepted','rejected','completed')),
+ event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+ cause_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+ expected_json TEXT NOT NULL DEFAULT '{}',
+ observed_json TEXT NOT NULL DEFAULT '{}',
+ reason TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_npc_agency_steps_goal_time
+ON npc_agency_steps(goal_id,world_time);
+CREATE TABLE IF NOT EXISTS action_execution_links (
+ execution_kind TEXT NOT NULL CHECK(execution_kind IN ('movement','activity')),
+ execution_id TEXT NOT NULL,
+ world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+ character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+ action_type TEXT NOT NULL,
+ source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE CASCADE,
+ goal_id TEXT REFERENCES npc_agency_goals(id) ON DELETE SET NULL,
+ initial_json TEXT NOT NULL,
+ result_event_id TEXT REFERENCES world_events(id) ON DELETE SET NULL,
+ result_status TEXT,
+ PRIMARY KEY(execution_kind,execution_id)
+);
+CREATE INDEX IF NOT EXISTS idx_action_execution_source
+ON action_execution_links(source_event_id);
+CREATE TABLE IF NOT EXISTS player_steering (
+ world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+ character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+ sequence INTEGER NOT NULL,
+ dx REAL NOT NULL,
+ dy REAL NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS npc_opportunities (
+ id TEXT PRIMARY KEY,
+ world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+ issuer_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+ issuer_location_id TEXT NOT NULL REFERENCES locations(id),
+ objective_location_id TEXT NOT NULL REFERENCES locations(id),
+ condition_json TEXT NOT NULL,
+ reward_money INTEGER NOT NULL CHECK(reward_money>=0),
+ status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','accepted','completed','cancelled')),
+ accepted_by TEXT REFERENCES characters(id),
+ accepted_world_time TEXT,
+ accept_event_id TEXT REFERENCES world_events(id),
+ source_event_id TEXT NOT NULL REFERENCES world_events(id),
+ payout_event_id TEXT REFERENCES world_events(id),
+ created_world_time TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_npc_opportunities_world_status
+ON npc_opportunities(world_id,status);
+CREATE INDEX IF NOT EXISTS idx_characters_agency_scene
+ON characters(world_id,current_location_id,is_player);
 """
 
 
@@ -413,6 +493,8 @@ CREATE TABLE IF NOT EXISTS npc_outreach_jobs (
  UNIQUE(world_id,npc_id,player_id,world_day)
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_observer ON character_event_knowledge(world_id,character_id,learned_world_time);
+CREATE INDEX IF NOT EXISTS idx_knowledge_event_time ON character_event_knowledge(event_id,learned_world_time);
+CREATE INDEX IF NOT EXISTS idx_events_importance_time ON world_events(world_id,importance,occurred_at);
 CREATE INDEX IF NOT EXISTS idx_outreach_jobs_world_status ON npc_outreach_jobs(world_id,status,world_day);
 CREATE INDEX IF NOT EXISTS idx_player_notifications_inbox ON player_notifications(world_id,recipient_id,created_at DESC);
 """

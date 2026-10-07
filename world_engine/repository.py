@@ -61,10 +61,12 @@ class WorldRepository:
         time_scale: float = 1.0,
         adjudication_interval_minutes: int = 720,
         seed_demo: bool = True,
+        seed_maps: bool = True,
+        start_time: datetime | None = None,
     ) -> str:
         world_id = str(uuid4())
         now = utc_now()
-        world_time = datetime(2040, 4, 1, 8, 0, tzinfo=UTC)
+        world_time = start_time or datetime(2040, 4, 1, 8, 0, tzinfo=UTC)
         connection.execute(
             """
             INSERT INTO worlds(
@@ -107,7 +109,8 @@ class WorldRepository:
         )
         if seed_demo:
             self._seed_demo(connection, world_id, now)
-        self._seed_world_maps(connection, world_id)
+        if seed_maps:
+            self._seed_world_maps(connection, world_id)
         connection.execute(
             """
             INSERT OR IGNORE INTO character_state_accumulators(
@@ -289,12 +292,13 @@ class WorldRepository:
         location_id: str,
         traits: list[str],
         goal: str,
+        player_defaults: dict | None = None,
     ) -> CharacterState:
         """创建由用户控制的唯一玩家人物，并将其设为世界主视角。"""
         self._ensure_world(connection, world_id)
         location = connection.execute(
             """
-            SELECT id, longitude, latitude FROM locations
+            SELECT id, longitude, latitude, space_layer, altitude_m FROM locations
             WHERE id = ? AND world_id = ? AND is_active = 1
             """,
             (location_id, world_id),
@@ -314,6 +318,10 @@ class WorldRepository:
         clean_identity = identity.strip() or "旅人"
         clean_traits = [item.strip() for item in traits if item.strip()][:5]
         clean_goals = [goal.strip()] if goal.strip() else []
+        starter = player_defaults or {}
+        starter_money = starter.get("money", 30)
+        starter_species = starter.get("species", "human")
+        starter_skills = starter.get("skills", ["剑术"])
         connection.execute(
             "UPDATE characters SET is_pov = 0 WHERE world_id = ?",
             (world_id,),
@@ -321,19 +329,21 @@ class WorldRepository:
         connection.execute(
             """
             INSERT INTO characters(
-                id, world_id, name, location_id, energy, satiety, money, health,
+                id, world_id, name, species, location_id, energy, satiety, money, health,
                 traits_json, goals_json, identity, is_player, is_pov, is_core,
                 longitude, latitude, current_location_id,
                 activation_state, activation_policy, activation_reason,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 100, 100, 30, 100, ?, ?, ?, 1, 1, 0,
+            ) VALUES (?, ?, ?, ?, ?, 100, 100, ?, 100, ?, ?, ?, 1, 1, 0,
                       ?, ?, ?, 'active', 'persistent', 'player', ?, ?)
             """,
             (
                 character_id,
                 world_id,
                 clean_name,
+                starter_species,
                 location_id,
+                starter_money,
                 json.dumps(clean_traits, ensure_ascii=False),
                 json.dumps(clean_goals, ensure_ascii=False),
                 clean_identity,
@@ -352,41 +362,32 @@ class WorldRepository:
             """,
             (character_id, world_id, to_iso(now)),
         )
-        # 初始技能与随身物品：玩家自带"剑术"，装备一把铁剑，背包两剂疗伤药。
+        connection.execute("UPDATE characters SET space_layer=?,altitude_m=? WHERE id=?",
+                           (location["space_layer"],location["altitude_m"],character_id))
+        # 哥哥的世界包可以指定初始技能和物品；旧入口沿用原来的开局装备。
         connection.execute(
             "UPDATE characters SET skills_json = ? WHERE id = ?",
-            (json.dumps(["剑术"], ensure_ascii=False), character_id),
+            (json.dumps(starter_skills, ensure_ascii=False), character_id),
         )
-        for type_id, name, category, stack, usable, attack, defense, heal in (
-            ("iron_sword", "铁剑", "weapon", 1, 0, 8, 0, 0),
-            ("healing_potion", "疗伤药", "consumable", 3, 1, 0, 0, 30),
-            ("wooden_charm", "硬木护符", "charm", 1, 0, 0, 4, 0),
-        ):
+        default_items = [
+            {"type_id": "iron_sword", "name": "铁剑", "category": "weapon", "quantity": 1, "container": "character_equipment", "attack_bonus": 8},
+            {"type_id": "healing_potion", "name": "疗伤药", "category": "consumable", "quantity": 2, "container": "character_inventory", "stack_limit": 3, "usable": True, "heal": 30},
+            {"type_id": "wooden_charm", "name": "硬木护符", "category": "charm", "quantity": 0, "container": "character_inventory", "defense_bonus": 4},
+        ]
+        for item in starter.get("items", default_items):
             connection.execute(
                 """
                 INSERT OR IGNORE INTO item_types(
                     id, name, category, stack_limit, usable, attack_bonus, defense_bonus, heal
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (type_id, name, category, stack, usable, attack, defense, heal),
+                (item["type_id"], item["name"], item["category"], item.get("stack_limit", 1), int(bool(item.get("usable", False))), item.get("attack_bonus", 0), item.get("defense_bonus", 0), item.get("heal", 0)),
             )
-        connection.execute(
-            """
-            INSERT INTO item_instances(
-                id, world_id, item_type_id, container_id, container_type, quantity, condition
-            ) VALUES (?, ?, ?, ?, 'character_equipment', 1, 100)
-            """,
-            (str(uuid4()), world_id, "iron_sword", character_id),
-        )
-        for _ in range(2):
-            connection.execute(
-                """
-                INSERT INTO item_instances(
-                    id, world_id, item_type_id, container_id, container_type, quantity, condition
-                ) VALUES (?, ?, ?, ?, 'character_inventory', 1, 100)
-                """,
-                (str(uuid4()), world_id, "healing_potion", character_id),
-            )
+            for _ in range(item.get("quantity", 0)):
+                connection.execute(
+                    "INSERT INTO item_instances(id, world_id, item_type_id, container_id, container_type, quantity, condition) VALUES (?, ?, ?, ?, ?, 1, 100)",
+                    (str(uuid4()), world_id, item["type_id"], character_id, item.get("container", "character_inventory")),
+                )
         row = connection.execute(
             "SELECT * FROM characters WHERE id = ?",
             (character_id,),
@@ -456,7 +457,11 @@ class WorldRepository:
                 SELECT media_path FROM character_portraits p
                 WHERE p.world_id = c.world_id AND p.character_id = c.id AND p.is_active = 1
                 ORDER BY p.created_at DESC LIMIT 1
-            ) AS portrait_media_path
+            ) AS portrait_media_path, (
+                SELECT json_extract(card_json, '$.sillytavern_card.avatar_media_path')
+                FROM npc_character_cards card
+                WHERE card.world_id = c.world_id AND card.character_id = c.id
+            ) AS card_avatar_media_path
             FROM characters c
             WHERE c.world_id = ? AND (c.health > 0 OR c.is_player = 1)
             ORDER BY c.is_core DESC, c.name
@@ -834,6 +839,8 @@ class WorldRepository:
             world_id=row["world_id"],
             name=row["name"],
             kind=row["kind"],
+            space_layer=row["space_layer"] if "space_layer" in row.keys() else "ground",
+            altitude_m=row["altitude_m"] if "altitude_m" in row.keys() else 0,
             resources=json.loads(row["resources_json"]),
             longitude=row["longitude"],
             latitude=row["latitude"],
@@ -915,10 +922,17 @@ class WorldRepository:
             if "birth_world_time" in row.keys() and row["birth_world_time"]
             else None
         )
+        card_avatar_path = (
+            row["card_avatar_media_path"] if "card_avatar_media_path" in row.keys() else None
+        )
+        portrait_path = row["portrait_media_path"] if "portrait_media_path" in row.keys() else None
+        avatar_path = card_avatar_path or portrait_path
         return CharacterState(
             id=row["id"],
             world_id=row["world_id"],
             name=row["name"],
+            space_layer=row["space_layer"] if "space_layer" in row.keys() else "ground",
+            altitude_m=row["altitude_m"] if "altitude_m" in row.keys() else 0,
             location_id=row["location_id"],
             current_room_id=row["current_room_id"] if "current_room_id" in row.keys() else None,
             current_fixture_id=(
@@ -980,11 +994,7 @@ class WorldRepository:
             gender=row["gender"] if "gender" in row.keys() else None,
             birth_world_time=birth_world_time,
             age_years=age_years_at(birth_world_time, world_time) if world_time else None,
-            portrait_url=(
-                f"/world-media/{row['portrait_media_path']}"
-                if "portrait_media_path" in row.keys() and row["portrait_media_path"]
-                else None
-            ),
+            portrait_url=f"/world-media/{avatar_path}" if avatar_path else None,
             is_player=(bool(row["is_player"]) if "is_player" in row.keys() else False),
             is_pov=bool(row["is_pov"]) if "is_pov" in row.keys() else False,
             is_core=bool(row["is_core"]),

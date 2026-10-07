@@ -1,12 +1,101 @@
 from __future__ import annotations
 
+import time
 from dataclasses import replace
+from threading import Event
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from world_engine.api import create_app
 from world_engine.database import Database
+
+
+def test_player_action_api_returns_before_npc_and_polls_reply(settings, monkeypatch) -> None:
+    from world_engine.decisions import NpcReply, RuleDecisionProvider
+
+    release = Event()
+    entered = Event()
+
+    class SlowNpc(RuleDecisionProvider):
+        def respond_to_player(self, *, npc, player, context):
+            entered.set()
+            assert release.wait(5)
+            return NpcReply(reply="路已记好。", social_move="answer")
+
+    monkeypatch.setattr("world_engine.engine.build_decision_provider", lambda _: SlowNpc())
+    try:
+        with TestClient(create_app(settings)) as client:
+            created = client.post("/api/worlds", json={"name": "异步回应接口"}).json()
+            world_id = created["world"]["id"]
+            npc = created["characters"][0]
+            player_response = client.post(
+                f"/api/worlds/{world_id}/player",
+                json={"name": "旅人", "identity": "测试", "location_id": npc["location_id"]},
+            )
+            player = next(
+                item for item in player_response.json()["characters"] if item["is_player"]
+            )
+            db = Database(settings.database_path)
+            with db.write() as connection:
+                connection.execute(
+                    "UPDATE characters SET longitude=?,latitude=? WHERE id=?",
+                    (player["longitude"], player["latitude"], npc["id"]),
+                )
+            started = time.monotonic()
+            response = client.post(
+                f"/api/worlds/{world_id}/player/act",
+                json={"intent": "记录道路", "target_character_id": npc["id"]},
+            )
+            assert response.status_code == 201, response.text
+            assert time.monotonic() - started < 1.0
+            result = response.json()
+            assert result["npc_reply_pending"]
+            event_id = result["outcome"]["event_id"]
+            assert entered.wait(3)
+            status_url = f"/api/worlds/{world_id}/player/actions/{event_id}/reaction"
+            assert client.get(status_url).json()["status"] == "pending"
+            release.set()
+            for _ in range(100):
+                reaction = client.get(status_url).json()
+                if reaction["status"] != "pending":
+                    break
+                time.sleep(0.05)
+            assert reaction["status"] == "ready"
+            assert reaction["reply"] == "路已记好。"
+    finally:
+        release.set()
+
+
+def test_player_act_retries_version_race_before_action_commit(settings, monkeypatch) -> None:
+    from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
+
+    original = WorldEngine.submit_player_intent
+    calls = 0
+
+    def transient_conflict(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConcurrentWorldUpdateError("模型生成期间世界版本变化")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(WorldEngine, "submit_player_intent", transient_conflict)
+    with TestClient(create_app(settings)) as client:
+        created = client.post("/api/worlds", json={"name": "版本竞争测试"}).json()
+        world_id = created["world"]["id"]
+        location_id = created["locations"][0]["id"]
+        assert client.post(
+            f"/api/worlds/{world_id}/player",
+            json={"name": "旅人", "identity": "测试", "location_id": location_id},
+        ).status_code == 201
+        response = client.post(
+            f"/api/worlds/{world_id}/player/act", json={"intent": "动作：休息"}
+        )
+        assert response.status_code == 201, response.text
+        assert calls == 2
+        events = client.get(f"/api/worlds/{world_id}/events?limit=50").json()
+        assert sum(event["event_type"] == "action.rest" for event in events) == 1
 
 
 class _FakeNpcModelBackend:
@@ -114,8 +203,8 @@ def test_cross_channel_npc_replies_share_dialogue_context(
         assert context["npc_card"]["speech_style"]
         assert context["scene"]["location"]["id"] == npc["location_id"]
         assert context["budget_trace"]["total"] <= context["budget_trace"]["limit"]
-        assert any("确认前" in item["content"] for item in context["knowledge_context"])
     letter_context = contexts[1]
+    assert any("确认前" in item["content"] for item in letter_context["knowledge_context"])
     assert letter_context["recent_conversation"]
     assert "recent_letters" not in letter_context["decision"]
 
@@ -325,12 +414,14 @@ def test_frontend_assets_are_served_by_fastapi(settings) -> None:
         styles = client.get("/ui/styles.css")
         script = client.get("/ui/app.js")
         favicon = client.get("/ui/favicon.svg")
+        avatar = client.get("/ui/assets/avatar-1.svg")
         world_map = client.get("/world-assets/planet-master.png")
 
     assert root.status_code == 307
     assert root.headers["location"] == "/ui/"
     assert page.status_code == 200
-    assert "伊瑟拉 · 旅人之书" in page.text
+    assert "<title>旅人之书</title>" in page.text
+    assert 'id="setup-world-heading"' in page.text
     assert 'id="player-name"' in page.text
     assert 'id="player-create-form"' in page.text
     assert 'id="player-intent-form"' in page.text
@@ -349,6 +440,7 @@ def test_frontend_assets_are_served_by_fastapi(settings) -> None:
     assert 'id="character-grid"' in page.text
     assert 'id="worker-status"' in page.text
     assert styles.status_code == 200
+    assert avatar.status_code == 200
     assert "--copper-bright" in styles.text
     assert "[hidden]" in styles.text
     assert script.status_code == 200
@@ -369,8 +461,9 @@ def test_frontend_assets_are_served_by_fastapi(settings) -> None:
     assert "function eventDetailText" in script.text
     assert "${speaker}说：“${payload.dialogue}”" in script.text
     assert "正在确认抵达" in script.text
-    assert "let shouldExecute = false" in script.text
-    assert "if (shouldExecute) executePlayerIntent(intent, directTargetId);" in script.text
+    assert 'id="response-progress"' in page.text
+    assert "beginResponse(" in script.text
+    assert "executePlayerIntent(intent, directTargetId, true)" in script.text
     assert "mapContainsForDetailActivation(map, coordinate, nextScale)" in script.text
     assert "resolveZoomDetailMap(nextScale, focusCoordinate, { x: rect.left + focusX" in script.text
     assert "DETAIL_MAP_MIN_SCALE = 16" in script.text
