@@ -168,8 +168,8 @@ class EventHistoryService:
             if observer_id:
                 from world_engine.society import SocietyService
 
-                item["summary"] = SocietyService.mask_text(
-                    c, profile["world_id"], observer_id, item["summary"]
+                item["summary"] = SocietyService.event_summary(
+                    c, profile["world_id"], observer_id, item["cause_event_id"], item["summary"]
                 )
             causes.append(item)
         return {

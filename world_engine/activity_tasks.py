@@ -48,6 +48,42 @@ class ActivityRecipeSpec(BaseModel):
 
 class TaskService:
     @staticmethod
+    def start_personal_work(connection, actor, at, description, *, technology_ids=None,
+                            application_skill=None, application_reference=None):
+        """哥哥，自用劳动没有虚构雇主工资，仍实际占用身体、时间和精力。"""
+        from world_engine.principle_effects import adjust_task, record_task
+
+        if actor["energy"] < 20 or actor["health"] <= 0:
+            raise LifeActivityError("当前身体不适合持续劳动")
+        spec = adjust_task(connection, actor, {
+            "name": description, "kind": "work", "duration_minutes": 60,
+            "energy_cost": 16, "satiety_cost": 8, "payment": 0,
+            "ingredients": [], "reserved_items": [], "reserved_tools": [],
+            "application_skill": application_skill,
+            "principle_application": application_reference,
+        }, at, technology_ids)
+        from world_engine.materials import material_transaction
+
+        with material_transaction(connection):
+            if application_reference:
+                from world_engine.magic_research import seal_application
+
+                rule_binding = seal_application(connection, actor, application_reference, at)
+                if rule_binding:
+                    spec["phenomenon_rule_id"] = rule_binding["rule_id"]
+                    spec["phenomenon_rule_version"] = rule_binding["version"]
+            aid = LifeActivityService.start(connection, actor, at, "work", spec["duration_minutes"])
+            before = InventoryService.snapshot(connection, actor["world_id"])
+            connection.execute(
+                "INSERT INTO activity_task_details(activity_id,room_id,spec_json,before_json) "
+                "VALUES (?,?,?,?)",
+                (aid, actor["current_room_id"], json.dumps(spec, ensure_ascii=False),
+                 json.dumps(before, ensure_ascii=False)),
+            )
+            record_task(connection, actor["id"], spec, aid, at)
+        return aid
+
+    @staticmethod
     def view(connection, row, at):
         result = LifeActivityService.view(row, at)
         detail = connection.execute(
@@ -67,6 +103,8 @@ class TaskService:
                     "check_tool_item_id",
                     "check_attempt_id",
                     "reserved_tools",
+                    "phenomenon_rule_id",
+                    "phenomenon_rule_version",
                 }
             }
             result["result"] = json.loads(detail["result_json"])
@@ -238,11 +276,18 @@ class TaskService:
                 if account["balance"]<account["wage"]:raise LifeActivityError("工作场所当前没有足够工资预算")
                 spec["payment"]=account["wage"]
                 spec["wage_account_id"]=location["id"]
+        from world_engine.principle_effects import adjust_task
+
+        spec = adjust_task(connection, actor, spec, at)
         if actor["energy"] < max(20 if spec["kind"] == "work" else 1, spec["energy_cost"]):
             raise LifeActivityError("精力不足以开始这项活动")
         if not actor["is_player"]:
             from world_engine.schedules import ScheduleService
             remaining = ScheduleService.planned_minutes(ScheduleService.assess(connection,actor,at),at)
+            from world_engine.overnight import OvernightService
+            night_remaining = OvernightService.planned_minutes(connection, actor, at)
+            if night_remaining is not None:
+                remaining = night_remaining if remaining is None else min(remaining, night_remaining)
             if remaining is not None and spec["duration_minutes"] > remaining:
                 raise LifeActivityError("这项活动会占用已确认约定的赴约时间")
         target = None
@@ -373,6 +418,9 @@ class TaskService:
                     json.dumps(before, ensure_ascii=False),
                 ),
             )
+            from world_engine.principle_effects import record_task
+
+            record_task(connection, actor["id"], spec, aid, at)
             connection.execute("RELEASE SAVEPOINT start_task")
             return aid, spec["name"], spec["duration_minutes"]
         except Exception:

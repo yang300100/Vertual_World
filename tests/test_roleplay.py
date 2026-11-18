@@ -164,9 +164,9 @@ def test_agent_backend_sends_roleplay_messages_and_respects_output_limit(setting
         )
     assert result.data.reply == "本轮回复"
     assert requests[0]["max_tokens"] == 900
-    # 刻意不发 response_format：带推理的模型在 json_object 模式下会概率性把正文吐成
-    # 空白（finish_reason 仍是 stop、token 远未用尽），台词改由宽容解析保住。
-    assert "response_format" not in requests[0]
+    assert requests[0]["thinking"] == {"type":"disabled"}
+    # 哥哥，普通扮演同时关闭推理并约束 JSON，不能把意愿字段丢在裸台词里。
+    assert requests[0]["response_format"] == {"type":"json_object"}
     assert requests[0]["messages"][3]["role"] == "assistant"
     assert requests[0]["messages"][-1]["content"].endswith("玩家输入原文：\n继续")
 
@@ -207,3 +207,19 @@ def test_npc_reply_salvage_uses_final_json_stage_direction() -> None:
 def test_npc_reply_salvage_rejects_unparseable_structure() -> None:
     with pytest.raises(ValueError, match="结构化内容"):
         salvage_npc_reply('reply: "草稿"\nstage_direction: "草稿动作"', TypeAdapter(NpcReply))
+
+
+def test_relationship_history_budget_keeps_room_consent_and_relevant_memory():
+    from world_engine.roleplay_pipeline import build_npc_prompt
+
+    current={"id":"current","status":"accepted","room_id":"rented_room","visit_host_id":"player","journey_id":"journey"}
+    memory={"event_id":"latest_real_event","summary":"双方刚刚实际完成了共同旅行。"}
+    older={"event_id":"older_real_event","summary":"较早相处的完整原话。"*2000}
+    context={"npc":{"name":"林澈"},"player_text":"你愿意在这次约定里休息吗？","intimacy":{"appointments":{"arrangements":[current]},"lasting_memories":[memory,older],"shared_experiences":[memory,older]}}
+    prompt=build_npc_prompt("保留本人同意、房间许可和知识边界。",context,max_input_tokens=1400)
+    sent=json.loads(prompt.messages[1]["content"])["intimacy"]
+    assert prompt.input_tokens<=1400
+    assert sent["appointments"]["arrangements"][0]==current
+    assert sent["lasting_memories"][0]==memory
+    assert not prompt.trace["intimacy.lasting_memories:1"]["included"]
+    assert context["intimacy"]["lasting_memories"][1]["summary"]==older["summary"]

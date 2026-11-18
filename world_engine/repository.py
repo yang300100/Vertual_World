@@ -931,6 +931,7 @@ class WorldRepository:
             id=row["id"],
             world_id=row["world_id"],
             name=row["name"],
+            species=row['species'] if 'species' in row.keys() else 'human',
             space_layer=row["space_layer"] if "space_layer" in row.keys() else "ground",
             altitude_m=row["altitude_m"] if "altitude_m" in row.keys() else 0,
             location_id=row["location_id"],

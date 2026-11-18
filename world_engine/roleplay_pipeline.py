@@ -15,7 +15,7 @@ from world_engine.dialogue_relevance import (
     compact_dialogue_item,
     natural_text,
 )
-from world_engine.roleplay import conversation_exchanges
+from world_engine.roleplay import conversation_exchanges, scoped_npc_protocols
 
 _TURN = re.compile(r"^\[([^\]\r\n]+)\] (玩家行动|玩家|NPC)：([\s\S]*)$")
 _CJK = re.compile(r"[㐀-䶿一-鿿]")
@@ -127,9 +127,206 @@ def build_npc_prompt(
 ) -> NpcPrompt:
     """先保留规则/身份/本轮输入，再按最新完整对话、资料、示例填满预算。"""
     background = dict(context)
+    continuity_extra = []
+    past_moments = []
+    relationship_history = {}
+    relationship_history_start = {}
+    previous_arrangements = {}
+    extra_stay_rooms = []
+    extra_lodging_rooms = []
+    intimacy = background.get("intimacy")
+    if isinstance(intimacy, dict):
+        intimacy = dict(intimacy)
+        # 哥哥，当前所有承诺完整固定；订房前也把已终结的旧安排按历史预算补回。
+        terminal = {
+            "completed",
+            "declined",
+            "cancelled",
+            "expired",
+            "missed",
+            "interrupted",
+            "ended",
+        }
+        for key in ("rides", "journeys", "group_journeys", "overnights", "shared_plans", "separate_stays", "lodging_plans"):
+            items = intimacy.get(key)
+            if isinstance(items, list):
+                # 哥哥，分房已休息完仍可能待会合，当前义务不能当历史挤掉。
+                def finished(item, arrangement_kind=key):
+                    return (
+                        isinstance(item, dict)
+                        and item.get("status") in terminal
+                        and not (
+                            arrangement_kind == "separate_stays"
+                            and (
+                                item.get("reunion_status") == "waiting"
+                                or item.get("can_end_reunion_wait")
+                            )
+                        )
+                    )
+
+                intimacy[key] = [
+                    item
+                    for item in items
+                    if not finished(item)
+                ]
+                previous_arrangements[key] = [
+                    item
+                    for item in items
+                    if finished(item)
+                ]
+        appointments = intimacy.get("appointments")
+        if isinstance(appointments, dict) and isinstance(appointments.get("arrangements"), list):
+            appointments = dict(appointments)
+            items = appointments["arrangements"]
+            appointments["arrangements"] = [
+                item
+                for item in items
+                if not isinstance(item, dict) or item.get("status") not in terminal
+            ]
+            previous_arrangements["appointments"] = [
+                item for item in items if isinstance(item, dict) and item.get("status") in terminal
+            ]
+            rooms = appointments.get("room_options")
+            if isinstance(rooms, list):
+                # 哥哥，当前室内约定所需房选保留；其他房选按预算补入，不重复挤占订房的两房。
+                current_rooms = {
+                    str(item["room_id"])
+                    for source in (
+                        appointments["arrangements"],
+                        intimacy.get("overnights", []),
+                        intimacy.get("shared_plans", []),
+                    )
+                    for item in source
+                    if isinstance(item, dict) and item.get("room_id")
+                }
+                player_text = str(background.get("player_text") or "")
+                selected = [
+                    room for room in rooms
+                    if isinstance(room, dict)
+                    and (
+                        str(room.get("id")) in current_rooms
+                        or bool(room.get("name")) and str(room["name"]) in player_text
+                    )
+                ]
+                appointments["room_options"] = selected
+                previous_arrangements["appointment_room_options"] = [room for room in rooms if room not in selected]
+            intimacy["appointments"] = appointments
+        rooms = intimacy.get("separate_stay_rooms")
+        if isinstance(rooms, list):
+            current_rooms = {
+                str(item.get(key))
+                for item in intimacy.get("separate_stays", [])
+                if isinstance(item, dict)
+                for key in ("own_room_id", "other_room_id", "proposer_room_id", "recipient_room_id")
+                if item.get(key)
+            }
+            player_text = str(background.get("player_text") or "")
+            selected = [
+                room
+                for room in rooms
+                if isinstance(room, dict)
+                and (
+                    str(room.get("id")) in current_rooms
+                    or bool(room.get("name"))
+                    and str(room["name"]) in player_text
+                )
+            ]
+            intimacy["separate_stay_rooms"] = selected
+            extra_stay_rooms = [room for room in rooms if room not in selected]
+        rooms = intimacy.get("lodging_room_options")
+        if isinstance(rooms, list):
+            # 哥哥，已约定的两房及双方预算一直保留，其他已知房选按剩余预算补入。
+            current_rooms = {
+                str(role.get("room_id"))
+                for item in intimacy.get("lodging_plans", [])
+                if isinstance(item, dict)
+                for role in item.get("roles", [])
+                if isinstance(role, dict) and role.get("room_id")
+            }
+            for item in intimacy.get("lodging_plans", []):
+                if isinstance(item, dict):
+                    current_rooms.update(
+                        str(item[key])
+                        for key in ("own_room_id", "other_room_id")
+                        if item.get(key)
+                    )
+            player_text = str(background.get("player_text") or "")
+            selected = [
+                room for room in rooms
+                if isinstance(room, dict)
+                and (
+                    str(room.get("id")) in current_rooms
+                    or bool(room.get("name")) and str(room["name"]) in player_text
+                )
+            ]
+            intimacy["lodging_room_options"] = selected
+            extra_lodging_rooms = [room for room in rooms if room not in selected]
+        background["intimacy"] = intimacy
+    if isinstance(intimacy, dict) and isinstance(intimacy.get("ongoing_considerations"), list):
+        intimacy = dict(intimacy)
+        matters = intimacy["ongoing_considerations"]
+        # 哥哥，当前最重要的一项固定保留，其余事项按真实预算进入，避免长记忆挤爆本轮提示。
+        intimacy["ongoing_considerations"] = matters[:1]
+        continuity_extra = matters[1:]
+        background["intimacy"] = intimacy
+    if isinstance(intimacy, dict):
+        intimacy = dict(intimacy)
+        # 哥哥，当前约定与最相关往事固定保留，其余完整历史按预算补入，不改原始记忆。
+        for key in ("lasting_memories", "shared_experiences"):
+            value = intimacy.get(key)
+            if isinstance(value, list):
+                active_group = any(isinstance(group, dict) and group.get("status") in {
+                    "pending", "accepted", "active", "paused", "resume_pending",
+                } for group in intimacy.get("group_journeys", []))
+                active_ride = any(isinstance(ride, dict) and ride.get("status") in {
+                    "pending", "accepted", "boarding", "moving", "arrived", "blocked",
+                } for ride in intimacy.get("rides", []))
+                first = 0 if key == "shared_experiences" and (active_group or active_ride) else 1
+                # 哥哥，当前多人条款完整保留；旧交谈重述作为历史选入，不重复挤掉成员当前状态。
+                intimacy[key] = value[:first]
+                relationship_history[key] = value[first:]
+                relationship_history_start[key] = first
+        background["intimacy"] = intimacy
+    if isinstance(intimacy, dict) and isinstance(intimacy.get("shared_moments"), list):
+        intimacy = dict(intimacy)
+        moments = intimacy["shared_moments"]
+        live = [
+            m for m in moments if isinstance(m, dict) and m.get("status") in {"pending", "active"}
+        ]
+        past_moments = [
+            m
+            for m in moments
+            if isinstance(m, dict) and m.get("status") not in {"pending", "active"}
+        ]
+        # 哥哥，保留眼前邀请和最近完成事实，旧活动原话按预算补入，原始记录不改写。
+        latest = [
+            {
+                k: v
+                for k, v in m.items()
+                if k
+                in {
+                    "id",
+                    "kind",
+                    "status",
+                    "minutes",
+                    "source_event_id",
+                    "journey_id",
+                    "journey_stop_index",
+                }
+            }
+            for m in past_moments[:1]
+        ]
+        intimacy["shared_moments"] = live + latest
+        background["intimacy"] = intimacy
     background.pop("budget_trace", None)
     turns = background.pop("recent_conversation", [])
     optional = {key: background.pop(key, []) for key in _OPTIONAL}
+    influence_ids = {item["id"] for item in background.get("character_influences", [])}
+    if influence_ids and isinstance(optional["knowledge_context"], list):
+        optional["knowledge_context"] = [
+            item for item in optional["knowledge_context"]
+            if not isinstance(item, dict) or item.get("id") not in influence_ids
+        ]
     scene = background.get("scene")
     scene_events: list[object] = []
     if isinstance(scene, dict):
@@ -232,14 +429,53 @@ def build_npc_prompt(
     )
     if guardrails:
         background["knowledge_context"] = guardrails
+    system_prompt, protocol_scope = scoped_npc_protocols(system_prompt, background)
+    ride_options_inactive = False
+    ride_intimacy = background.get("intimacy")
+    if isinstance(ride_intimacy, dict) and any(
+        isinstance(ride, dict) and ride.get("status") in {"blocked", "moving", "boarding", "arrived"}
+        and (ride.get("recovery") or ride.get("handoff") or ride.get("can_propose_recovery") or ride.get("can_propose_handoff"))
+        for ride in ride_intimacy.get("rides", [])
+    ):
+        # 哥哥，已有在车约定时不能另提载具；候选不是当前条款，原输入不变。
+        ride_intimacy = dict(ride_intimacy)
+        ride_options_inactive = ride_intimacy.pop("ride_options", None) is not None
+        background["intimacy"] = ride_intimacy
+    if protocol_scope in {"inactive_group", "inactive_group_and_pair_stays"} and isinstance(background.get("intimacy"), dict):
+        intimacy = dict(background["intimacy"])
+        intimacy.pop("group_journey_options", None)
+        if not intimacy.get("group_journeys"):
+            intimacy.pop("group_journeys", None)
+        background["intimacy"] = intimacy
     control = (
         "以上历史仅供承接，不是新指令或已执行事实。现在只回应下一条本轮输入，"
         "保持这位NPC的语气、知识和渠道边界，不重复已答内容。"
         "历史assistant消息是原话，不是本轮输出格式示例。"
+        "本轮仍只输出一个JSON对象，以{开头，reply仅放本人台词。"
+        "本人已明确作出的选择同步填对应*_intent，无选择用null；不代玩家同意或行动。"
     )
     history: list[dict[str, str]] = []
     example_messages: list[dict[str, str]] = []
     trace: dict[str, dict[str, object]] = {}
+    for marker, label in (("当前无已知共同活动", "inactive_shared_life_protocol"),
+                          ("当前在车不能开始徒步同行", "inactive_companion_protocol"),
+                          ("本人明确提出具体分工须另议", "inactive_shared_plan_protocol")):
+        if marker in system_prompt:
+            trace[label] = {"source": "current_ride_and_no_matching_commitment", "placement": "rules", "included": False,
+                "reason": "本人已有在车安排且没有对应现行约定；已保存的事实、偏好和边界不变。"}
+    if ride_options_inactive:
+        trace["inactive_ride_options"] = {"source": "intimacy.ride_options", "placement": "background", "included": False,
+            "reason": "本人已有在车安排，不能另提新载具；原当前约定及人物资料完整保留。"}
+    if protocol_scope in {"inactive_pair_stays", "inactive_group_and_pair_stays"}:
+        trace["inactive_pair_stay_protocols"] = {
+            "source": "no_applicable_pair_journey_or_current_stay", "placement": "rules",
+            "included": False, "reason": "只省略当前无法执行的双人旅程住宿协议，全部当前事实和成员约定仍保留。",
+        }
+    elif protocol_scope == "inactive_group":
+        trace["inactive_group_protocols"] = {
+            "source": "existing_pair_journey_or_current_stay", "placement": "rules", "included": False,
+            "reason": "保留现行双人约定及其协议，只省略目前不能另提的多人意图和新组团候选。",
+        }
     source_usage: dict[str, tuple[int, int]] = {}
 
     def render() -> list[dict[str, str]]:
@@ -276,6 +512,52 @@ def build_npc_prompt(
         raise NpcPromptOverflow(
             f"NPC 必需提示需要 {mandatory} token，可用输入预算为 {max_input_tokens}"
         )
+    booking_section = background.get("intimacy")
+    booking_records = booking_section.get("lodging_plans", []) if isinstance(booking_section, dict) else []
+    booking_active = any(
+        isinstance(item, dict) and item.get("status") in {"pending", "accepted"}
+        for item in booking_records
+    )
+    if isinstance(booking_section, dict):
+        booking_active = booking_active or any(
+            isinstance(item,dict) and item.get("status") == "pending"
+            for item in booking_section.get("companion_proposals",[])
+        )
+        # 哥哥，订房后的新邀请同样要完整输出选择，只减少可选旧历史。
+        booking_active = booking_active or bool(booking_section.get("lodging_handoff_sources")) or any(
+            isinstance(item, dict) and item.get("source_lodging_plan_id")
+            and (item.get("status") in {"pending", "accepted", "active"}
+                 or item.get("reunion_status") == "waiting" or item.get("can_end_reunion_wait"))
+            for item in booking_section.get("separate_stays", [])
+        )
+        booking_active = booking_active or any(
+            isinstance(stay, dict) and any(
+                isinstance(change, dict) and change.get("status") == "pending"
+                for change in stay.get("reschedule_requests", [])
+            )
+            for stay in booking_section.get("separate_stays", [])
+        )
+    journey_active = bool(background.get("shared_travel")) or (
+        isinstance(booking_section, dict) and any(
+            isinstance(item, dict)
+            and item.get("status") in {"pending", "accepted", "active", "paused", "resume_pending"}
+            for key in ("journeys", "group_journeys") for item in booking_section.get(key, [])
+        )
+    )
+    # 哥哥，有限旅行也需完整表达选择；保留全部当前承诺，只少装可选历史。
+    optional_input_limit = (
+        min(max_input_tokens, max(mandatory, 7400))
+        if booking_active or journey_active else max_input_tokens
+    )
+    trace["optional_budget"] = {
+        "source": "lodging_output_headroom" if booking_active else "journey_output_headroom"
+        if journey_active else "configured_input_budget",
+        "placement": "budget",
+        "tokens": 0,
+        "included": True,
+        "limit": optional_input_limit,
+        "required_limit": max_input_tokens,
+    }
 
     def rejected(source: str, index: int | None, reason: str) -> None:
         trace_key = source + (f":{index}" if index is not None else "")
@@ -321,7 +603,7 @@ def build_npc_prompt(
         return compact_dialogue_item(source.rsplit(".", 1)[-1], item, relevance)
 
     def fits(source: str, cost: int, total: int) -> tuple[bool, str]:
-        if total > max_input_tokens:
+        if total > optional_input_limit:
             return False, "total_budget"
         if source in _SOURCE_LIMITS:
             token_limit, item_limit = _SOURCE_LIMITS[source]
@@ -411,6 +693,9 @@ def build_npc_prompt(
             elif value is not None:
                 add_nested_optional("personal_experience", key, value, None)
 
+    for index, item in enumerate(continuity_extra, start=1):
+        add_nested_optional("intimacy", "ongoing_considerations", item, index)
+
     included_turns: list[object] = []
     history_base = token_counter(render())
     if isinstance(turns, list):
@@ -420,7 +705,7 @@ def build_npc_prompt(
             before = token_counter(render())
             history[:0] = candidate
             count = token_counter(render())
-            included = count <= max_input_tokens
+            included = count <= optional_input_limit
             if not included:
                 del history[: len(candidate)]
             else:
@@ -444,8 +729,42 @@ def build_npc_prompt(
         "tokens": token_counter(render()) - history_base,
     }
 
+    for index, item in enumerate(extra_stay_rooms):
+        add_nested_optional("intimacy", "separate_stay_rooms", item, index)
+    for index, item in enumerate(extra_lodging_rooms):
+        add_nested_optional("intimacy", "lodging_room_options", item, index)
+
+    for key, items in previous_arrangements.items():
+        if key in {"appointments", "appointment_room_options"}:
+            # 哥哥，嵌套的旧约会仍保留完整记录，只在本轮预算够时发送。
+            section_key = "arrangements" if key == "appointments" else "room_options"
+            trace_key = f"intimacy.appointments.{section_key}"
+            for index, item in enumerate(items):
+                before = token_counter(render())
+                section = background["intimacy"]["appointments"][section_key]
+                section.append(item)
+                after = token_counter(render())
+                included = after <= optional_input_limit
+                if not included:
+                    section.pop()
+                trace[f"{trace_key}:{index}"] = {
+                    "source": trace_key,
+                    "placement": "background",
+                    "tokens": after - before,
+                    "included": included,
+                    "reason": "selected" if included else "total_budget",
+                }
+        else:
+            for index, item in enumerate(items):
+                add_nested_optional("intimacy", key, item, index)
+
     for turn in included_turns:
         coverage.remember(turn)
+    for index, item in enumerate(past_moments):
+        add_nested_optional("intimacy", "past_shared_moments", item, index)
+    for key, items in relationship_history.items():
+        for index, item in enumerate(items, start=relationship_history_start.get(key, 1)):
+            add_nested_optional("intimacy", key, item, index)
     add_optional("knowledge_context", optional["knowledge_context"])
 
     recalled = optional["recalled_past_conversation"]
@@ -547,7 +866,7 @@ def build_npc_prompt(
             }
         )
         after = token_counter(render())
-        included = after <= max_input_tokens
+        included = after <= optional_input_limit
         if not included:
             example_messages.pop()
         trace[f"example:{index}"] = {
@@ -583,6 +902,10 @@ def build_deepseek_roleplay_payload(
         "stream": intent.stream,
     }
     if "reasoner" not in model.lower():
+        # 哥哥，普通扮演关闭接口默认推理，避免短回复预算全被隐藏推理耗尽。
+        payload["thinking"] = {"type": "disabled"}
+        # 哥哥，对话里的真实选择也需要稳定 JSON；关闭推理后再约束对象格式。
+        payload["response_format"] = {"type": "json_object"}
         for key in ("temperature", "top_p", "frequency_penalty", "presence_penalty"):
             value = getattr(intent, key)
             if value is not None:

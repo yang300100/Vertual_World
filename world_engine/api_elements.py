@@ -32,6 +32,8 @@ from world_engine.removal import (
     ElementRemovalView,
     WorldElementRemover,
 )
+from world_engine.local_routes import LocalRouteConflict, LocalRouteNotFound, LocalRouteService
+from world_engine.repository import to_iso
 
 
 class ConstructionProjectStatusUpdate(BaseModel):
@@ -46,6 +48,17 @@ class RegistrationReviewRequest(BaseModel):
     reason: str = Field(default="", max_length=500)
 
 
+class LocalRouteStateRequest(BaseModel):
+    """哥哥，编年者的状态确认仍须绑定真实来源和当前版本。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_open: bool = Field(strict=True)
+    expected_state_version: int = Field(ge=1, strict=True)
+    source_event_id: str = Field(min_length=1, max_length=100)
+    requested_by_character_id: str | None = None
+
+
 def build_elements_router(database) -> APIRouter:
     """世界元素登记、移除与建筑工程的接口。"""
 
@@ -54,6 +67,69 @@ def build_elements_router(database) -> APIRouter:
     element_registry = WorldElementRegistry()
     element_remover = WorldElementRemover()
     construction_projects = ConstructionProjectService()
+
+    @router.get("/local-routes/options")
+    def local_route_options(world_id: str):
+        with database.read() as connection:
+            try:
+                at = LocalRouteService._world(connection, world_id)
+            except LocalRouteNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            datasets = [dict(row) for row in connection.execute(
+                "SELECT id,name FROM navigation_datasets WHERE world_id=? AND review_status='approved' "
+                "ORDER BY created_at DESC,id", (world_id,),
+            )]
+            locations = {row["id"]: {**dict(row), "sources": []} for row in connection.execute(
+                "SELECT id,name,space_layer FROM locations WHERE world_id=? AND is_active=1 "
+                "AND space_layer='ground' ORDER BY name,id", (world_id,),
+            )}
+            events = connection.execute(
+                "SELECT e.id,e.location_id,e.occurred_at,e.summary FROM world_events e "
+                "JOIN locations l ON l.id=e.location_id AND l.world_id=e.world_id "
+                "WHERE e.world_id=? AND e.occurred_at<=? AND l.is_active=1 AND l.space_layer='ground' "
+                "ORDER BY e.occurred_at DESC,e.rowid DESC LIMIT 1000", (world_id, to_iso(at)),
+            ).fetchall()
+            for event in events:
+                try:
+                    LocalRouteService.source_time(event["occurred_at"], at)
+                except LocalRouteConflict:
+                    continue
+                locations[event["location_id"]]["sources"].append({
+                    "id": event["id"], "occurred_at": event["occurred_at"], "summary": event["summary"],
+                })
+            return {"datasets": datasets, "locations": list(locations.values()), "world_time": to_iso(at)}
+
+    @router.get("/local-routes")
+    def local_routes(world_id: str):
+        with database.read() as connection:
+            try:
+                return LocalRouteService.rows(connection, world_id)
+            except LocalRouteNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @router.get("/local-routes/{route_id}")
+    def local_route(world_id: str, route_id: str):
+        with database.read() as connection:
+            try:
+                return LocalRouteService.get(connection, world_id, route_id)
+            except LocalRouteNotFound as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            except LocalRouteConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @router.patch("/local-routes/{route_id}/state")
+    def local_route_state(world_id: str, route_id: str, payload: LocalRouteStateRequest):
+        try:
+            with database.write() as connection:
+                return LocalRouteService.set_open(
+                    connection, world_id, route_id, **payload.model_dump(),
+                )
+        except LocalRouteNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except LocalRouteConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except sqlite3.OperationalError as exc:
+            raise HTTPException(status_code=503, detail="世界正在由另一个进程更新") from exc
 
     @router.post(
         "/registrations",

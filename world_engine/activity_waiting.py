@@ -107,6 +107,9 @@ def waiting_boundary(connection, world_id, clock_row, request, settings):
             (now + timedelta(hours=(actor["satiety"] - 5) / satiety_rate), "饱食度需要处理")
         )
     end, reason = min(candidates, key=lambda item: item[0])
+    from world_engine.overnight import OvernightService
+    night_end=OvernightService.boundary(connection,world_id,now,end,settings.satiety_loss_per_world_hour)
+    if night_end<end:end,reason=night_end,"共同住宿的身体、照护或房间检查边界"
     if end <= now:
         raise LifeActivityError("活动正在等待结算，请先刷新")
     return (end - now).total_seconds(), reason, actor["id"]

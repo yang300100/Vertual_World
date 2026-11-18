@@ -100,6 +100,7 @@ class PlayerActivityService:
         )
 
     def execute(self, connection, *, snapshot, player, npc, text, action_id):
+        from world_engine.rides import RideService
         world_id = snapshot.world.id
         steps = activity_steps(text)
         request = self.request_context(connection, world_id, player.id, npc.id if npc else None)
@@ -120,7 +121,7 @@ class PlayerActivityService:
             rejection = "这项行动尚无可执行规则，未改变人物、物品或任务状态。"
         elif player.energy < len(steps) * 2:
             rejection = "精力不足以完成这项工作，请先休息。"
-        elif moving:
+        elif moving or RideService.aboard(connection, player.id):
             rejection = "当前正在移动，请停下或抵达后再进行现场记录与文书工作。"
         event_id = ActionService._record_event(
             connection,

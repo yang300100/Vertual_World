@@ -224,6 +224,7 @@ class NpcGoalService:
         from world_engine.economy import EconomyService
         from world_engine.geo import great_circle_distance_km
         from world_engine.life import LifeActivityService
+        from world_engine.overnight import OvernightService
         from world_engine.routines import RoutineService
         from world_engine.schedules import ScheduleService
 
@@ -266,6 +267,20 @@ class NpcGoalService:
         deadline = routine["next_boundary"]
         if goal.deadline_world_time:
             deadline = min(deadline, goal.deadline_world_time)
+
+        def activity_deadline(location):
+            end = RoutineService.location_deadline(actor, location, deadline, appointment)
+            # 哥哥，目标工作也要留下从真实工作点赶回已确认住宿的时间。
+            shadow = {
+                **dict(actor), "longitude": location["longitude"],
+                "latitude": location["latitude"], "current_room_id": None,
+            }
+            night_remaining = OvernightService.planned_minutes(c, shadow, at)
+            return (
+                min(end, at + timedelta(minutes=night_remaining))
+                if night_remaining is not None else end
+            )
+
         daily_remaining = RoutineService.work_remaining(c, actor, spec, at)
         if daily_remaining <= 0:
             return cls.block(c, row, at, "今日自动劳动额度已用完，留出休息时间")
@@ -304,7 +319,7 @@ class NpcGoalService:
                 distance = great_circle_distance_km(
                     actor["longitude"], actor["latitude"], loc["longitude"], loc["latitude"]
                 )
-                end = RoutineService.location_deadline(actor, loc, deadline, appointment)
+                end = activity_deadline(loc)
                 if (
                     distance <= spec.local_search_radius_km
                     and ScheduleService.earliest_arrival(c, actor, loc, at) + timedelta(minutes=60)
@@ -327,7 +342,7 @@ class NpcGoalService:
         minutes = recipe["duration_minutes"] if recipe else 60
         if not location:
             return cls.block(c, row, at, "已知场所不可用、工资不足或无法在空闲时间抵达")
-        end = RoutineService.location_deadline(actor, location, deadline, appointment)
+        end = activity_deadline(location)
         if (
             daily_remaining < minutes
             or ScheduleService.earliest_arrival(c, actor, location, at) + timedelta(minutes=minutes)

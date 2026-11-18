@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -70,7 +70,7 @@ def create_app(
         if world_pack is not None:
             ensure_pack_save(database, world_pack)
             ensure_pack_world(database, resolved_settings, world_pack)
-        engine.reset_offline_baseline()
+        engine.reset_offline_baseline(preserve_online_workers=True)
         try:
             yield
         finally:
@@ -122,8 +122,10 @@ def create_app(
         return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
 
     @application.get("/")
-    def root() -> RedirectResponse:
-        return RedirectResponse(url="/ui/", status_code=307)
+    def root(request: Request) -> RedirectResponse:
+        # 哥哥，从分享链接进入时，也要带着原先选好的世界。
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"/ui/{query}", status_code=307)
 
     @application.get("/api/health")
     def health() -> dict[str, object]:
@@ -341,10 +343,22 @@ def create_app(
     application.include_router(build_science_router(database))
     from world_engine.api_wonders import build_wonders_router
     application.include_router(build_wonders_router(database,photo_service))
+    from world_engine.api_cross_layer import build_cross_layer_router
+    application.include_router(build_cross_layer_router(database))
     application.include_router(build_life_router(database))
     application.include_router(build_interior_router(database))
     application.include_router(build_task_router(database, engine))
     application.include_router(build_living_router(database,engine))
+    from world_engine.api_vehicle_fuel import build_vehicle_fuel_router
+    application.include_router(build_vehicle_fuel_router(database))
+    from world_engine.api_vehicle_fuel_profile_options import build_vehicle_fuel_profile_options_router
+    application.include_router(build_vehicle_fuel_profile_options_router(database))
+    from world_engine.api_companions import build_companion_router
+
+    application.include_router(build_companion_router(database))
+    from world_engine.api_intimacy import build_intimacy_router
+
+    application.include_router(build_intimacy_router(database))
     application.include_router(
         build_dialogue_router(
             database,

@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from world_engine.activity_tasks import ActivityRecipeSpec
 from world_engine.economy import CommoditySpec, WorkplaceBudgetSpec
@@ -32,6 +32,9 @@ class ElementType(StrEnum):
     COMMODITY = "commodity"
     WORKPLACE_BUDGET = "workplace_budget"
     NPC_ROUTINE = "npc_routine"
+    VEHICLE = "vehicle"
+    VEHICLE_FUEL_PROFILE = "vehicle_fuel_profile"
+    LOCAL_ROUTE = "local_route"
 
 
 class RegistrationStatus(StrEnum):
@@ -133,6 +136,34 @@ class StructureSpec(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class VehicleSpec(BaseModel):
+    """哥哥，载具的座位与停放位置须经核实，容量包含驾驶者。"""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    element_type: Literal["vehicle"] = "vehicle"
+    vehicle_id: str | None = Field(default=None, min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=100)
+    movement_type: Literal["land", "flight", "ship", "underground", "water"]
+    speed_kmh: float = Field(gt=0)
+    owner_character_id: str | None = Field(default=None, min_length=1, max_length=100)
+    capacity: int = Field(ge=1, le=64, strict=True)
+    location_id: str = Field(min_length=1, max_length=100)
+
+
+class VehicleFuelProfileSpec(BaseModel):
+    """哥哥，规格只描述经确认的容量与单位消耗，不产生任何燃料。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    element_type: Literal["vehicle_fuel_profile"] = "vehicle_fuel_profile"
+    vehicle_id: str = Field(min_length=1, max_length=100)
+    item_type_id: str = Field(min_length=1, max_length=100)
+    capacity_units: int = Field(gt=0, le=1_000_000_000, strict=True)
+    rate_numerator: int = Field(gt=0, le=1_000_000_000, strict=True)
+    rate_denominator: int = Field(gt=0, le=1_000_000_000, strict=True)
+
+
 class LoreSpec(BaseModel):
     """动态世界观登记；人物提交默认只能成为观点、地方说法或公开知识。"""
 
@@ -149,12 +180,43 @@ class LoreSpec(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=20)
 
 
+class LocalRouteSpec(BaseModel):
+    """哥哥，既存局部通路的几何须由编年者明确核实。"""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
+
+    element_type: Literal["local_route"] = "local_route"
+    origin_mode: Literal["surveyed_existing"] = "surveyed_existing"
+    name: str = Field(min_length=1, max_length=120)
+    dataset_id: str = Field(min_length=1, max_length=100)
+    location_id: str = Field(min_length=1, max_length=100)
+    polyline: list[tuple[float, float]] = Field(min_length=2, max_length=512)
+    allowed_modes: list[Literal["land"]] = Field(default_factory=lambda: ["land"], min_length=1, max_length=1)
+    bidirectional: bool = Field(default=True, strict=True)
+    speed_limit_kmh: float = Field(gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def valid_geometry(self):
+        for longitude, latitude in self.polyline:
+            if not -180 <= longitude <= 180 or not -90 <= latitude <= 90:
+                raise ValueError("通路坐标超出经纬度范围")
+        from world_engine.geo import great_circle_distance_km
+
+        for first, second in zip(self.polyline, self.polyline[1:]):
+            if great_circle_distance_km(*first, *second) <= 0:
+                raise ValueError("通路不能包含连续零长度段")
+        return self
+
+
 RegistrationPayload = Annotated[
     CharacterBirthSpec
     | CharacterArrivalSpec
     | SettlementSpec
     | BuildingSpec
     | StructureSpec
+    | VehicleSpec
+    | VehicleFuelProfileSpec
+    | LocalRouteSpec
     | LoreSpec
     | InteriorRoomSpec
     | ActivityRecipeSpec

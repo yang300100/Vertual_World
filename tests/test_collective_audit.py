@@ -258,12 +258,15 @@ def test_task_sources_preserve_unchanged_research_and_revert_only_changed_parame
         assert counterfactual[0].particles == pytest.approx(actual.particles, abs=1e-8)
 
 
-def test_joint_assay_counts_its_designers_prediction_and_actual_delegated_measurement(lab):
+def test_joint_assay_counts_its_designers_prediction_and_actual_delegated_measurement(
+    lab, settings
+):
     from uuid import uuid4
 
     from test_collective_cooperation import cooperation
     from test_collective_research import research
 
+    from world_engine.clock import WorldClockService
     from world_engine.collective_messages import MessageService
     from world_engine.collective_work import WorkService
     from world_engine.life import LifeActivityService
@@ -327,9 +330,16 @@ def test_joint_assay_counts_its_designers_prediction_and_actual_delegated_measur
         )
         cooperation().start(c, actors[0], {"proposal_id": pid, "version": 1}, at)
         activity = LifeActivityService.running(c, actors[1])
-        LifeActivityService.finish(
-            c, activity, at + timedelta(hours=1), "completed", "实际检验完成"
-        )
+        assert activity is not None
+        activity_id = activity["id"]
+    # 哥哥，真实推进劳动时间，不能只把活动状态改成完成来代替实际检验。
+    WorldClockService(db, settings).heartbeat(wid, elapsed_seconds=3600)
+    with db.write() as c:
+        completed = c.execute(
+            "SELECT * FROM character_life_activities WHERE id=?", (activity_id,)
+        ).fetchone()
+        assert completed["status"] == "completed"
+        assert completed["last_processed_world_time"] > completed["started_world_time"]
         WorkService.tick(c, wid, at + timedelta(hours=1))
         result = audit().contribution_candidates(c, wid)
         assert len(result["candidates"]) == 1

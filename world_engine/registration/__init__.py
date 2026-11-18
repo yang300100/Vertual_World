@@ -28,6 +28,9 @@ from world_engine.registration.handlers import (
     SettlementHandler,
     StructureHandler,
     WorkplaceBudgetHandler,
+    VehicleHandler,
+    VehicleFuelProfileHandler,
+    LocalRouteHandler,
 )
 from world_engine.registration.models import (
     REGISTRATION_PAYLOAD_ADAPTER,
@@ -51,6 +54,9 @@ from world_engine.registration.models import (
     RegistrationStatus,
     SettlementSpec,
     StructureSpec,
+    VehicleSpec,
+    VehicleFuelProfileSpec,
+    LocalRouteSpec,
     # 三个私有辅助函数原本也定义在模块顶层；重导出以保持既有访问路径不变。
     _clean_nonnegative_values,
     _entity_exists,
@@ -99,4 +105,10 @@ __all__ = [
     "StructureSpec",
     "WorkplaceBudgetHandler",
     "WorldElementRegistry",
+    "VehicleHandler",
+    "VehicleSpec",
+    "VehicleFuelProfileHandler",
+    "VehicleFuelProfileSpec",
+    "LocalRouteHandler",
+    "LocalRouteSpec",
 ]

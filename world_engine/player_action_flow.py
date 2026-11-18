@@ -406,6 +406,8 @@ def execute_approach_action(engine, world_id, label, target_id):
         moved = distance > 0.003
         energy_cost = math.ceil(distance * 1000 / 25) if moved else 0
         if moved:
+            from world_engine.rides import RideService
+            RideService.assert_not_aboard(connection, player.id)
             LifeActivityService.assert_available(connection, player.id)
             if connection.execute(
                 "SELECT 1 FROM character_movements WHERE character_id=? AND status='moving'",
@@ -566,6 +568,7 @@ def react_to_action(engine, world_id, event_id):
                 at=current_snapshot.world.current_time,
                 channel="action_observation",
                 reply=draft,
+                source_event_id=event_id,
             )
             LOGGER.info(
                 "玩家行动回应结算 source_event_id=%s npc_id=%s action_status=%s "
@@ -576,6 +579,13 @@ def react_to_action(engine, world_id, event_id):
                 settled.action_event_id,
             )
             reply = settled.reply
+            from world_engine.rides import RideService
+            # 哥哥，在车回应使用当前载具实况；其他场景保留既有位置语义。
+            reaction_location = (
+                ActionService._social_event_location(connection, npc_actor)
+                if RideService.aboard(connection, npc.id)
+                else npc.current_location_id or npc.location_id
+            )
             reaction_id = ActionService._record_event(
                 connection,
                 world_id=world_id,
@@ -584,7 +594,7 @@ def react_to_action(engine, world_id, event_id):
                 event_type="action.reaction",
                 actor_id=npc.id,
                 target_id=player.id,
-                location_id=npc.current_location_id or npc.location_id,
+                location_id=reaction_location,
                 summary=f"{npc.name}对你的行动作出回应：{reply}",
                 payload={
                     "source_action_event_id": event_id,

@@ -4,6 +4,7 @@
 import json
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -12,8 +13,10 @@ from test_lived_world import post, town  # noqa: F401
 from world_engine.actions import ActionService
 from world_engine.character_growth import CharacterGrowthService
 from world_engine.epistemics import KnowledgeService
+from world_engine.engine import WorldEngine
 from world_engine.event_history import EventHistoryService
 from world_engine.history import WorldHistoryLogger
+from world_engine.outreach import process_outreach
 from world_engine.repository import to_iso
 from world_engine.society import SocietyService
 
@@ -113,6 +116,16 @@ def test_questions_and_hypothetical_names_do_not_become_self_introductions(town,
     with e.db.write() as c:
         fact(e,c,actor=e.npc,target=e.player,kind="action.socialize",payload={"dialogue":text})
         assert not any(item["predicate"]=="name" for item in KnowledgeService.view(c,e.player,e.at))
+
+
+@pytest.mark.parametrize('text,canonical,expected', [
+    ('叫我莱弥就好。', '莱弥', '莱弥'),
+    ('我叫阿林就好。', '林澈', '阿林'),
+    ('叫我“阿林就好”就行。', '林澈', '阿林就好'),
+    ('我叫阿林就好。', '阿林就好', '阿林就好'),
+])
+def test_introduction_particles_do_not_become_name_or_erase_explicit_alias(text, canonical, expected):
+    assert KnowledgeService._spoken_name(text, canonical) == expected
 
 
 def test_reported_location_can_be_corrected_only_when_person_is_visible(town):
@@ -267,7 +280,7 @@ def test_ordinary_chat_does_not_change_traits_and_attacks_have_daily_cap(town):
         assert CharacterGrowthService.level(c, e.npc, "谨慎") == initial + 8
 
 
-def test_acquired_caution_changes_unsolicited_contact_without_changing_original_traits(town):
+def test_acquired_caution_informs_independent_contact_choice_without_changing_original_traits(town):
     e = town
     with e.db.write() as c:
         c.execute('UPDATE characters SET traits_json=\'["热情","谨慎"]\' WHERE id=?', (e.npc,))
@@ -281,11 +294,51 @@ def test_acquired_caution_changes_unsolicited_contact_without_changing_original_
                 kind="action.attack",
                 at=e.at + timedelta(days=day),
             )
-        SocietyService.tick(c, e.wid, e.at + timedelta(days=4))
-        assert not c.execute("SELECT 1 FROM npc_outreach_jobs WHERE npc_id=?", (e.npc,)).fetchone()
+        at = e.at + timedelta(days=4)
+        c.execute("UPDATE worlds SET current_time=? WHERE id=?", (to_iso(at), e.wid))
+        SocietyService.tick(c, e.wid, at)
+        job = c.execute("SELECT * FROM npc_outreach_jobs WHERE npc_id=?", (e.npc,)).fetchone()
+        assert job and job["status"] == "pending" and job["source_event_id"]
+        job_id = job["id"]
+        # 哥哥，谨慎来自真实经历，是否开口仍留给本人；考虑机会不是已经发言。
+        before = [tuple(row) for row in c.execute(
+            "SELECT id,health,energy,satiety,money FROM characters ORDER BY id"
+        )]
+        event_count = c.execute("SELECT COUNT(*) FROM world_events").fetchone()[0]
         assert json.loads(
             c.execute("SELECT traits_json FROM characters WHERE id=?", (e.npc,)).fetchone()[0]
         ) == ["热情", "谨慎"]
+
+    class IndependentChoice:
+        own_context = None
+
+        def complete(self, *, user_payload, schema, **kwargs):
+            if user_payload["npc"]["id"] == e.npc:
+                self.own_context = user_payload
+            return SimpleNamespace(data=schema.validate_python({"should_contact": False, "reply": None}))
+
+    model = IndependentChoice()
+    engine = WorldEngine(e.db, e.settings, e.model)
+    engine.agent_model_backend = model
+    try:
+        for _ in range(4):
+            assert process_outreach(engine, e.wid) == 0
+            with e.db.read() as c:
+                if c.execute("SELECT status FROM npc_outreach_jobs WHERE id=?", (job_id,)).fetchone()[0] == "declined":
+                    break
+        assert model.own_context is not None
+        dispositions = model.own_context["personal_experience"]["dispositions"]
+        caution = next(trait for trait in dispositions["traits"] if trait["trait"] == "谨慎")
+        assert caution["intensity"] >= 60
+        assert any(change["trait"] == "谨慎" and change["event_id"] for change in dispositions["recent_changes"])
+        with e.db.read() as c:
+            assert c.execute("SELECT status FROM npc_outreach_jobs WHERE id=?", (job_id,)).fetchone()[0] == "declined"
+            assert [tuple(row) for row in c.execute(
+                "SELECT id,health,energy,satiety,money FROM characters ORDER BY id"
+            )] == before
+            assert c.execute("SELECT COUNT(*) FROM world_events").fetchone()[0] == event_count
+    finally:
+        engine.close()
 
 
 def test_initialization_preserves_time_and_does_not_replay_old_personality_changes(town):

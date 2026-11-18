@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 from world_engine.science_chronicle import technology_process
-from world_engine.science_freeze import verify_freeze
+from world_engine.science_freeze import archive_frozen_files, verify_freeze
 from world_engine.science_runner import ScienceRunner
 from world_engine.technologies import TechnologyService
 
@@ -181,7 +181,9 @@ def export_science(database, session_id, output_dir):
         ]
         processes = {n["id"]: technology_process(c, wid, n["id"]) for n in graph["nodes"]}
         frozen = json.loads(session["freeze_json"])
-        freeze_ok = verify_freeze(c, session_id)
+        freeze_ok = verify_freeze(c, session_id, archived_run=database.path.parent)
+        if freeze_ok and session["status"] == "stopped":
+            archive_frozen_files(c, session_id, database.path.parent)
         verified = [
             n
             for n in graph["nodes"]
@@ -213,6 +215,9 @@ def export_science(database, session_id, output_dir):
             usage["calls"] <= usage["max_calls"]
             and usage["accounted_tokens"] + usage["reserved_tokens"] <= usage["token_limit"]
         )
+        verification = frozen.get("verification", {})
+        target = verification.get("target_technologies", 3)
+        used_ids = {e["technology_id"] for e in uses}
         report = {
             "session_id": session_id,
             "world_id": wid,
@@ -223,22 +228,45 @@ def export_science(database, session_id, output_dir):
             "freeze_intact": freeze_ok,
             "budget_within_limit": budget_ok,
             "goal_achieved": bool(
-                len(verified) >= 3
+                len(verified) >= target
                 and dependencies
                 and uses
                 and traceable
                 and budget_ok
                 and freeze_ok
                 and frozen.get("verification", {}).get("run_kind") == "real"
+                and (
+                    not verification.get("require_zero_technologies")
+                    or verification.get("initial_technologies") == 0
+                )
+                and (not verification.get("require_all_applied") or verified_ids <= used_ids)
             ),
             "stop_reason": session["stop_reason"],
             "limitations": "仅有限自然模型中的能力；离线固定程序不作为真实NPC成功证据",
+            "target_technologies": target,
+            "technologies_with_completed_reuse": len(used_ids),
         }
+        inherited = frozen.get("verification", {}).get("budget_lineage")
+        if inherited:
+            prior_calls = sum(r["calls"] for r in inherited["prior_runs"])
+            prior_tokens = sum(r["accounted_tokens"] for r in inherited["prior_runs"])
+            report["cumulative_usage"] = {
+                "calls": prior_calls + usage["calls"],
+                "accounted_tokens": prior_tokens + usage["accounted_tokens"],
+                "reserved_tokens": usage["reserved_tokens"],
+                **inherited["total_limits"],
+            }
+        report["initial_technologies"] = frozen.get("verification", {}).get("initial_technologies")
+        from world_engine.phenomena import audit_world
+
+        phenomenon_audit = audit_world(c, wid)
 
     def write_json(name, data):
         (output / name).write_text(
             json.dumps(sanitize(data), ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+    write_json("现象与规则审计.json", phenomenon_audit)
 
     def block(data):
         return "\n```json\n" + json.dumps(sanitize(data), ensure_ascii=False, indent=2) + "\n```\n"

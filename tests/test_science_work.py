@@ -13,7 +13,7 @@ from world_engine.materials import MaterialService as M
 from world_engine.repository import to_iso
 from world_engine.science_workshop import seed_workshop
 
-pytest_plugins = ["test_collective_research"]
+pytest_plugins = ["collective_fixtures"]
 
 
 def queue(c, actor, task, at):

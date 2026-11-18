@@ -175,8 +175,15 @@ class WorldEngine(
             LOGGER.warning("知识库初始化失败，Agent将无RAG上下文", exc_info=True)
             return None
 
-    def reset_offline_baseline(self, real_now: datetime | None = None) -> int:
-        count = self.clock.reset_offline_baseline(real_now)
+    def reset_offline_baseline(
+        self,
+        real_now: datetime | None = None,
+        *,
+        preserve_online_workers: bool = False,
+    ) -> int:
+        count = self.clock.reset_offline_baseline(
+            real_now, preserve_online_workers=preserve_online_workers
+        )
         with self.database.write() as connection:
             worlds = connection.execute(
                 "SELECT id, \"current_time\" AS current_time FROM worlds"
@@ -203,18 +210,22 @@ class WorldEngine(
         real_now: datetime | None = None,
         elapsed_seconds: float | None = None,
         activity_skip: dict[str, object] | None = None,
+        _single_boundary: bool = False,
+        _catchup_progress: dict[str, object] | None = None,
     ) -> HeartbeatResult:
         result = self.clock.heartbeat(
             world_id,
             real_now=real_now,
             elapsed_seconds=elapsed_seconds,
             activity_skip=activity_skip,
+            _single_boundary=_single_boundary,
+            _catchup_progress=_catchup_progress,
         )
         from world_engine.collective_runner import is_collective_world
 
         with self.database.read() as connection:
             collective = is_collective_world(connection,world_id)
-            session = connection.execute("SELECT id FROM science_sessions WHERE world_id=?", (world_id,)).fetchone()
+            session = connection.execute("SELECT id,status FROM science_sessions WHERE world_id=?", (world_id,)).fetchone()
         if session and self.science_backend is not None and not result.time_skip_replayed:
             from world_engine.science_runner import ScienceRunner
 
@@ -222,7 +233,10 @@ class WorldEngine(
                 runner = ScienceRunner(self.database, self.science_backend, session_id=session[0])
                 runner.knowledge = self.knowledge_base
                 self.science_runners[session[0]] = runner
-            self.science_runners[session[0]].decide(world_id, result.current_time)
+            # 哥哥，既有科研仍在时钟事务里结算；停止新增请求后不再做空规划。
+            # 首次构建仍保留中断预约核算，decide 的写入口也继续完整核验冻结。
+            if session["status"] == "running":
+                self.science_runners[session[0]].decide(world_id, result.current_time)
         if not session and collective and self.settings.collective_api_enabled and not result.time_skip_replayed:
             self.collective_runner.decide(world_id,result.current_time)
         if not session and not collective and self.settings.research_api_enabled and not result.time_skip_replayed:

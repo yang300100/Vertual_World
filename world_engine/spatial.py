@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import math
 import sqlite3
 
-from world_engine.geo import great_circle_distance_km
+from world_engine.geo import WORLD_RADIUS_KM, great_circle_distance_km
 from world_engine.repository import to_iso, utc_now
 
 
@@ -22,8 +23,9 @@ class SpatialContextService:
             """
             SELECT * FROM locations
             WHERE world_id = ? AND is_active = 1 AND area_radius_km > 0 AND space_layer = ?
+            AND ABS(latitude-?) <= area_radius_km*?+1e-9
             """,
-            (world_id, space_layer),
+            (world_id, space_layer, latitude, math.degrees(1 / WORLD_RADIUS_KM)),
         ).fetchall()
         matches: list[tuple[int, float, float, sqlite3.Row]] = []
         for location in locations:

@@ -44,6 +44,8 @@ class ConversationContextMixin:
         decision_details: dict[str, object] | None = None,
     ) -> dict[str, object]:
         """按人物视角和预算组装一次对话所需的全部只读资料。"""
+        from world_engine.society import SocietyService
+
         decision_details = dict(decision_details or {})
         if channel == "letter":
             # 信笺只将该联系人真实来往的原话放入消息历史，保留远程感知边界。
@@ -88,8 +90,9 @@ class ConversationContextMixin:
         nearby = [
             {
                 "id": item.id,
-                "name": item.name,
+                "name": SocietyService.label(connection, npc.id, item.id),
                 "identity": item.identity,
+                "species": item.species,
                 "distance_m": round(
                     great_circle_distance_km(
                         npc.longitude, npc.latitude, item.longitude, item.latitude
@@ -126,28 +129,49 @@ class ConversationContextMixin:
         }
         if channel in {"in_person", "group_scene", "action_observation"}:
             from world_engine.interiors import InteriorService
-            from world_engine.npc_stage_actions import carried_items, travel_destinations
+            from world_engine.npc_stage_actions import (
+                carried_items, self_care_options, self_rest_available, travel_destinations,
+            )
 
             npc_row = connection.execute(
                 "SELECT * FROM characters WHERE id=?", (npc.id,),
             ).fetchone()
             interior = InteriorService.scene(connection, npc_row)
             scene["room"] = interior["room"]
-            scene["doors"] = interior["doors"]
+            scene["doors"] = [
+                {**door, "name": door["name"] if (
+                    door["allowed"] or door["owner"] or door["inside"]
+                ) else "私人房间的入口"}
+                for door in interior["doors"]
+            ]
             scene["inventory"] = carried_items(connection, npc_row)
             scene["travel_destinations"] = travel_destinations(connection, npc_row)
+            from world_engine.cross_layer import CrossLayerPassageService
+            passage_options = CrossLayerPassageService.npc_context(connection,snapshot.world.id,npc.id,player.id,snapshot.world.current_time)
+            if passage_options:
+                scene["cross_layer_passages"] = passage_options
+            if self_rest_available(connection, npc_row):
+                scene["aboard_selfcare"] = {
+                    "rest": True,
+                    "items": self_care_options(connection, npc_row, snapshot.world.current_time),
+                }
             scene["fixtures"] = [
                 {"name": item["name"], "kind": item["kind"],
                  "open": item["open"], "occupied": item["occupied"]}
                 for item in interior["fixtures"]
             ]
+        # 哥哥，自主联系按本次真实机会检索，玩家原话仍保持空白。
+        knowledge_query = player_text or str((decision_details or {}).get("opportunity") or "")
         knowledge = self._retrieve_dialogue_knowledge(
             connection,
             snapshot=snapshot,
             npc=npc,
-            player_text=player_text,
+            player_text=knowledge_query,
             location_id=location.id if location else npc.location_id,
         )
+        from world_engine.character_influences import current_character_influences
+
+        influences = current_character_influences(knowledge, character_id=npc.id)
         recalled_turns = self._recall_past_conversation(
             connection,
             snapshot=snapshot,
@@ -174,6 +198,11 @@ class ConversationContextMixin:
                 "id": npc.id,
                 "name": npc.name,
                 "identity": npc.identity,
+                "species": npc.species,
+                "age_years": npc.age_years,
+                "species_name": (connection.execute(
+                    'SELECT display_name FROM species_profiles WHERE id=?', (npc.species,)
+                ).fetchone() or [npc.species])[0],
                 "traits": npc.traits,
                 "goals": npc.goals,
                 "energy": npc.energy,
@@ -181,6 +210,12 @@ class ConversationContextMixin:
                 "health": npc.health,
             },
             "npc_card": card.to_dict(),
+            "companionship": [dict(row) for row in connection.execute(
+                "SELECT id,leader_id,companion_id,status,reason,until_world_time "
+                "FROM companion_sessions "
+                "WHERE world_id=? AND status='active' AND (leader_id=? OR companion_id=?)",
+                (snapshot.world.id, npc.id, npc.id),
+            )],
             "player": {
                 "id": player.id,
                 "name": player.name,
@@ -206,7 +241,38 @@ class ConversationContextMixin:
             ],
             "world_time": snapshot.world.current_time.isoformat(),
         }
-        from world_engine.society import SocietyService
+        if influences:
+            base["character_influences"] = influences
+        from world_engine.encounters import EncounterService
+        from world_engine.travel_interaction import TravelInteractionService
+
+        shared_motion = TravelInteractionService.shared_motion(
+            connection, snapshot.world.id, npc.id, player.id, snapshot.world.current_time,
+        ) if channel in {"in_person", "group_scene", "action_observation"} else None
+        if shared_motion:
+            base["shared_travel"] = TravelInteractionService.context(shared_motion)
+            # 哥哥，路上的最后到访地不能被当成当前已经抵达的站点。
+            scene["location"] = None
+        current_encounter = EncounterService.current(
+            connection, snapshot.world.id, npc.id, player.id, snapshot.world.current_time,
+        ) if channel in {"in_person", "group_scene", "action_observation"} else None
+        if current_encounter:
+            base["current_encounter"] = EncounterService.context(connection, current_encounter, npc.id)
+        from world_engine.intimacy import IntimacyService
+
+        base["intimacy"] = IntimacyService.context(
+            connection, snapshot.world.id, npc.id, player.id, snapshot.world.current_time, player_text,
+        )
+        if channel in {"in_person", "group_scene", "action_observation"}:
+            from world_engine.group_journey_options import group_journey_options
+
+            base["intimacy"]["group_journey_options"] = group_journey_options(
+                connection, snapshot.world.id, npc.id, snapshot.world.current_time,
+            )
+            from world_engine.ride_options import ride_options
+            candidates = ride_options(connection, snapshot.world.id, npc.id, snapshot.world.current_time)
+            if candidates["vehicles"]:
+                base["intimacy"]["ride_options"] = candidates
         base["personal_experience"] = SocietyService.personal_context(
             connection, snapshot.world.id, npc.id, snapshot.world.current_time,
         )
@@ -281,6 +347,7 @@ class ConversationContextMixin:
             item for item in knowledge
             if isinstance(item, dict) and item.get("audience") == "guardrail"
         ] if isinstance(knowledge, list) else []
+        influence_ids = {item["id"] for item in context.get("character_influences", [])}
         trace: dict[str, int] = {}
         source_usage: dict[str, tuple[int, int]] = {}
         names = tuple(str(section.get("name") or "") for name in ("npc", "player")
@@ -291,6 +358,8 @@ class ConversationContextMixin:
         )
 
         def relevant(source: str, value: object) -> bool:
+            if source == "knowledge_context" and isinstance(value, dict) and value.get("id") in influence_ids:
+                return False
             # Yuki 让缺少本轮输入的旧预算调用保持兼容；真实对话先筛选再占位。
             if "player_text" not in context:
                 return True
@@ -420,10 +489,16 @@ class ConversationContextMixin:
     ) -> list[dict[str, object]]:
         rows = connection.execute(
             """
-            SELECT event_id, memory_type, summary, importance, confidence, created_at
-            FROM character_memories
-            WHERE world_id = ? AND character_id = ?
-            ORDER BY created_at DESC LIMIT 80
+            SELECT m.event_id, m.memory_type, m.summary, m.importance, m.confidence, m.created_at
+            FROM character_memories m JOIN worlds w ON w.id=m.world_id
+            WHERE m.world_id = ? AND m.character_id = ?
+              AND (m.event_id IS NULL OR EXISTS (
+                SELECT 1 FROM world_events e JOIN character_event_knowledge k
+                  ON k.event_id=e.id AND k.world_id=e.world_id AND k.character_id=m.character_id
+                WHERE e.id=m.event_id AND e.world_id=m.world_id
+                  AND e.occurred_at<=w.current_time AND k.learned_world_time<=w.current_time
+              ))
+            ORDER BY m.created_at DESC LIMIT 80
             """,
             (world_id, npc_id),
         ).fetchall()
@@ -436,7 +511,15 @@ class ConversationContextMixin:
             score = overlap * 8 + importance * 1.5 + max(0, 8 - recency * 0.15)
             ranked.append((score, -recency, row))
         ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        return [dict(item[2]) for item in ranked[: self.memory_top_k]]
+        selected = [dict(item[2]) for item in ranked[: self.memory_top_k]]
+        from world_engine.society import SocietyService
+
+        for memory in selected:
+            if memory["event_id"]:
+                memory["summary"] = SocietyService.event_summary(
+                    connection, world_id, npc_id, memory["event_id"], memory["summary"],
+                )
+        return selected
 
     def _retrieve_dialogue_knowledge(
         self,
@@ -503,7 +586,12 @@ class ConversationContextMixin:
             unique[hit.chunk.id] = hit.to_dict()
             if len(unique) >= self.knowledge_top_k:
                 break
-        return list(unique.values())
+        from world_engine.character_influences import annotate_registered_lore
+
+        return annotate_registered_lore(
+            connection, world_id=snapshot.world.id, character_id=npc.id,
+            location_ids={location_id}, hits=list(unique.values()),
+        )
 
     @staticmethod
     def _location_scopes(snapshot: WorldSnapshot, location_id: str) -> set[str]:
@@ -525,18 +613,29 @@ class ConversationContextMixin:
         npc_id: str,
         limit: int,
     ) -> list[dict[str, object]]:
-        return [
+        events = [
             dict(row)
             for row in connection.execute(
                 """
-                SELECT id, event_type, occurred_at, summary, actor_id, target_id, location_id
-                FROM world_events
-                WHERE world_id = ? AND (actor_id = ? OR target_id = ?)
-                ORDER BY occurred_at DESC, created_at DESC LIMIT ?
+                SELECT e.id, e.event_type, e.occurred_at, e.summary,
+                       e.actor_id, e.target_id, e.location_id
+                FROM world_events e JOIN worlds w ON w.id=e.world_id
+                JOIN character_event_knowledge k ON k.event_id=e.id AND k.world_id=e.world_id
+                  AND k.character_id=?
+                WHERE e.world_id = ? AND (e.actor_id = ? OR e.target_id = ?)
+                  AND e.occurred_at<=w.current_time AND k.learned_world_time<=w.current_time
+                ORDER BY e.occurred_at DESC, e.created_at DESC LIMIT ?
                 """,
-                (world_id, npc_id, npc_id, limit),
+                (npc_id, world_id, npc_id, npc_id, limit),
             ).fetchall()
         ]
+        from world_engine.society import SocietyService
+
+        for event in events:
+            event["summary"] = SocietyService.event_summary(
+                connection, world_id, npc_id, event["id"], event["summary"],
+            )
+        return events
 
     def _recall_past_conversation(
         self,
@@ -554,8 +653,14 @@ class ConversationContextMixin:
                    t.message_kind
             FROM npc_conversation_turns t
             JOIN npc_conversation_sessions s ON s.id = t.session_id
+            JOIN worlds w ON w.id=t.world_id
+            JOIN world_events e ON e.id=t.event_id AND e.world_id=t.world_id
+            JOIN character_event_knowledge k ON k.event_id=e.id AND k.world_id=e.world_id
+              AND k.character_id=s.npc_character_id
             WHERE s.world_id = ? AND s.npc_character_id = ?
               AND s.counterpart_character_id = ? AND t.world_time < ?
+              AND t.world_time<=w.current_time AND e.occurred_at<=w.current_time
+              AND k.learned_world_time<=w.current_time
             ORDER BY t.turn_index DESC LIMIT 100
             """,
             (snapshot.world.id, npc.id, player_id, cutoff),
@@ -594,8 +699,14 @@ class ConversationContextMixin:
             """
             SELECT e.* FROM npc_conversation_episodes e
             JOIN npc_conversation_sessions s ON s.id = e.session_id
+            JOIN worlds w ON w.id=e.world_id
             WHERE e.world_id = ? AND s.npc_character_id = ?
               AND s.counterpart_character_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM npc_conversation_turns t WHERE t.session_id=e.session_id
+                  AND t.turn_index BETWEEN e.first_turn_index AND e.last_turn_index
+                  AND t.world_time>w.current_time
+              )
             ORDER BY e.last_turn_index DESC LIMIT 40
             """,
             (world_id, npc_id, player_id),
@@ -603,6 +714,26 @@ class ConversationContextMixin:
         query_tokens = self._search_tokens(query)
         ranked: list[tuple[float, int, sqlite3.Row]] = []
         for recency, row in enumerate(rows):
+            # 哥哥，摘要整段引用的来源都已发生且本人已知，才可作为过去经历召回。
+            try:
+                sources = json.loads(row["source_event_ids_json"])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(sources, list) or not sources or any(
+                not isinstance(source, str) for source in sources
+            ):
+                continue
+            sources = set(sources)
+            placeholders = ",".join("?" for _ in sources)
+            known = connection.execute(
+                "SELECT COUNT(DISTINCT e.id) FROM world_events e JOIN worlds w ON w.id=e.world_id "
+                "JOIN character_event_knowledge k ON k.event_id=e.id AND k.world_id=e.world_id "
+                "AND k.character_id=? WHERE e.world_id=? AND e.id IN (" + placeholders + ") "
+                "AND e.occurred_at<=w.current_time AND k.learned_world_time<=w.current_time",
+                (npc_id, world_id, *sorted(sources)),
+            ).fetchone()[0]
+            if known != len(sources):
+                continue
             episode_tokens = self._search_tokens(
                 f"{row['summary']} {row['topic_terms_json']}"
             )
@@ -656,12 +787,16 @@ class ConversationContextMixin:
             return None
         rows = connection.execute(
             """
-            SELECT speaker_character_id, content, world_time, message_kind
-            FROM npc_conversation_turns
-            WHERE session_id = ? AND world_time >= ?
-            ORDER BY world_time, turn_index
+            SELECT t.speaker_character_id, t.content, t.world_time, t.message_kind
+            FROM npc_conversation_turns t JOIN worlds w ON w.id=t.world_id
+            JOIN world_events e ON e.id=t.event_id AND e.world_id=t.world_id
+            JOIN character_event_knowledge k ON k.event_id=e.id AND k.world_id=e.world_id
+              AND k.character_id=?
+            WHERE t.session_id = ? AND t.world_time >= ? AND t.world_time<=w.current_time
+              AND e.occurred_at<=w.current_time AND k.learned_world_time<=w.current_time
+            ORDER BY t.world_time, t.turn_index
             """,
-            (session["id"], cutoff),
+            (npc.id, session["id"], cutoff),
         ).fetchall()
         turns = [
             f"[{from_iso(row['world_time']).isoformat()}] "

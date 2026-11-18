@@ -1,5 +1,6 @@
 """NPC 消息管线的预算、来源与请求参数契约。"""
 
+import copy
 import json
 
 import pytest
@@ -27,7 +28,8 @@ def test_mandatory_prompt_overflow_is_explicit():
                          max_input_tokens=30, token_counter=_tokens)
 
 
-def test_default_budget_accepts_a_rich_bound_character_card(tmp_path):
+@pytest.mark.parametrize("description_count,over_limit", [(10,False),(110,True)])
+def test_default_budget_preserves_rich_card_or_rejects_whole_input(tmp_path,description_count,over_limit):
     settings = Settings(database_path=tmp_path / "world.db")
     context = {
         "npc": {"name": "星绘", "identity": "观星师", "traits": ["谨慎"]},
@@ -35,7 +37,7 @@ def test_default_budget_accepts_a_rich_bound_character_card(tmp_path):
         "npc_card": {
             "public_role": "观星师",
             "sillytavern_card": {
-                "description": "记录星图与旅途见闻。" * 110,
+                "description": "记录星图与旅途见闻。" * description_count,
                 "personality": "沉着、谨慎，愿意认真答复。" * 80,
             },
         },
@@ -46,6 +48,13 @@ def test_default_budget_accepts_a_rich_bound_character_card(tmp_path):
         "player_text": "你好呀",
     }
 
+    original=copy.deepcopy(context)
+    if over_limit:
+        # 哥哥，完整身份与规则超过硬门禁时明确拒绝，不能裁角色卡来伪造通过。
+        with pytest.raises(NpcPromptOverflow):
+            build_npc_prompt(npc_reply_system_prompt(),context,max_input_tokens=settings.dialogue_context_max_tokens)
+        assert context==original
+        return
     prompt = build_npc_prompt(
         npc_reply_system_prompt(), context,
         max_input_tokens=settings.dialogue_context_max_tokens,
@@ -54,15 +63,17 @@ def test_default_budget_accepts_a_rich_bound_character_card(tmp_path):
     assert prompt.input_tokens <= settings.dialogue_context_max_tokens
     assert any("记录星图与旅途见闻" in item["content"] for item in prompt.messages)
     assert any("你好呀" in item["content"] for item in prompt.messages)
+    assert context==original
 
 
-def test_default_budget_keeps_recent_exchange_with_long_worldbook_profile(tmp_path):
+@pytest.mark.parametrize("description_count,over_limit", [(30,False),(330,True)])
+def test_default_budget_keeps_exchange_when_profile_fits_and_rejects_overflow(tmp_path,description_count,over_limit):
     settings = Settings(database_path=tmp_path / "world.db")
     context = {
         "npc": {"name": "观星师", "identity": "记录员"},
         "player": {"name": "旅人"},
         "npc_card": {"sillytavern_card": {
-            "description": "她长期记录航线和潮汐。" * 330,
+            "description": "她长期记录航线和潮汐。" * description_count,
             "personality": "谨慎地核对消息。" * 70,
         }},
         "knowledge_context": [{"audience": "guardrail", "content": "不得改变已裁定的世界事实。" * 70}],
@@ -73,6 +84,12 @@ def test_default_budget_keeps_recent_exchange_with_long_worldbook_profile(tmp_pa
         "player_text": "那今天呢？",
     }
 
+    original=copy.deepcopy(context)
+    if over_limit:
+        with pytest.raises(NpcPromptOverflow):
+            build_npc_prompt(npc_reply_system_prompt(),context,max_input_tokens=settings.dialogue_context_max_tokens)
+        assert context==original
+        return
     prompt = build_npc_prompt(
         npc_reply_system_prompt(), context,
         max_input_tokens=settings.dialogue_context_max_tokens,
@@ -80,6 +97,7 @@ def test_default_budget_keeps_recent_exchange_with_long_worldbook_profile(tmp_pa
 
     assert prompt.input_tokens <= settings.dialogue_context_max_tokens
     assert any("你昨天记下了什么" in item["content"] for item in prompt.messages)
+    assert context==original
 
 
 def test_past_scene_and_personal_experience_do_not_overflow_current_dialogue():
@@ -195,7 +213,8 @@ def test_deepseek_adapter_only_serializes_supported_sampling_fields():
     assert payload["top_p"] == 0.9
     assert payload["stop"] == ["结束"]
     assert "top_k" not in payload
-    assert "response_format" not in payload
+    # 哥哥，JSON输出约束属于响应协议；不受支持的采样参数仍不能发给提供方。
+    assert payload["response_format"] == {"type":"json_object"}
     assert json.dumps(payload, ensure_ascii=False)
 
 

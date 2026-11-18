@@ -476,6 +476,8 @@ class WonderService:
 
     @classmethod
     def traverse(cls, c, wid, cid, sid, direction, at, *, reason=None):
+        from world_engine.rides import RideService
+        RideService.assert_not_aboard(c, cid)
         from world_engine.life import LifeActivityService
         from world_engine.player_steering import PlayerSteeringService
 

@@ -41,6 +41,17 @@ class CharacterBirthHandler:
         ).fetchall()
         if len(parents) != len(parent_ids):
             raise RegistrationRejected("父母或监护人不属于当前世界")
+        if context.requested_by_character_id is not None and len(parent_ids)>1:
+            # 哥哥，人物申请不能替另一位家长同意；编年者核实登记保留独立入口。
+            source=json.loads(context.source_event["payload_json"] or "{}")
+            consent=context.connection.execute(
+                "SELECT * FROM family_agreements WHERE id=? AND world_id=? AND kind='parenthood' AND status='active'",
+                (source.get("agreement_id"),context.world_id),
+            ).fetchone()
+            if consent is None or {consent["proposer_id"],consent["recipient_id"]}!=set(parent_ids) or consent["child_name"]!=payload.name:
+                raise RegistrationRejected("共同养育需要双方分别确认的有效家庭计划")
+            if payload.birth_state=="born" and consent["registration_id"]!=payload.parent_registration_id:
+                raise RegistrationRejected("出生登记必须引用双方确认的同一家庭计划")
         if any(int(parent["health"]) <= 0 for parent in parents):
             raise RegistrationRejected("已经死亡的人物不能登记新的出生关系")
         parent_species = {str(parent["species"] or "human") for parent in parents}

@@ -601,6 +601,17 @@ class RoutineService:
             cls.defer(c, context, at, "场所、工资预算或通勤时间条件暂不满足")
             return "暂缓作息安排，等待条件变化"
         deadline = cls.location_deadline(actor, location, context["end"], appointment)
+        from world_engine.overnight import OvernightService
+
+        # 哥哥，只估算活动结束时的位置，原人物的位置与已经发生的活动不被改写。
+        shadow = {
+            **dict(actor), "longitude": location["longitude"],
+            "latitude": location["latitude"],
+            "current_room_id": actor["current_room_id"] if slot.kind == "rest" else None,
+        }
+        night_remaining = OvernightService.planned_minutes(c, shadow, at)
+        if night_remaining is not None:
+            deadline = min(deadline, at + timedelta(minutes=night_remaining))
         if ScheduleService.earliest_arrival(c, actor, location, at) >= deadline:
             cls.defer(c, context, at, "通勤会占用时段或赴约时间，暂不离开")
             return "留在附近准备后续安排"

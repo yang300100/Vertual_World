@@ -78,7 +78,7 @@ def _item(c, world_id, actor_id, site_id, name, quantity, *, category="material"
     return iid
 
 
-def seed_workshop(c, world_id, at, *, seed):
+def seed_workshop(c, world_id, at, *, seed, actor_ids=None):
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("工坊种子须为整数")
     if c.execute("SELECT 1 FROM worlds WHERE id=?", (world_id,)).fetchone() is None:
@@ -89,7 +89,10 @@ def seed_workshop(c, world_id, at, *, seed):
     if prior is not None:
         if prior["seed"] != seed:
             raise ValueError("工坊已准备，不可换种子重置实物或规律")
-        return json.loads(prior["assets_json"])
+        assets = json.loads(prior["assets_json"])
+        if actor_ids is not None and set(actor_ids) != set(assets["actors"]):
+            raise ValueError("已准备工坊的参与者不同，不能改写原始条件")
+        return assets
     name = "workshop_" + uuid4().hex
     c.execute(f"SAVEPOINT {name}")
     try:
@@ -102,6 +105,14 @@ def seed_workshop(c, world_id, at, *, seed):
             "SELECT * FROM characters WHERE world_id=? AND is_player=0 AND health>0 ORDER BY id",
             (world_id,),
         ).fetchall()
+        if actor_ids is not None:
+            if (
+                not actor_ids
+                or len(set(actor_ids)) != len(actor_ids)
+                or set(actor_ids) - {a["id"] for a in actors}
+            ):
+                raise ValueError("实验参与者须为同世界的存活NPC且不能重复")
+            actors = [a for a in actors if a["id"] in set(actor_ids)]
         for actor in actors:
             aid = actor["id"]
             enrollment = c.execute(

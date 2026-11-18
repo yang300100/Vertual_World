@@ -35,8 +35,8 @@ function renderLifeScene() {
     $("#life-progress-text").textContent = `已过 ${active.elapsed_minutes} / ${active.duration_minutes} 分钟${active.progress >= 1 ? " · 等待结算" : ""}`;
   }
   $("#life-start").hidden = Boolean(active);
-  $("#life-kind").disabled = Boolean(active) || state.busy;
-  $("#life-minutes").disabled = Boolean(active) || state.busy;
+  $("#life-kind").disabled = Boolean(active);
+  $("#life-minutes").disabled = Boolean(active);
   $("#life-stop").hidden = !active;
   const last = lifeScene.last_activity;
   const checkLabel = last?.result?.check ? {success:"检定成功",partial:"部分成功",failure:"检定失败"}[last.result.check.outcome] : null;
@@ -55,7 +55,7 @@ function renderLifeScene() {
       const eat = document.createElement("button"); eat.type = "button"; eat.className = "button secondary";
       const spoiled = item.freshness?.state === "spoiled";
       eat.textContent = spoiled ? `食用${item.name}（已变质）` : `食用${item.name}`;
-      eat.disabled = state.busy || Boolean(lifeScene.activity);
+      eat.disabled = Boolean(lifeScene.activity);
       let requestId = null;
       const submitMeal = () => {
         if (state.busy) return;
@@ -72,7 +72,7 @@ function renderLifeScene() {
         cancel.type = accept.type = "button";
         cancel.className = accept.className = "button secondary";
         cancel.textContent = "取消食用"; accept.textContent = "确认食用变质食物";
-        cancel.addEventListener("click", () => { confirmation.remove(); eat.disabled = state.busy || Boolean(lifeScene.activity); eat.focus(); });
+        cancel.addEventListener("click", () => { confirmation.remove(); eat.disabled = Boolean(lifeScene.activity); eat.focus(); });
         accept.addEventListener("click", submitMeal);
         confirmation.append(cancel, accept); row.append(confirmation); eat.disabled = true; cancel.focus();
       });
@@ -84,7 +84,7 @@ function renderLifeScene() {
       button.className = "button secondary";
       button.textContent = { inspect: "查看", pickup: "拾取", drop: "放下" }[operation];
       button.setAttribute("aria-label", `${button.textContent}${item.name}`);
-      button.disabled = state.busy || (Boolean(active) && operation !== "inspect");
+      button.disabled = (Boolean(active) && operation !== "inspect");
       button.addEventListener("click", () => interactLifeItem(item.id, operation));
       row.append(button);
     }

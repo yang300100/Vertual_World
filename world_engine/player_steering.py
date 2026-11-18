@@ -5,11 +5,10 @@ from __future__ import annotations
 import json
 import math
 from datetime import timedelta
-from functools import lru_cache
 
 from world_engine.contracts import ContractService
 from world_engine.life import LifeActivityService
-from world_engine.navigation import TerrainService
+from world_engine.navigation import load_terrain
 from world_engine.repository import from_iso, to_iso
 from world_engine.routing import RoutePlanner
 from world_engine.spatial import SpatialContextService
@@ -18,9 +17,8 @@ INPUT_LEASE_SECONDS = 2.0
 STEP_KM = 0.025
 
 
-@lru_cache(maxsize=8)
 def _terrain(asset_root):
-    return TerrainService(asset_root)
+    return load_terrain(asset_root)
 
 
 class PlayerSteeringService:
@@ -33,6 +31,8 @@ class PlayerSteeringService:
 
     @staticmethod
     def capabilities(connection, actor):
+        from world_engine.rides import RideService
+        RideService.assert_not_aboard(connection, actor['id'])
         LifeActivityService.assert_available(connection, actor["id"])
         if actor["health"] <= 0:
             raise ValueError("当前身体状态无法移动")
@@ -41,6 +41,8 @@ class PlayerSteeringService:
         speed, kind = float(actor["movement_speed_kmh"]), actor["movement_type"]
         metadata = {}
         if actor["active_vehicle_id"]:
+            if connection.execute('SELECT 1 FROM vehicle_states WHERE vehicle_id=?', (actor['active_vehicle_id'],)).fetchone():
+                raise ValueError('真实载具请从原共乘路线驾驶，不能另开方向路线')
             vehicle = ContractService.vehicle_for(connection, actor["world_id"], actor["id"],
                                                   actor["active_vehicle_id"])
             if vehicle is None:
@@ -49,6 +51,9 @@ class PlayerSteeringService:
             metadata = json.loads(vehicle["metadata_json"] or "{}")
         if speed <= 0 or not math.isfinite(speed):
             raise ValueError("当前人物无法移动")
+        from world_engine.companions import CompanionService
+
+        speed = CompanionService.speed_cap(connection, actor, speed)
         return speed, kind, metadata
 
     @staticmethod
@@ -86,6 +91,17 @@ class PlayerSteeringService:
 
     @classmethod
     def set_direction(cls, connection, actor, direction, sequence, at, now):
+        connection.execute("SAVEPOINT group_direction_input")
+        try:
+            cls._set_direction(connection, actor, direction, sequence, at, now)
+        except Exception:
+            connection.execute("ROLLBACK TO group_direction_input")
+            raise
+        finally:
+            connection.execute("RELEASE group_direction_input")
+
+    @classmethod
+    def _set_direction(cls, connection, actor, direction, sequence, at, now):
         from world_engine.actions import ActionService
 
         previous = connection.execute("SELECT * FROM player_steering WHERE world_id=?",
@@ -94,7 +110,19 @@ class PlayerSteeringService:
         if not any(direction):
             cls.stop(connection, actor["world_id"], at)
         else:
+            from world_engine.journeys import JourneyService
+            if JourneyService.active(connection,actor["world_id"],actor["id"]):
+                raise ValueError("请先暂停或退出共同旅行，再使用方向移动")
             cls.capabilities(connection, actor)
+            if actor["active_vehicle_id"]:
+                from world_engine.movement import assert_vehicle_fuel_accounted
+                vehicle = ContractService.vehicle_for(connection,actor["world_id"],actor["id"],actor["active_vehicle_id"])
+                # 哥哥，仅限制新方向输入；既有方向推进仍遵循原租期与超时规则。
+                assert_vehicle_fuel_accounted(connection, vehicle)
+            from world_engine.group_journeys import GroupJourneyService
+            group = GroupJourneyService.active(connection, actor["world_id"], actor["id"])
+            if group and group["status"] in {"accepted", "active", "resume_pending"}:
+                GroupJourneyService.pause(connection, group, at, "本人选择独立方向移动，原有限跟随已撤回。", actor=actor, force=group["status"] == "resume_pending")
         scale = connection.execute("SELECT time_scale FROM world_clock WHERE world_id=?",
                                    (actor["world_id"],)).fetchone()[0]
         before = (previous["started_state_json"] if active else
@@ -128,11 +156,29 @@ class PlayerSteeringService:
             return 0
         actor = connection.execute("SELECT * FROM characters WHERE id=?",
                                    (row["character_id"],)).fetchone()
+        from world_engine.companions import CompanionService
+
+        members = CompanionService.members(connection, actor)
+        effective = current_time
+        for session in CompanionService.active(connection, actor['id']):
+            effective = min(effective, from_iso(session['until_world_time']))
+        speed = min((float(n['movement_speed_kmh']) for n in members), default=float('inf'))
+        moved = cls._advance_row(connection, row, actor, effective, now, speed)
+        for npc in members:
+            member_row = {**dict(row), 'character_id': npc['id']}
+            moved += cls._advance_row(connection, member_row, npc, effective, now, speed)
+        return moved
+
+    @classmethod
+    def _advance_row(cls, connection, row, actor, current_time, now, speed_cap):
+        """哥哥，每人从自己的真实坐标走，地形仍逐段检查。"""
+        world_id = row['world_id']
         try:
             speed, kind, metadata = cls.capabilities(connection, actor)
         except ValueError as exc:
             cls.stop(connection, world_id, current_time, f"停止移动：{exc}。")
             return 0
+        speed = min(speed, speed_cap)
         effective = min(current_time, from_iso(row["expires_world"]))
         lease_due = None
         if actor["active_vehicle_id"]:

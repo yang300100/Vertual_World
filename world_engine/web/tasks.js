@@ -54,7 +54,7 @@ function renderTasks() {
     const row = document.createElement("div"); row.className = "life-item";
     const label = document.createElement("span"); label.textContent = `${item.name} × ${item.quantity} · 完好度 ${item.condition}/100 · 在原活动地点领取${item.freshness?.spoils_world_time ? ` · ${item.freshness.label} · ${formatWorldTime(item.freshness.spoils_world_time)}到期` : ""}`;
     const button = document.createElement("button"); button.type = "button"; button.className = "button secondary"; button.textContent = `领取${item.name}（1份）`;
-    button.disabled = state.busy || Boolean(active);
+    button.disabled = Boolean(active);
     button.addEventListener("click", () => lifeMutation(`outputs/${encodeURIComponent(item.id)}/claim`, {quantity:1}));
     row.append(label, button); return row;
   });

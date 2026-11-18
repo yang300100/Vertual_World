@@ -305,6 +305,18 @@ class ResearchService:
                 (activity['id'],),
             ).fetchone()
         if not valid:
+            from world_engine.principle_inventions import has_table
+
+            if has_table(c, "principle_research_work"):
+                valid = c.execute(
+                    "SELECT 1 FROM principle_research_work r JOIN principle_projects p "
+                    "ON p.proposal_id=r.proposal_id JOIN principle_proposals q "
+                    "ON q.id=p.proposal_id "
+                    "WHERE r.activity_id=? AND q.inventor_id=? AND q.world_id=? "
+                    "AND p.status IN ('researching','paused') AND r.settled_at IS NULL",
+                    (activity["id"], actor["id"], actor["world_id"]),
+                ).fetchone()
+        if not valid:
             return False
         elapsed = (effective - from_iso(activity["started_world_time"])).total_seconds() / 3600
         charged = int(elapsed * 3)

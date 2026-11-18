@@ -277,7 +277,9 @@ class WorkService:
             raise ValueError("检验样品容量或实际人工时间不足")
         if task["auxiliary_ids"] or task["assistants"]:
             raise ValueError("单台检验不能把辅助材料或签名当成实测")
-        science_work.measure(c, worker["world_id"], state, task["method"], tool)
+        prepared_measurement = science_work.measure(c, worker["world_id"], state, task["method"], tool)
+        task["_phenomenon_version"] = prepared_measurement["rule_version"]
+        task["_phenomenon_rule_id"] = prepared_measurement["rule_id"]
         inputs = resources.supplies(
             c,
             worker,
@@ -348,7 +350,10 @@ class WorkService:
                 tool = c.execute(
                     "SELECT * FROM collective_instruments WHERE item_id=?", (task["instrument_id"],)
                 ).fetchone()
-                measured = science_work.measure(c, order_world(c, order), states[0], task["method"], tool)
+                measured = science_work.measure(c, order_world(c, order), states[0], task["method"], tool,
+                                                rule_version=task.get("_phenomenon_version"))
+                if task.get("_phenomenon_rule_id") and task["_phenomenon_rule_id"] != measured["rule_id"]:
+                    raise ValueError("量测规则与开始时绑定的来源不一致")
                 result["measurement"] = {
                     "batch_id": task["_source_batch_id"],
                     "metric": task["method"],
@@ -394,6 +399,9 @@ class WorkService:
             )
             if not interrupted:
                 c.execute("INSERT INTO collective_assay_results VALUES (?,?)", (order["id"], oid))
+                from world_engine.phenomena import record_work
+
+                record_work(c, order["id"], states[0], (), (), hours, at)
             return
         if science_work.enabled(c, order_world(c, order)):
             outputs = science_work.process_work(c, order_world(c, order), states[0], task, hours, tuple(states[1:]))
@@ -437,6 +445,9 @@ class WorkService:
                 order["id"],
             ),
         )
+        from world_engine.phenomena import record_work
+
+        record_work(c, order["id"], states[0], tuple(states[1:]), outputs, hours, at)
         if task.get("_apparatus_location"):
             place = task["_apparatus_location"]
             resources.return_tool(c, task["apparatus_id"], place, task["_location"], wear=1)

@@ -299,6 +299,7 @@ class PlayerIntentMixin:
                     at=snapshot.world.current_time,
                     channel="in_person",
                     reply=npc_reply,
+                    source_event_id=outcome.event_id,
                 )
                 LOGGER.info(
                     "NPC对话结算 request_id=%s source_event_id=%s npc_id=%s "
@@ -487,24 +488,123 @@ class PlayerIntentMixin:
                     target_label=gift[1] if gift else approach or "",
                     item_name=gift[0] if gift else "",
                 )
-            if message.kind == "speech":
-                return IntentPreview(
-                    requires_form=False, operation="none", route_kind="speech",
-                    route_detail=message.text, target_character_id=target_character_id,
+            from world_engine.appointments import AppointmentService
+            from world_engine.companion_proposals import CompanionProposalService
+            from world_engine.companions import CompanionService
+            from world_engine.families import FamilyService
+            from world_engine.group_journey_options import group_journey_options
+            from world_engine.group_journeys import GroupJourneyService
+            from world_engine.rides import RideService
+            from world_engine.ride_options import ride_options
+            from world_engine.intimacy import IntimacyService
+            from world_engine.journeys import JourneyService
+            from world_engine.lodging_plans import LodgingPlanService
+            from world_engine.overnight import OvernightService
+            from world_engine.separate_stays import SeparateStayService
+            from world_engine.shared_life import SharedLifeService
+            from world_engine.shared_plans import SharedPlanService
+
+            separate_stay_only = False
+            known_separate_stays = []
+            known_lodging_plans = []
+            known_companion_proposals = []
+            known_companionship = []
+            known_journeys = []
+            known_group_journeys = []
+            try:
+                hinted_target = self.conversations.resolve_target(
+                    connection, snapshot=snapshot, player=player, intent=intent,
+                    target_character_id=target_character_id,
                 )
-            hinted_target = self.conversations.resolve_target(
-                connection,
-                snapshot=snapshot,
-                player=player,
-                intent=intent,
-                target_character_id=target_character_id,
-            )
+            except ValueError:
+                candidate = snapshot.character_by_id(target_character_id) if target_character_id else None
+                if candidate is None or candidate.is_player:
+                    raise
+                known_separate_stays = [row for row in SeparateStayService.rows(
+                    connection, world_id, player.id, snapshot.world.current_time, candidate.id,
+                ) if row["status"] in {"pending", "accepted", "active"}
+                    or row["status"] == "completed" and row["reunion_status"] == "waiting"
+                    or row.get("can_end_reunion_wait")]
+                known_lodging_plans = [row for row in LodgingPlanService.rows(
+                    connection, world_id, player.id, snapshot.world.current_time, candidate.id,
+                ) if row["status"] in {"pending", "accepted"}]
+                known_companion_proposals = [row for row in CompanionProposalService.rows(
+                    connection,world_id,player.id,snapshot.world.current_time,candidate.id,
+                ) if row["status"] == "pending" and row["proposer_id"] == player.id]
+                known_companionship = [dict(row) for row in CompanionService.active(connection,player.id) if row["companion_id"] == candidate.id]
+                known_journeys = [row for row in JourneyService.rows(connection,world_id,player.id,snapshot.world.current_time,candidate.id)
+                                  if row["status"] in {"accepted","active","paused","resume_pending"}]
+                known_group_journeys = [row for row in GroupJourneyService.rows(connection,world_id,player.id,snapshot.world.current_time,candidate.id)
+                                       if row["status"] in {"pending","accepted","active","paused","resume_pending"}]
+                if not known_separate_stays and not known_lodging_plans and not known_companion_proposals and not known_companionship and not known_journeys and not known_group_journeys:
+                    raise
+                # 哥哥，分房后只允许操作本人已确认的入住或退出，不把隔屋当面对话。
+                hinted_target = candidate
+                separate_stay_only = True
+            social_context = {}
+            if separate_stay_only:
+                social_context[hinted_target.id] = {}
+                if known_separate_stays:
+                    social_context[hinted_target.id].update(separate_stays=known_separate_stays, separate_stay_only=True)
+                if known_lodging_plans:
+                    social_context[hinted_target.id].update(lodging_plans=known_lodging_plans, lodging_plan_only=True)
+                if known_companion_proposals or known_companionship:
+                    social_context[hinted_target.id].update(companion_proposals=known_companion_proposals,companionship=known_companionship,companion_only=True)
+                if known_journeys:
+                    social_context[hinted_target.id].update(journeys=known_journeys,journey_only=True)
+                if known_group_journeys:
+                    social_context[hinted_target.id].update(group_journeys=known_group_journeys,group_journey_only=True)
+            elif hinted_target:
+                appointment_context=AppointmentService.context(connection,world_id,player.id,hinted_target.id,snapshot.world.current_time)
+                from world_engine.interiors import InteriorService
+
+                overnight_rooms = {row["id"]: row for row in appointment_context["room_options"]}
+                actor = connection.execute("SELECT * FROM characters WHERE id=?", (player.id,)).fetchone()
+                # 哥哥，看见一扇真实房门可以询问接待，仍不表示已经取得进入许可。
+                for door in InteriorService.scene(connection, actor)["doors"]:
+                    overnight_rooms.setdefault(door["id"], {"id": door["id"], "name": door["name"]})
+                social_context[hinted_target.id] = {
+                    "bonds": IntimacyService.rows(connection, world_id, player.id, snapshot.world.current_time, hinted_target.id),
+                    "moments": SharedLifeService.rows(connection, world_id, player.id, snapshot.world.current_time, hinted_target.id),
+                    "family": FamilyService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "home_options": FamilyService.room_options(connection,world_id,player.id,hinted_target.id,snapshot.world.current_time),
+                    "appointments": AppointmentService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "appointment_places": appointment_context["place_options"],
+                    "appointment_rooms": appointment_context["room_options"],
+                    "appointment_series": appointment_context["series"],
+                    "shared_plans": SharedPlanService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "journeys": JourneyService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "group_journeys": GroupJourneyService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "group_journey_options": group_journey_options(connection,world_id,player.id,snapshot.world.current_time),
+                    "rides": RideService.rows(connection,connection.execute("SELECT * FROM characters WHERE id=?",(player.id,)).fetchone(),snapshot.world.current_time),
+                    "ride_options": ride_options(connection,world_id,player.id,snapshot.world.current_time),
+                    "overnights": OvernightService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "overnight_rooms": list(overnight_rooms.values()),
+                    "separate_stays": SeparateStayService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "separate_stay_rooms": SeparateStayService.room_options(connection,world_id,player.id,hinted_target.id,snapshot.world.current_time),
+                    "lodging_plans": LodgingPlanService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "companion_proposals": CompanionProposalService.rows(connection,world_id,player.id,snapshot.world.current_time,hinted_target.id),
+                    "companionship": [dict(row) for row in CompanionService.active(connection,player.id) if row["companion_id"]==hinted_target.id],
+                    "lodging_handoff_sources": LodgingPlanService.handoff_sources(connection,world_id,player.id,hinted_target.id,snapshot.world.current_time),
+                    "lodging_room_options": LodgingPlanService.room_options(connection,world_id,player.id,hinted_target.id,snapshot.world.current_time),
+                    "journey_places": JourneyService.places(connection,world_id,player.id),
+                }
+            from world_engine.society import SocietyService
+
+            social_context["_target_labels"] = {
+                target.id: SocietyService.label(connection, player.id, target.id)
+                for target in self.intent_parser._visible_targets(player, snapshot)
+            }
         preview = self.intent_parser.preview(
-            intent=intent,
+            intent=message.text if message.kind == "speech" else intent,
             player=player,
             snapshot=snapshot,
             preferred_target_id=hinted_target.id if hinted_target else None,
+            social_context=social_context,
         )
+        if message.kind == "speech" and preview.route_kind != "social_choice":
+            return IntentPreview(requires_form=False, operation="none", route_kind="speech",
+                                 route_detail=message.text, target_character_id=target_character_id)
         if preview.route_kind == "world":
             return preview.model_copy(update={
                 "route_detail": intent,

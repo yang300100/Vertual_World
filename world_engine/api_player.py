@@ -451,7 +451,14 @@ def build_player_router(database, engine, repository, photo_service, world_pack=
     ) -> list[dict[str, object]]:
         try:
             with database.read() as connection:
-                return repository.list_memories(connection, world_id, character_id, limit)
+                memories=repository.list_memories(connection, world_id, character_id, limit)
+                owner=connection.execute("SELECT is_player FROM characters WHERE id=? AND world_id=?",(character_id,world_id)).fetchone()
+                if owner and owner["is_player"]:
+                    # 哥哥，玩家回看自己的经历也只能看见已经知道的姓名，原始审计记录保留。
+                    from world_engine.intimacy import IntimacyService
+
+                    IntimacyService.mask_records(connection,world_id,character_id,memories,("summary",))
+                return memories
         except LookupError as exc:
             raise HTTPException(status_code=404, detail="世界或人物不存在") from exc
 

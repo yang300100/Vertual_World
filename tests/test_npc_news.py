@@ -232,9 +232,10 @@ def test_major_event_witness_with_personal_stake_forms_plan(town):
         ).fetchone()["id"]
         c.execute(
             "UPDATE characters SET current_location_id=?,longitude=?,latitude=?,"
-            "activation_state='active' WHERE id=?",
+            "activation_state='active',activation_probability=1 WHERE id=?",
             (e.loc["id"], e.loc["longitude"], e.loc["latitude"], witness),
         )
+        # 哥哥，这里验收目击后的打听计划，不让概率激活干扰结论。
         c.execute("UPDATE characters SET goals_json='[]' WHERE id=?", (witness,))
         c.execute("UPDATE world_runtime SET tick_count=1 WHERE world_id=?", (e.wid,))
         c.execute(

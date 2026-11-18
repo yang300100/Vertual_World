@@ -5,7 +5,7 @@ import pytest
 from world_engine.science_schema import create_session
 from world_engine.science_workshop import seed_workshop
 
-pytest_plugins = ["test_collective_research"]
+pytest_plugins = ["collective_fixtures"]
 
 
 @pytest.fixture

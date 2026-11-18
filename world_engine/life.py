@@ -13,6 +13,24 @@ from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM
 from world_engine.repository import from_iso, to_iso, utc_now
 
 
+ABOARD_LIFE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS aboard_life_activities (
+    activity_id TEXT PRIMARY KEY REFERENCES character_life_activities(id) ON DELETE CASCADE,
+    world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
+    character_id TEXT NOT NULL REFERENCES characters(id),
+    ride_id TEXT NOT NULL REFERENCES vehicle_rides(id),
+    vehicle_id TEXT NOT NULL REFERENCES vehicles(id),
+    movement_id TEXT REFERENCES character_movements(id),
+    longitude REAL NOT NULL CHECK(longitude BETWEEN -180 AND 180),
+    latitude REAL NOT NULL CHECK(latitude BETWEEN -90 AND 90),
+    space_layer TEXT NOT NULL,
+    current_location_id TEXT REFERENCES locations(id),
+    started_world_time TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_aboard_life_ride ON aboard_life_activities(ride_id,character_id);
+"""
+
+
 class LifeActivityError(ValueError):
     pass
 
@@ -37,6 +55,47 @@ def parse_life_activity(text: str) -> tuple[str, int] | None:
 
 class LifeActivityService:
     @staticmethod
+    def install_aboard(connection):
+        # 哥哥，逐条建表保留调用方事务，旧活动不能补造在车记录。
+        for statement in ABOARD_LIFE_SCHEMA.split(";"):
+            if statement.strip():
+                connection.execute(statement)
+
+    @staticmethod
+    def _aboard_stationary(connection, actor, world_time):
+        """只认本人有来源的在车绑定及载具真实静止状态。"""
+        from world_engine.rides import RideService
+
+        ride = RideService.aboard(connection, actor["id"])
+        if ride is None:
+            return None
+        member = connection.execute(
+            "SELECT * FROM vehicle_ride_members WHERE ride_id=? AND character_id=?",
+            (ride["id"], actor["id"]),
+        ).fetchone()
+        state = connection.execute(
+            "SELECT * FROM vehicle_states WHERE vehicle_id=? AND world_id=?",
+            (ride["vehicle_id"], actor["world_id"]),
+        ).fetchone()
+        if (ride["world_id"] != actor["world_id"] or ride["status"] != "blocked" or state is None
+                or state["status"] != "blocked" or member is None or not member["live"]
+                or member["decision"] != "accepted" or not member["boarded_at"] or member["disembarked_at"]
+                or not RideService._accepted(connection, ride, world_time)
+                or not RideService._source(connection, ride, member["board_event_id"], actor["id"], "boarded", world_time, terms=True)):
+            raise LifeActivityError("只有本人真实在静止挂起的原载具上，才能在车内休息或等待")
+        if (actor["space_layer"] != state["space_layer"] or actor["current_room_id"] or actor["current_fixture_id"]
+                or actor["current_location_id"] != state["current_location_id"]
+                or actor["longitude"] is None or actor["latitude"] is None
+                or great_circle_distance_km(actor["longitude"], actor["latitude"], state["longitude"], state["latitude"]) > 0.00001):
+            raise LifeActivityError("本人和载具的实际位置或空间层不一致，不能开始车内活动")
+        if connection.execute(
+            "SELECT 1 FROM character_movements WHERE world_id=? AND vehicle_id=? AND status='moving'",
+            (actor["world_id"], ride["vehicle_id"]),
+        ).fetchone():
+            raise LifeActivityError("载具仍有真实移动，不能在原位休息或等待")
+        return ride, state
+
+    @staticmethod
     def running(connection: sqlite3.Connection, character_id: str) -> sqlite3.Row | None:
         return connection.execute(
             "SELECT * FROM character_life_activities WHERE character_id=? AND status='running'",
@@ -51,6 +110,15 @@ class LifeActivityService:
 
     @classmethod
     def start(cls, connection, actor, world_time: datetime, kind: str, minutes: int) -> str:
+        from world_engine.rides import RideService
+        # 哥哥，重新读本人真实状态，不能以旧快照或前端字段替代当前事实。
+        actor = connection.execute("SELECT * FROM characters WHERE id=? AND world_id=?", (actor["id"], actor["world_id"])).fetchone()
+        if actor is None:
+            raise LifeActivityError("人物不存在或不属于当前世界")
+        aboard = RideService.aboard(connection, actor["id"])
+        if aboard and kind not in {"rest", "wait"}:
+            raise LifeActivityError("本人仍在载具上，只有静止挂起时可自行休息或等待")
+        binding = cls._aboard_stationary(connection, actor, world_time) if aboard else None
         cls.assert_available(connection, actor["id"])
         if (
             kind not in {"rest", "wait", "work", "craft", "repair", "map_review", "research"}
@@ -72,7 +140,10 @@ class LifeActivityService:
         ).fetchone():
             raise LifeActivityError("请先停下或抵达目的地，再原地休息或等待")
         activity_id = str(uuid4())
-        connection.execute(
+        if binding:
+            connection.execute("SAVEPOINT aboard_life_start")
+        try:
+            connection.execute(
             """INSERT INTO character_life_activities(
                 id,world_id,character_id,kind,status,location_id,longitude,latitude,
                 initial_health,started_world_time,ends_world_time,last_processed_world_time,created_at
@@ -82,7 +153,7 @@ class LifeActivityService:
                 actor["world_id"],
                 actor["id"],
                 kind,
-                actor["current_location_id"] or actor["location_id"],
+                binding[1]["current_location_id"] if binding else actor["current_location_id"] or actor["location_id"],
                 actor["longitude"],
                 actor["latitude"],
                 actor["health"],
@@ -91,7 +162,22 @@ class LifeActivityService:
                 to_iso(world_time),
                 to_iso(utc_now()),
             ),
-        )
+            )
+            if binding:
+                ride, state = binding
+                connection.execute(
+                    "INSERT INTO aboard_life_activities(activity_id,world_id,character_id,ride_id,vehicle_id,movement_id,longitude,latitude,space_layer,current_location_id,started_world_time) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (activity_id, actor["world_id"], actor["id"], ride["id"], ride["vehicle_id"], ride["movement_id"],
+                     state["longitude"], state["latitude"], state["space_layer"], state["current_location_id"], to_iso(world_time)),
+                )
+        except Exception:
+            if binding:
+                connection.execute("ROLLBACK TO aboard_life_start")
+                connection.execute("RELEASE aboard_life_start")
+            raise
+        if binding:
+            connection.execute("RELEASE aboard_life_start")
         return activity_id
 
     @staticmethod
@@ -140,6 +226,10 @@ class LifeActivityService:
         summary = (
             f"{actor['name']}的{name}{'结束了' if status == 'completed' else '已停止'}。{reason}"
         )
+        aboard = connection.execute(
+            "SELECT ride_id,vehicle_id FROM aboard_life_activities WHERE activity_id=?",
+            (row["id"],),
+        ).fetchone()
         event_id = ActionService._record_event(
             connection,
             world_id=row["world_id"],
@@ -152,7 +242,10 @@ class LifeActivityService:
             target_id=None,
             location_id=row["location_id"],
             summary=summary,
-            payload={"activity_id": row["id"], "kind": row["kind"], "reason": reason},
+            payload={
+                "activity_id": row["id"], "kind": row["kind"], "reason": reason,
+                **({"aboard_activity": {"ride_id": aboard["ride_id"], "vehicle_id": aboard["vehicle_id"]}} if aboard else {}),
+            },
         )
         if row["kind"] in {"work", "craft", "repair", "map_review"}:
             from world_engine.activity_tasks import TaskService
@@ -201,6 +294,10 @@ class LifeActivityService:
                 finish_event_id=? WHERE id=? AND status='running'""",
             (status, to_iso(at), reason, event_id, row["id"]),
         )
+        if row["kind"] == "research":
+            from world_engine.principle_cycles import settle_activity
+
+            settle_activity(connection, row, at, status)
         from world_engine.action_results import finish_execution
 
         finish_execution(
@@ -226,6 +323,8 @@ class LifeActivityService:
 
     @classmethod
     def advance(cls, connection, world_id: str, at: datetime, heartbeat_id: str) -> int:
+        from world_engine.overnight import OvernightService
+        OvernightService.maintain(connection,world_id,at,complete=False)
         rows = connection.execute(
             "SELECT * FROM character_life_activities WHERE world_id=? AND status='running'",
             (world_id,),
@@ -237,6 +336,21 @@ class LifeActivityService:
                 (row["character_id"],),
             ).fetchone()
             last = from_iso(row["last_processed_world_time"])
+            binding = connection.execute("SELECT * FROM aboard_life_activities WHERE activity_id=?", (row["id"],)).fetchone()
+            if binding:
+                try:
+                    actual = cls._aboard_stationary(connection, actor, at)
+                    if (actual is None or actual[0]["id"] != binding["ride_id"]
+                            or actual[0]["vehicle_id"] != binding["vehicle_id"]
+                            or actual[0]["movement_id"] != binding["movement_id"]
+                            or actual[1]["space_layer"] != binding["space_layer"]
+                            or actual[1]["current_location_id"] != binding["current_location_id"]
+                            or great_circle_distance_km(actual[1]["longitude"], actual[1]["latitude"], binding["longitude"], binding["latitude"]) > 0.00001):
+                        raise LifeActivityError("原载具或位置已经变化")
+                except (ValueError, LookupError):
+                    cls.finish(connection, row, max(last, at), "interrupted", "原载具、在车绑定或静止位置已经变化。")
+                    updates += 1
+                    continue
             moved = (
                 great_circle_distance_km(
                     actor["longitude"],
@@ -348,6 +462,17 @@ class LifeActivityService:
             if at >= end:
                 cls.finish(connection, row, end, "completed", "预定的时间已经过去。")
             updates += 1
+        from world_engine.shared_life import SharedLifeService
+
+        SharedLifeService.maintain(connection, world_id, at)
+        from world_engine.appointments import AppointmentService
+
+        updates += AppointmentService.maintain(connection, world_id, at)
+        from world_engine.shared_plans import SharedPlanService
+        updates += SharedPlanService.maintain(connection,world_id,at)
+        from world_engine.journeys import JourneyService
+        JourneyService.maintain(connection,world_id,at)
+        OvernightService.maintain(connection,world_id,at)
         return updates
 
 

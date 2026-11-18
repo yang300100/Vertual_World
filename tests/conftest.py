@@ -7,6 +7,8 @@ import pytest
 from world_engine.config import Settings
 from world_engine.database import Database
 
+pytest_plugins = ["collective_fixtures"]
+
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:

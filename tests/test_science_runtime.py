@@ -163,3 +163,55 @@ def test_science_cannot_inject_paid_decision_provider(science_lab, settings):
         assert isinstance(engine.decision_provider, RuleDecisionProvider)
     finally:
         engine.close()
+
+
+def test_stopping_heartbeat_skips_planning_but_settles_existing_work(
+    science_lab, settings, monkeypatch
+):
+    from test_science_programs import craft_program
+    from test_science_runner import Backend
+
+    from world_engine.engine import WorldEngine
+    from world_engine.repository import to_iso
+    from world_engine.science_programs import ScienceService
+    from world_engine.science_runner import ScienceRunner
+
+    db, wid, sid, actors, assets, at = science_lab
+    with db.write() as c:
+        c.execute(
+            "UPDATE material_modes SET policy_json=? WHERE world_id=?",
+            (json.dumps({"mode": "science"}), wid),
+        )
+        c.execute(
+            "UPDATE world_clock SET time_scale=1,next_adjudication_world_time=? WHERE world_id=?",
+            (to_iso(at + timedelta(hours=12)), wid),
+        )
+        pid = ScienceService.submit(
+            c, sid, actors[0], craft_program(assets["actors"][actors[0]]), at
+        )
+        c.execute("UPDATE science_sessions SET status='stopping' WHERE id=?", (sid,))
+    backend = Backend()
+    engine = WorldEngine(db, settings)
+    engine.science_backend = backend
+
+    def forbid_decision(*args, **kwargs):
+        pytest.fail("停止新增请求后不应进入规划写事务")
+
+    monkeypatch.setattr(ScienceRunner, "decide", forbid_decision)
+    try:
+        engine.heartbeat(wid, elapsed_seconds=3600)
+        assert sid in engine.science_runners
+        engine.heartbeat(wid, elapsed_seconds=1800)
+        with db.read() as c:
+            assert (
+                c.execute("SELECT status FROM science_programs WHERE id=?", (pid,)).fetchone()[0]
+                == "completed"
+            )
+            assert (
+                c.execute("SELECT status FROM science_sessions WHERE id=?", (sid,)).fetchone()[0]
+                == "stopped"
+            )
+            assert not c.execute("SELECT 1 FROM science_model_calls").fetchone()
+        assert not backend.calls
+    finally:
+        engine.close()

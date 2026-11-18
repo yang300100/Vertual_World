@@ -59,6 +59,18 @@ class KnowledgeService:
         )
 
     @staticmethod
+    def _introduced_name(value: str, canonical_name: str) -> str:
+        """哥哥，保留明确引用的称呼与假名，只去掉自我介绍末尾的语气词。"""
+        for opening, closing in (("“", "”"), ('"', '"'), ("「", "」"), ("『", "』")):
+            if value.startswith(opening):
+                end = value.find(closing, 1)
+                if end > 1 and value[end + 1:] in {"", "就好", "就行", "即可", "吧"}:
+                    return value[1:end]
+        if value == canonical_name:
+            return value
+        return re.sub(r"(?:就好|就行|即可|吧)$", "", value)
+
+    @staticmethod
     def _spoken_name(text: str, canonical_name: str) -> str | None:
         """Yuki 只从明确的自我介绍中取名，不把职业或旁人提及当成姓名。"""
         spoken = re.search(
@@ -67,7 +79,7 @@ class KnowledgeService:
             text,
         )
         if spoken:
-            return spoken[1]
+            return KnowledgeService._introduced_name(spoken[1], canonical_name) or None
         name = re.escape(canonical_name)
         suffix = r"(?=[，。！？；：、\s]|$)"
         lead = re.sub(r"^\s*[（(][^）)]{0,120}[）)]\s*", "", text)
@@ -367,7 +379,9 @@ class KnowledgeService:
                 r"(?:^|[，。！；\n])\s*(?:我叫|我的名字是|叫我)([^，。！？；：、\s]{1,20})(?=[，。！；\s]|$)", text
             )
             if match and not any(word in match[1] for word in ("不是","如果","假如","是不是")):
-                claims.append((speaker["id"], "name", match[1], match[0]))
+                name = cls._introduced_name(match[1], speaker['name'])
+                if name:
+                    claims.append((speaker["id"], "name", name, match[0]))
             subjects = [dict(speaker)]
             for row in c.execute(
                 "SELECT p.* FROM character_acquaintances a JOIN characters p ON p.id=a.subject_id WHERE a.observer_id=? AND p.world_id=?",

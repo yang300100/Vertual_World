@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import fields, replace
 from datetime import timedelta
 from pathlib import Path
+from uuid import uuid4
 
 PROJECT = Path(__file__).resolve().parents[1]
 if str(PROJECT) not in sys.path:
@@ -37,7 +39,7 @@ def load_settings(output):
     # 仅读取既有密钥，不复制或覆盖.env，也不将它写入报告。
     from dotenv import load_dotenv
 
-    load_dotenv(Path(r"C:\Users\14261\Desktop\Vertual_World-main\.env"), override=False)
+    load_dotenv(PROJECT / ".env", override=False)
     base = Settings.from_env()
     return replace(
         base,
@@ -202,9 +204,72 @@ def known_postal_channels(c, wid, assets):
 
 
 def prepare(source, wid, output, settings, verification, *, prior_runs=()):
+    authorization = verification.get("budget_authorization")
+    if authorization:
+        from world_engine.science_budget import authorization_lock
+
+        with run_lock(authorization_lock(authorization)):
+            return _prepare(source, wid, output, settings, verification, prior_runs=prior_runs)
+    return _prepare(source, wid, output, settings, verification, prior_runs=prior_runs)
+
+
+def prepare_rations(c, wid, assets, at, quantity):
+    """哥哥，有限口粮只作为冻结前的测试条件，不在运行中续补或改人物饥饿值。"""
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or not 1 <= quantity <= 100:
+        raise ValueError("测试初始口粮须为每人1至100份")
+    from world_engine.collective_research import CollectiveResearchService
+    from world_engine.inventory import InventoryService
+    from world_engine.material_physics import MaterialState
+    from world_engine.materials import MaterialService
+
+    tid = str(uuid4())
+    c.execute(
+        "INSERT INTO item_types(id,name,category,stack_limit,slot_size) VALUES "
+        "(?,'有限自用干粮','food',100,1)",
+        (tid,),
+    )
+    result = {}
+    for aid in assets["actors"]:
+        iid = str(uuid4())
+        candidate = {
+            "id": iid,
+            "item_type_id": tid,
+            "stack_limit": 100,
+            "slot_size": 1,
+            "condition": 100,
+            "quantity": quantity,
+            "owner_character_id": aid,
+        }
+        InventoryService._capacity(c, aid, candidate, quantity)
+        c.execute(
+            "INSERT INTO item_instances(id,world_id,item_type_id,container_type,container_id,"
+            "owner_character_id,quantity,condition) VALUES (?,?,?,'character_inventory',?,?,?,100)",
+            (iid, wid, tid, aid, aid, quantity),
+        )
+        MaterialService.attach(
+            c, iid, MaterialState(carrier="grain", mass=quantity, nutrition=20 * quantity)
+        )
+        CollectiveResearchService.record_observation(
+            c,
+            aid,
+            at,
+            "本人的有限自用干粮已放入随身物资",
+            {
+                "kind": "initial_rations",
+                "item_id": iid,
+                "quantity": quantity,
+                "note": "仅为研究期间的有限普通补给，实际用饭仍扣除实物，不自动续补。",
+            },
+        )
+        result[aid] = iid
+    return result
+
+
+def _prepare(source, wid, output, settings, verification, *, prior_runs=()):
     if output.exists():
         raise ValueError("准备须使用新的独立输出目录，不能覆盖旧运行")
-    lineage = budget_lineage(prior_runs, wid)
+    authorization = verification.get("budget_authorization")
+    lineage = budget_lineage(prior_runs, wid, authorization=authorization)
     if lineage["remaining"]["token_limit"] < 8192:
         raise ValueError("跨轮预算不足以保留冻结的单次输出上限，禁止准备新实验")
     output.mkdir(parents=True)
@@ -224,8 +289,29 @@ def prepare(source, wid, output, settings, verification, *, prior_runs=()):
         if before != after:
             raise ValueError("正常迁移改变了原身份、技能、目标、关系或记忆，禁止冻结")
         at = from_iso(world["current_time"])
+        initial_technologies = sum(
+            c.execute(f"SELECT count(*) FROM {table} WHERE world_id=?", (wid,)).fetchone()[0]
+            for table in ("technologies", "principle_technologies")
+        )
+        if verification.get("require_zero_technologies") and initial_technologies:
+            raise ValueError("来源已有科技，不能把已有成果当作从零研发")
         sid = create_session(c, wid, at, **lineage["remaining"], max_output_tokens=8192)
-        assets = seed_workshop(c, wid, at, seed=20261005)
+        participants = None
+        if verification.get("participant_policy") == "existing_skilled_npcs":
+            participants = [
+                r[0]
+                for r in c.execute(
+                    "SELECT id FROM characters WHERE world_id=? AND is_player=0 AND health>=40 "
+                    "AND json_array_length(skills_json)>0 ORDER BY id",
+                    (wid,),
+                )
+            ]
+        assets = seed_workshop(c, wid, at, seed=20261005, actor_ids=participants)
+        rations = (
+            prepare_rations(c, wid, assets, at, verification["initial_ration_quantity"])
+            if verification.get("initial_ration_quantity")
+            else {}
+        )
         c.execute(
             "UPDATE material_modes SET policy_json=? WHERE world_id=?",
             (encoded({"mode": "science"}), wid),
@@ -244,6 +330,9 @@ def prepare(source, wid, output, settings, verification, *, prior_runs=()):
                 "max_world_hours": 240,
                 "max_heartbeats": 4800,
                 "source_identity_preserved": before == after,
+                "initial_technologies": initial_technologies,
+                "initial_rations": rations,
+                **({"participants": participants} if participants is not None else {}),
                 "runtime_config": runtime_config(settings),
                 "budget_lineage": lineage,
             },
@@ -255,6 +344,10 @@ def prepare(source, wid, output, settings, verification, *, prior_runs=()):
     (output / "source-identity.json").write_text(
         json.dumps(before, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if authorization:
+        from world_engine.science_budget import register_allocation
+
+        register_allocation(authorization, output, prior_runs)
     report = export_science(db, sid, output / "reports/prepared")
     print(
         encoded(
@@ -309,7 +402,47 @@ def run_lock(path):
 
 def run(output, settings, *, resume=False):
     with run_lock(output / "process.lock"):
+        info = json.loads((output / "run.json").read_text(encoding="utf-8"))
+        with Database(output / "world.db", legacy_world_defaults=False).read() as c:
+            frozen = json.loads(
+                c.execute(
+                    "SELECT freeze_json FROM science_sessions WHERE id=?", (info["session_id"],)
+                ).fetchone()[0]
+            )
+        authorization = frozen.get("verification", {}).get("budget_authorization")
+        if authorization:
+            from world_engine.science_budget import authorization_lock
+
+            with run_lock(authorization_lock(authorization)):
+                return _run(output, settings, resume=resume)
         _run(output, settings, resume=resume)
+
+
+def observe_progress(path, runner, world_id):
+    """哥哥，只读一致快照供日志和边界观察，不作为冻结或费用授权证据。"""
+    from world_engine.collective_clock import next_boundary
+
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)) as c:
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA query_only=ON")
+        c.execute("BEGIN")
+        try:
+            session = c.execute(
+                "SELECT world_id,status FROM science_sessions WHERE id=?", (runner.session_id,)
+            ).fetchone()
+            if session is None or session["world_id"] != world_id:
+                raise ValueError("科研进度会话不存在或跨世界")
+            at = from_iso(c.execute(
+                "SELECT w.current_time FROM worlds w WHERE w.id=?", (world_id,)
+            ).fetchone()[0])
+            return {
+                "status": session["status"],
+                "world_time": at,
+                "next_boundary": next_boundary(c, world_id, at),
+                "usage": runner._usage(c),
+            }
+        finally:
+            c.rollback()
 
 
 def _run(output, settings, *, resume=False):
@@ -326,7 +459,10 @@ def _run(output, settings, *, resume=False):
         verification = manifest["verification"]
         lineage = verification.get("budget_lineage")
         if not lineage or lineage != budget_lineage(
-            tuple(r["output_path"] for r in lineage["prior_runs"]), wid
+            tuple(r["output_path"] for r in lineage["prior_runs"]),
+            wid,
+            authorization=verification.get("budget_authorization"),
+            current_run=output if verification.get("budget_authorization") else None,
         ):
             raise ValueError("跨轮预算来源不同于冻结清单，禁止继续本轮")
         if {k: s[k] for k in lineage["remaining"]} != lineage["remaining"]:
@@ -357,36 +493,25 @@ def _run(output, settings, *, resume=False):
             )
         engine = WorldEngine(db, settings)
         engine.heartbeat(wid, elapsed_seconds=0)
-        from world_engine.collective_clock import next_boundary
-
         for _ in range(verification["max_heartbeats"]):
-            with db.read() as c:
-                s = c.execute("SELECT * FROM science_sessions WHERE id=?", (sid,)).fetchone()
-                at = from_iso(
-                    c.execute(
-                        "SELECT w.current_time FROM worlds w WHERE w.id=?", (wid,)
-                    ).fetchone()[0]
-                )
-                if s["status"] == "stopped":
-                    break
-                boundary = next_boundary(c, wid, at)
+            progress = observe_progress(db.path, engine.science_runners[sid], wid)
+            at = progress["world_time"]
+            if progress["status"] == "stopped":
+                break
+            boundary = progress["next_boundary"]
             if at >= started + timedelta(hours=verification["max_world_hours"]):
                 engine.science_runners[sid].stop("达到冻结的世界时间观察边界，未完成计划仍保留", at)
                 break
             engine.heartbeat(wid, elapsed_seconds=(boundary - at).total_seconds())
+            progress = observe_progress(db.path, engine.science_runners[sid], wid)
             print(
                 encoded(
-                    {"world_time": at.isoformat(), "usage": engine.science_runners[sid].usage()}
+                    {"world_time": progress["world_time"].isoformat(), "usage": progress["usage"]}
                 ),
                 flush=True,
             )
         else:
-            with db.read() as c:
-                at = from_iso(
-                    c.execute(
-                        "SELECT w.current_time FROM worlds w WHERE w.id=?", (wid,)
-                    ).fetchone()[0]
-                )
+            at = observe_progress(db.path, engine.science_runners[sid], wid)["world_time"]
             engine.science_runners[sid].stop("达到冻结的心跳观察边界", at)
     finally:
         if engine is not None:
@@ -400,6 +525,7 @@ def main():
     parser.add_argument("--source-db", type=Path)
     parser.add_argument("--world-id")
     parser.add_argument("--prior-run", type=Path, action="append", default=[])
+    parser.add_argument("--verification", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     actions = parser.add_mutually_exclusive_group(required=True)
     for flag in ("prepare-only", "run", "resume", "export-only"):
@@ -410,7 +536,7 @@ def main():
     if args.prepare_only:
         if args.source_db is None or not args.world_id:
             parser.error("准备需要source-db与world-id")
-        verification_path = (
+        verification_path = args.verification or (
             PROJECT / ".superpowers/sdd/2026-10-05-emergent-science/verification.json"
         )
         verification = (

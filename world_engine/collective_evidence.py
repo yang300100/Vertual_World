@@ -45,6 +45,14 @@ def visible_evidence(c, actor_id, at):
             content = evidence["content"]
             if not isinstance(content, dict):
                 break
+    from world_engine.phenomena import observations
+
+    for observation in observations(c, actor_id, at):
+        packets[observation["id"]] = {
+            "id": observation["id"], "summary": "本人实际取得的世界现象观察",
+            "content": {"kind": "engine_phenomenon", **observation},
+            "world_time": observation["observed_at"],
+        }
     return packets
 
 

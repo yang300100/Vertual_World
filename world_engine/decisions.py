@@ -10,6 +10,8 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, model_validator
 
+from world_engine.appointments import AppointmentIntent
+from world_engine.companion_proposals import CompanionIntent
 from world_engine.config import PROJECT_ROOT, Settings
 from world_engine.diagnostic_logging import diagnostic_json
 from world_engine.domain import (
@@ -19,13 +21,20 @@ from world_engine.domain import (
     LocationState,
     WorldSnapshot,
 )
+from world_engine.families import FamilyIntent
 from world_engine.geo import great_circle_distance_km
+from world_engine.rides import RideIntent, RideService
+from world_engine.group_journeys import GroupJourneyIntent
+from world_engine.intimacy import RelationshipIntent, RelationshipReflection
+from world_engine.journeys import JourneyIntent
 from world_engine.knowledge import KnowledgeHit, WorldKnowledgeBase
+from world_engine.lodging_plans import LodgingPlanIntent
 from world_engine.model_availability import (
     ModelBillingError,
     check_model_billing,
     record_model_billing_failure,
 )
+from world_engine.overnight import OvernightIntent
 from world_engine.proximity import same_room
 from world_engine.roleplay import (
     npc_reply_system_prompt,
@@ -37,6 +46,9 @@ from world_engine.roleplay_pipeline import (
     build_deepseek_roleplay_payload,
     build_npc_prompt,
 )
+from world_engine.separate_stays import SeparateStayIntent
+from world_engine.shared_life import SharedLifeIntent
+from world_engine.shared_plans import SharedPlanIntent
 
 LOGGER = logging.getLogger("virtual-world.decisions")
 
@@ -69,18 +81,32 @@ class NpcActionIntent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: Literal["door", "room", "give_item", "travel"]
-    operation: Literal["open", "close", "enter", "exit"] | None = None
+    kind: Literal["door", "room", "give_item", "travel", "self_care", "self_rest", "cross_layer"]
+    operation: Literal["open", "close", "enter", "exit", "decline", "approach"] | None = None
     target_id: str = Field(min_length=1, max_length=100)
     quantity: int = Field(default=1, ge=1, le=20)
+    minutes: int | None = Field(default=None, ge=1, le=720, strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_self_quantity(cls, value):
+        if isinstance(value, dict) and value.get("kind") in {"self_care", "self_rest"}:
+            quantity = value.get("quantity", 1)
+            if type(quantity) is not int or quantity != 1:
+                raise ValueError("本人照护每次只处理一份，数量须为整数1")
+        return value
 
     @model_validator(mode="after")
     def validate_operation(self) -> "NpcActionIntent":
-        allowed = {"door": {"open", "close"}, "room": {"enter", "exit"}}
+        allowed = {"door": {"open", "close"}, "room": {"enter", "exit"}, "cross_layer": {"approach", "enter", "exit", "decline"}}
         if self.operation not in allowed.get(self.kind, {None}):
             raise ValueError("NPC 行动类型与操作不匹配")
         if self.kind != "give_item" and self.quantity != 1:
             raise ValueError("只有转交物品可以指定数量")
+        if self.kind == "self_rest" and self.minutes is None:
+            raise ValueError("本人休息需要明确的1至720分钟")
+        if self.kind != "self_rest" and self.minutes is not None:
+            raise ValueError("只有本人休息可以指定持续分钟")
         return self
 
 
@@ -93,6 +119,19 @@ class NpcReply(BaseModel):
     stage_direction: str | None = Field(default=None, max_length=200)
     action_intent: NpcActionIntent | None = None
     fallback_reply: str | None = Field(default=None, max_length=500)
+    relationship_intent: RelationshipIntent | None = None
+    relationship_reflection: RelationshipReflection | None = None
+    shared_life_intent: SharedLifeIntent | None = None
+    family_intent: FamilyIntent | None = None
+    appointment_intent: AppointmentIntent | None = None
+    shared_plan_intent: SharedPlanIntent | None = None
+    journey_intent: JourneyIntent | None = None
+    group_journey_intent: GroupJourneyIntent | None = None
+    ride_intent: RideIntent | None = None
+    overnight_intent: OvernightIntent | None = None
+    separate_stay_intent: SeparateStayIntent | None = None
+    lodging_plan_intent: LodgingPlanIntent | None = None
+    companion_intent: CompanionIntent | None = None
     # 该字段全项目只写不读（只落进事件 metadata，没有消费方），因此给它默认值：
     # 模型自由说台词时不必为它额外输出结构化字段。
     social_move: Literal[
@@ -522,8 +561,7 @@ class DeepSeekDecisionProvider:
                 top_p=self.roleplay_top_p,
             ),
         )
-        # Yuki 统一从适配器取参数；带推理的模型若在 JSON 模式下吐空正文，
-        # 就让下方的宽容解析保住台词。
+        # 哥哥，统一适配器负责普通扮演的推理与 JSON 设置；异常输出仍需通过解析门禁。
         response_data, call_id = self._request(payload, label="npc_reply")
         try:
             content = response_data["choices"][0]["message"]["content"]
@@ -538,6 +576,30 @@ class DeepSeekDecisionProvider:
         visible_text = " ".join(
             part for part in (reply.reply, reply.stage_direction, reply.fallback_reply) if part
         )
+        if reply.relationship_intent:
+            visible_text += " " + reply.relationship_intent.statement
+        if reply.family_intent:
+            visible_text += " "+reply.family_intent.statement+" "+reply.family_intent.title
+        if reply.appointment_intent:
+            visible_text += " "+reply.appointment_intent.statement
+        if reply.shared_plan_intent:
+            visible_text += " "+reply.shared_plan_intent.statement+" "+reply.shared_plan_intent.title
+        if reply.journey_intent:
+            visible_text += " "+reply.journey_intent.statement+" "+reply.journey_intent.title
+        if reply.ride_intent:
+            visible_text += ' ' + reply.ride_intent.statement
+        if reply.group_journey_intent:
+            visible_text += " "+reply.group_journey_intent.statement+" "+reply.group_journey_intent.title
+        if reply.overnight_intent:
+            visible_text += " "+reply.overnight_intent.statement
+        if reply.separate_stay_intent:
+            visible_text += " "+reply.separate_stay_intent.statement
+        if reply.lodging_plan_intent:
+            visible_text += " "+reply.lodging_plan_intent.statement
+        if reply.companion_intent:
+            visible_text += " "+reply.companion_intent.statement
+        if reply.shared_life_intent:
+            visible_text += " "+reply.shared_life_intent.statement
         forbidden_term = next(
             (term for term in _FORBIDDEN_CHARACTER_TERMS if term in visible_text),
             None,

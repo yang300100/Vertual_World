@@ -54,13 +54,31 @@ class InteriorService:
         return row
 
     @staticmethod
-    def keyed(connection, room, character_id: str) -> bool:
-        leased = connection.execute(
-            'SELECT 1 FROM contract_fulfillments f JOIN worlds w ON w.id=f.world_id '
-            "WHERE f.kind='lodging' AND f.status='active' AND f.asset_id=? AND f.requester_id=? "
-            "AND f.due_world_time>w.current_time", (room["id"], character_id),
+    def leaseholder(connection,room,*,at=None):
+        if at is not None:
+            row=connection.execute("SELECT requester_id FROM contract_fulfillments WHERE world_id=? AND kind='lodging' AND status='active' AND asset_id=? AND started_world_time<=? AND due_world_time>? LIMIT 1",(room["world_id"],room["id"],to_iso(at),to_iso(at))).fetchone()
+            return row[0] if row else None
+        row=connection.execute(
+            "SELECT f.requester_id FROM contract_fulfillments f JOIN worlds w ON w.id=f.world_id "
+            "WHERE f.world_id=? AND f.kind='lodging' AND f.status='active' AND f.asset_id=? "
+            "AND f.started_world_time<=w.current_time AND f.due_world_time>w.current_time LIMIT 1",
+            (room["world_id"],room["id"]),
         ).fetchone()
-        return bool(leased) or (
+        return row[0] if row else None
+
+    @staticmethod
+    def keyed(connection, room, character_id: str,*,at=None) -> bool:
+        from world_engine.families import FamilyService
+        holder=InteriorService.leaseholder(connection,room,at=at)
+        if holder:return holder==character_id
+        return InteriorService.storage_allowed(connection,room,character_id,at=at) or FamilyService.has_residency(connection,room,character_id,at=at)
+
+    @staticmethod
+    def storage_allowed(connection,room,character_id: str,*,at=None) -> bool:
+        """哥哥，住所进出权不自动成为私人储物柜的使用许可。"""
+        holder=InteriorService.leaseholder(connection,room,at=at)
+        if holder:return holder==character_id
+        return (
             room["owner_character_id"] == character_id
             or connection.execute(
                 "SELECT 1 FROM life_room_access WHERE room_id=? AND character_id=?",
@@ -70,22 +88,28 @@ class InteriorService:
         )
 
     @classmethod
-    def allowed(cls, connection, room, character_id: str) -> bool:
+    def allowed(cls, connection, room, character_id: str,*,at=None) -> bool:
         from world_engine.repository import from_iso
         from world_engine.visits import VisitService
+        from world_engine.appointment_rooms import AppointmentRoomService
 
-        at = from_iso(connection.execute("SELECT w.current_time FROM worlds w WHERE id=?", (room["world_id"],)).fetchone()[0])
-        return bool(room["access_policy"] == "public" or cls.keyed(connection, room, character_id)
-                    or VisitService.invitation(connection, room, character_id, at))
+        from world_engine.overnight import OvernightService
+        at = at or from_iso(connection.execute("SELECT w.current_time FROM worlds w WHERE id=?", (room["world_id"],)).fetchone()[0])
+        holder=cls.leaseholder(connection,room,at=at)
+        if holder:
+            return bool(holder==character_id or VisitService.invitation(connection,room,character_id,at) or AppointmentRoomService.visit_allowed(connection,room,character_id,at) or OvernightService.visit_allowed(connection,room,character_id,at))
+        return bool(room["access_policy"] == "public" or cls.keyed(connection, room, character_id,at=at)
+                    or VisitService.invitation(connection, room, character_id, at)
+                    or AppointmentRoomService.visit_allowed(connection,room,character_id,at) or OvernightService.visit_allowed(connection,room,character_id,at))
 
     @classmethod
-    def can_unlock(cls, connection, room, character_id):
+    def can_unlock(cls, connection, room, character_id,*,at=None):
         policy = connection.execute(
             "SELECT key_item_type_id FROM life_door_policies WHERE room_id=?", (room["id"],)
         ).fetchone()
         if not policy or not policy[0]:
-            return cls.keyed(connection, room, character_id)
-        return bool(cls.allowed(connection, room, character_id) and connection.execute(
+            return cls.keyed(connection, room, character_id,at=at)
+        return bool(cls.allowed(connection, room, character_id,at=at) and connection.execute(
             "SELECT 1 FROM item_instances WHERE world_id=? AND item_type_id=? "
             "AND container_type='character_inventory' AND container_id=? AND owner_character_id=? "
             "AND condition>0 AND quantity>0", (room["world_id"], policy[0], character_id, character_id)
@@ -236,6 +260,8 @@ class InteriorService:
 
     @classmethod
     def door(cls, connection, actor, room_id: str, operation: str, at: datetime):
+        from world_engine.rides import RideService
+        RideService.assert_not_aboard(connection, actor["id"])
         LifeActivityService.assert_available(connection, actor["id"])
         room = cls.room(connection, actor["world_id"], room_id)
         if not cls.reachable_door(connection, actor, room):
@@ -257,7 +283,7 @@ class InteriorService:
                 raise InteriorError("当前位置已经改变，请刷新后再试")
             if not room["door_open"] or room["door_locked"]:
                 raise InteriorError("门尚未打开")
-            if not inside and not cls.allowed(connection, room, actor["id"]):
+            if not inside and not cls.allowed(connection, room, actor["id"],at=at):
                 raise InteriorError("没有进入这间私人房间的许可")
             if not inside:
                 from world_engine.visits import VisitService
@@ -276,21 +302,21 @@ class InteriorService:
         else:
             if operation not in {"open", "close", "lock", "unlock"}:
                 raise InteriorError("未知的门操作")
-            if operation == "lock" and room["owner_character_id"] != actor["id"]:
-                raise InteriorError("只有房间所有者可以上锁")
+            if operation == "lock" and (cls.leaseholder(connection,room,at=at) or room["owner_character_id"]) != actor["id"]:
+                raise InteriorError("只有当前有管理权的房间所有者或租住者可以上锁")
             # 住在里面的人始终可以开门离开，不因权限撤销被锁死在房间里。
             if (
                 operation == "unlock"
                 and not inside
-                and not cls.can_unlock(connection, room, actor["id"])
+                and not cls.can_unlock(connection, room, actor["id"],at=at)
             ):
                 raise InteriorError("需要解锁权限；使用实体锁的房间还需本人随身携带可用钥匙")
-            if operation == "lock" and not inside and not cls.can_unlock(connection, room, actor["id"]):
+            if operation == "lock" and not inside and not cls.can_unlock(connection, room, actor["id"],at=at):
                 raise InteriorError("在门外上锁需要本人随身携带可用钥匙")
             if (
                 operation in {"open", "close"}
                 and not inside
-                and not cls.allowed(connection, room, actor["id"])
+                and not cls.allowed(connection, room, actor["id"],at=at)
             ):
                 raise InteriorError("没有操作这扇门的许可")
             opened, locked = room["door_open"], room["door_locked"]
@@ -334,6 +360,8 @@ class InteriorService:
 
     @classmethod
     def operate_fixture(cls, connection, actor, fixture_id: str, operation: str, at: datetime):
+        from world_engine.rides import RideService
+        RideService.assert_not_aboard(connection, actor["id"])
         LifeActivityService.assert_available(connection, actor["id"])
         fixture = cls.fixture(connection, actor, fixture_id)
         room = cls.room(connection, actor["world_id"], fixture["room_id"])
@@ -358,7 +386,7 @@ class InteriorService:
             else:
                 raise InteriorError("当前不能执行这个座位操作")
         else:
-            if not cls.keyed(connection, room, actor["id"]):
+            if not cls.storage_allowed(connection, room, actor["id"]):
                 raise InteriorError("你没有使用这个储物容器的许可")
             opened, locked = fixture["is_open"], fixture["is_locked"]
             if operation == "open":
@@ -400,7 +428,7 @@ class InteriorService:
         LifeActivityService.assert_available(connection, actor["id"])
         fixture = cls.fixture(connection, actor, fixture_id)
         room = cls.room(connection, actor["world_id"], fixture["room_id"])
-        if fixture["kind"] != "container" or not cls.keyed(connection, room, actor["id"]):
+        if fixture["kind"] != "container" or not cls.storage_allowed(connection, room, actor["id"]):
             raise InteriorError("没有使用该容器的许可")
         if not fixture["is_open"] or fixture["is_locked"]:
             raise InteriorError("请先打开容器")
@@ -537,7 +565,7 @@ class InteriorService:
             for row in connection.execute(
                 "SELECT * FROM life_fixtures WHERE room_id=? ORDER BY name,id", (room_id,)
             ):
-                usable = cls.keyed(connection, current, actor["id"])
+                usable = row["kind"]=="seat" or cls.storage_allowed(connection, current, actor["id"])
                 contents = []
                 if (
                     row["kind"] == "container"

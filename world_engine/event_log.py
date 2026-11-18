@@ -27,6 +27,7 @@ MAJOR_EVENT_TYPES = frozenset({
     "social.incident_supply_requested", "world.incident_site_restored",
     "world.incident_resolved",
     "world.technology_breakthrough", "world.technology_revised", "world.technology_invalidated",
+    "world.technology_researched",
 })
 
 

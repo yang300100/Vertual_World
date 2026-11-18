@@ -131,9 +131,8 @@ class AgentModelBackend:
                 user_payload,
                 max_input_tokens=self.roleplay_input_tokens,
             )
-            # 刻意不发 response_format=json_object：带推理的模型在该模式下会概率性把正文
-            # 吐成空白（实测某句话 3/3 全空，finish_reason 仍是 stop、token 远未用尽），
-            # 而空正文要连中三次重试才会失败。台词改由 _salvage_npc_reply 宽容解析。
+            # 哥哥，普通扮演由适配器关闭默认推理并约束 JSON，避免意愿只留在裸台词。
+            # 异常回复仍按统一解析处理，不从自由文本推断已经同意或完成行动。
             payload = build_deepseek_roleplay_payload(
                 prompt,
                 self.model,
@@ -278,7 +277,8 @@ class AgentModelBackend:
                     raise AgentLLMError(f"Agent[{label}]返回了空的决策内容")
                 details["stage"] = "parse"
                 parsed = (
-                    salvage_npc_reply(content, schema) if roleplay else self._parse(content, schema)
+                    salvage_npc_reply(content, schema)
+                    if roleplay and label != "npc_outreach" else self._parse(content, schema)
                 )
                 if self.debug_model_io:
                     parsed_data = (

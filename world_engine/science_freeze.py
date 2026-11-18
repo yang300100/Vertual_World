@@ -178,7 +178,7 @@ def freeze_session(
         "workshop_assets": json.loads(workshop["assets_json"]) if workshop else {},
         "seed": workshop["seed"] if workshop else s["seed"],
         "scheduler": (
-            "new_non_rejection_evidence_then_uncalled_then_oldest_call_then_actor_id;no_retries"
+            "new_evidence_then_one_preflight_followup_per_stage_then_uncalled_then_oldest;no_retries"
         ),
         "scope": "有限自然模型中的能力；真实运行不保证突破",
     }
@@ -189,7 +189,7 @@ def freeze_session(
     return manifest
 
 
-def verify_freeze(c, session_id, *, source_paths=(), world_paths=()):
+def verify_freeze(c, session_id, *, source_paths=(), world_paths=(), archived_run=None):
     s = c.execute("SELECT * FROM science_sessions WHERE id=?", (session_id,)).fetchone()
     if s is None:
         return False
@@ -201,13 +201,31 @@ def verify_freeze(c, session_id, *, source_paths=(), world_paths=()):
     if world_paths and _paths(world_paths) != frozen["world_paths"]:
         return False
     try:
-        if (
-            file_manifest(frozen["source_paths"]) != frozen["source_files"]
-            or file_manifest(frozen["world_paths"]) != frozen["world_files"]
-        ):
-            return False
+        current_files_match = (
+            file_manifest(frozen["source_paths"]) == frozen["source_files"]
+            and file_manifest(frozen["world_paths"]) == frozen["world_files"]
+        )
     except (OSError, ValueError):
-        return False
+        current_files_match = False
+    if not current_files_match:
+        # 哥哥，只有已停止记录可用原文件归档核验；运行中的源码变化仍立即拒绝。
+        if s["status"] != "stopped" or archived_run is None:
+            return False
+        try:
+            root = Path(archived_run).resolve()
+            mapping = json.loads((root / "frozen-files.json").read_text(encoding="utf-8"))
+            expected = frozen["source_files"] | frozen["world_files"]
+            if set(mapping) != set(expected):
+                return False
+            folder = root / "frozen-files"
+            for original, digest in expected.items():
+                file = (folder / mapping[original]).resolve()
+                if not file.is_relative_to(folder):
+                    return False
+                if hashlib.sha256(file.read_bytes()).hexdigest() != digest:
+                    return False
+        except (OSError, ValueError, TypeError):
+            return False
     if {k: s[k] for k in frozen["budget"]} != frozen["budget"]:
         return False
     cursor = json.loads(s["cursor_json"])
@@ -223,6 +241,39 @@ def verify_freeze(c, session_id, *, source_paths=(), world_paths=()):
     ):
         return False
     return state_digest(c) == seal["state_hash"]
+
+
+def archive_frozen_files(c, session_id, output):
+    """哥哥，停止后保存原冻结文件，后续修复仍能核验旧费用与原始执行证据。"""
+    root = Path(output).resolve()
+    session = c.execute("SELECT * FROM science_sessions WHERE id=?", (session_id,)).fetchone()
+    if session is None or session["status"] != "stopped":
+        raise ValueError("只有已停止会话可以归档冻结文件")
+    if not verify_freeze(c, session_id, archived_run=root):
+        raise ValueError("冻结状态或原文件不完整，不能归档")
+    index = root / "frozen-files.json"
+    if index.exists():
+        return index
+    folder = root / "frozen-files"
+    folder.mkdir(parents=True, exist_ok=True)
+    frozen = json.loads(session["freeze_json"])
+    mapping = {}
+    for original, digest in (frozen["source_files"] | frozen["world_files"]).items():
+        content = Path(original).read_bytes()
+        if hashlib.sha256(content).hexdigest() != digest:
+            raise ValueError("归档期间原文件发生变化")
+        name = digest + Path(original).suffix
+        file = folder / name
+        if file.exists():
+            if file.read_bytes() != content:
+                raise ValueError("已有归档文件与冻结原文不一致")
+        else:
+            with file.open("xb") as stream:
+                stream.write(content)
+        mapping[original] = name
+    with index.open("x", encoding="utf-8") as stream:
+        stream.write(json.dumps(mapping, ensure_ascii=False, indent=2))
+    return index
 
 
 class FrozenScienceDatabase(Database):

@@ -37,3 +37,8 @@ tmp-test/
 
 # 打包产物：内含世界数据库与玩家照片，禁止入库
 data.zip
+
+# 本地工具缓存、浏览器测试配置、系统备份（不属于仓库内容）
+.context/
+.superpowers/
+perf-fix-backup/

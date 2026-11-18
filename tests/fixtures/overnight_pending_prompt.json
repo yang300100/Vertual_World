@@ -1,0 +1,516 @@
+{
+  "channel": "in_person",
+  "interaction": "当面交谈；双方必须在100米可见范围内",
+  "npc": {
+    "id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+    "name": "林澈",
+    "identity": "商人",
+    "species": "human",
+    "age_years": 37,
+    "species_name": "人类",
+    "traits": [
+      "谨慎",
+      "善良"
+    ],
+    "goals": [
+      "照顾家人",
+      "在城镇站稳脚跟"
+    ],
+    "energy": 83,
+    "satiety": 96,
+    "health": 100
+  },
+  "npc_card": {
+    "public_role": "商人",
+    "current_preoccupation": "照顾家人",
+    "private_tension": "在谨慎、善良与眼前责任之间寻找不失分寸的做法",
+    "social_boundary": "陌生人问得太深时，会先追问来意或暂缓回答",
+    "expression_notes": "先问清对象和缘由，再给有限而具体的答复",
+    "speech_style": "措辞克制，先确认来意，未知和不愿说的部分会明确保留",
+    "initiative_notes": "发现问题涉及隐私或风险时，会反问来源或结束话题",
+    "preferred_address": "根据关系与场合自然称呼对方，不固定使用尊称",
+    "dialogue_examples": []
+  },
+  "companionship": [],
+  "player": {
+    "id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+    "name": "尚未认识的人",
+    "identity": "旅人"
+  },
+  "relationship": {
+    "npc_to_player": {
+      "affinity": 3,
+      "trust": 2
+    },
+    "player_to_npc": {
+      "affinity": 3,
+      "trust": 2
+    }
+  },
+  "scene": {
+    "location": {
+      "id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+      "name": "旧钟表工坊",
+      "kind": "workplace",
+      "space_layer": "ground",
+      "altitude_m": 0.0,
+      "resources": {
+        "materials": 15,
+        "food": 200
+      }
+    },
+    "nearby_characters": [],
+    "room": null,
+    "doors": [
+      {
+        "id": "ef8a3eec-ebf5-436f-b13d-80a4bd6809e8",
+        "name": "旅途客舍公共门厅",
+        "inside": false,
+        "open": true,
+        "locked": false,
+        "allowed": true,
+        "owner": true,
+        "keyed": true
+      }
+    ],
+    "inventory": [
+      {
+        "id": "410af035-7cf6-4509-9c08-df1eef2074ee",
+        "name": "旅行面包",
+        "quantity": 31
+      },
+      {
+        "id": "53d9b378-b8e8-4359-8298-df9c4546e80a",
+        "name": "粮食",
+        "quantity": 1
+      }
+    ],
+    "travel_destinations": [
+      {
+        "id": "b49317fb-a3a0-49ad-8829-74d1511dc5fa",
+        "name": "晨星广场"
+      },
+      {
+        "id": "8178e7de-7a1e-4352-be84-21083874c031",
+        "name": "河畔住宅"
+      }
+    ],
+    "fixtures": [],
+    "recent_personal_events": [
+      {
+        "event_type": "social.appointment_overnight_proposed",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "summary": "原旅行暂停；提出有限长时住宿，房租、进屋和开始休息仍分别处理：我先暂停原旅行，邀请你在世界时间2030-01-01T22:00:00+00:00到我已租住的旅途客舍独立客房共同休息8小时，到场窗60分钟。我明确允许本次接待，房租已单独办理；我们各自进屋，由我到场后开始，结束后再商量恢复。",
+        "id": "14096b3e-4cb0-4085-b310-a8299930fd70"
+      },
+      {
+        "event_type": "social.appointment_journey_paused",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "summary": "共同旅行已暂停：本人选择暂停原行程，另行邀请到站用餐或休息；结束后仍须双方重新同意恢复",
+        "id": "aa419414-c25f-4c78-a481-56e4b733c151"
+      },
+      {
+        "event_type": "social.appointment_journey_arrived",
+        "occurred_at": "2030-01-01T10:16:27.284151+00:00",
+        "summary": "双方实际抵达约定站点，开始记录停留时间。",
+        "id": "41bcbd65-7829-488c-b870-6725d4c8440a"
+      }
+    ]
+  },
+  "recent_private_memories": [
+    {
+      "summary": "原旅行暂停；提出有限长时住宿，房租、进屋和开始休息仍分别处理：我先暂停原旅行，邀请你在世界时间2030-01-01T22:00:00+00:00到我已租住的旅途客舍独立客房共同休息8小时，到场窗60分钟。我明确允许本次接待，房租已单独办理；我们各自进屋，由我到场后开始，结束后再商量恢复。",
+      "memory_type": "experienced",
+      "importance": 5,
+      "confidence": 1.0,
+      "event_id": "14096b3e-4cb0-4085-b310-a8299930fd70"
+    },
+    {
+      "summary": "提出了未来的共同安排，等待另一方明确回应：我选择先暂停刚到站的原旅行，邀请你在世界时间2030-01-01T09:38:29.866335+00:00到我已租住的旅途客舍独立客房一起休息15分钟，时间窗60分钟。",
+      "memory_type": "experienced",
+      "importance": 5,
+      "confidence": 1.0,
+      "event_id": "938dc6f7-b246-4503-8cd6-15c0a59765a8"
+    },
+    {
+      "summary": "一方邀请一起休息，等待另一方回应：我选择先暂停刚到站的原旅行，邀请你在世界时间2030-01-01T09:38:29.866335+00:00到我已租住的旅途客舍独立客房一起休息15分钟，时间窗60分钟。",
+      "memory_type": "experienced",
+      "importance": 5,
+      "confidence": 1.0,
+      "event_id": "6d903a9e-c9b4-468c-9a32-8b1d840b42ec"
+    }
+  ],
+  "open_commitments": [],
+  "recent_conversation": [
+    "[2030-01-01T10:03:29.866335+00:00] 玩家：我们已经完成了室内休息，也各自走回原站点室外。我愿意恢复同一份原行程，补完剩余停留再回集合点。你现在也愿意恢复吗？",
+    "[2030-01-01T10:03:29.866335+00:00] NPC：愿意。歇过这一阵，人也松快些了。那就按原路继续走吧，剩下的停留补完，再回集合点。",
+    "[2030-01-01T10:10:58.576243+00:00] 玩家：我另提一份期限至世界时间2030-01-03T10:10:58.576243+00:00的有限旅行：从这里集合，到旧钟表工坊停留2分钟再返回。每程由我选择，双方可暂停退出；我已有单独付费租约，长时休息到站后另约，不要求你付钱。你愿意参加吗？",
+    "[2030-01-01T10:10:58.576243+00:00] NPC：去旧钟表工坊停两分钟再回来——这条短，我倒愿意。既然每程由你选，我只把话放在前头：停留和休息该停就停，别赶。我应下这份行程。"
+  ],
+  "conversation_episodes": [
+    {
+      "summary": "玩家：我邀请你在我们实际到达的旅行第1站共同用餐5分钟，同时选择暂停原行程。我愿意提供双方各一份自己的随身食物，不再采购。结束后仍要重新商量是否恢复旅行，这只是我自己的邀请。\nNPC：行，先歇口气吃两口。你愿意分我一份，我也不推辞；说好了，吃完这顿，走不走还得咱俩重新商量。\n玩家：我还邀请你在这同一个已到站地点一起休息5分钟，原旅行继续暂停。你可以独立答应或拒绝，休息后不自动出发。\nNPC：刚吃过这一口，歇会儿也好。那就坐五分钟，说定了——歇完不急着走，要不要接着走咱们再商量。\n玩家：我自己愿意按原路线恢复旅行。我们刚才的用餐和休息已实际完成，你现在也愿意恢复吗？\nNPC：这会儿还走不成，那咱们就把话说清楚，别耽误彼此的工夫。",
+      "open_questions": [
+        "玩家：我自己愿意按原路线恢复旅行。我们刚才的用餐和休息已实际完成，你现在也愿意恢复吗？"
+      ],
+      "open_commitments": [
+        "玩家：我还邀请你在这同一个已到站地点一起休息5分钟，原旅行继续暂停。你可以独立答应或拒绝，休息后不自动出发。"
+      ],
+      "source_event_ids": [
+        "1dd5ef7d-8d12-4b2f-a344-9e07260d7e65",
+        "9962a299-816c-4f81-b909-de357fe95434",
+        "3040cb9d-59f1-43c8-a59c-7ef5ab9f0d43"
+      ]
+    }
+  ],
+  "recalled_past_conversation": [],
+  "knowledge_context": [],
+  "decision": {
+    "action": "socialize",
+    "delivery": "normal"
+  },
+  "player_text": "说话：我先暂停原旅行，邀请你在世界时间2030-01-01T22:00:00+00:00到我已租住的旅途客舍独立客房共同休息8小时，到场窗60分钟。我明确允许本次接待，房租已单独办理；我们各自进屋，由我到场后开始，结束后再商量恢复。",
+  "player_activity_records": [],
+  "world_time": "2030-01-01T10:16:27.285151+00:00",
+  "intimacy": {
+    "bonds": [],
+    "expressed_boundaries": [],
+    "own_perspective": [
+      {
+        "feeling": "对方把租约和接待都说清了，不逼人应承，我反倒觉得这份实在难得。",
+        "need": "希望这份相处有分寸，各自守时守界，别让好意变成负担。",
+        "concern": "毕竟是相识不久的人邀进房里，我仍需看清是不是只图清静歇息。",
+        "world_time": "2030-01-01T09:08:29.866335+00:00",
+        "source_event_id": "67205a62-89d9-4bb7-99d5-3f30f88fc5c0"
+      }
+    ],
+    "ongoing_considerations": [],
+    "family": {
+      "agreements": [],
+      "home_options": [
+        {
+          "id": "ef8a3eec-ebf5-436f-b13d-80a4bd6809e8",
+          "name": "旅途客舍公共门厅",
+          "location_id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "owned": true
+        },
+        {
+          "id": "2ac2e02c-60da-4e5d-a011-119d721c5023",
+          "name": "旅途客舍独立客房",
+          "location_id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "owned": true
+        }
+      ],
+      "children": [],
+      "species_options": [
+        {
+          "id": "human",
+          "display_name": "人类"
+        }
+      ],
+      "rules": "婚姻、同居、家庭分别确认。资金贡献只扣本人财物，拨付需双方同意。计划获准不等于孩子已经出生。"
+    },
+    "appointments": {
+      "arrangements": [
+        {
+          "id": "c9fb9b57-332f-48aa-ade1-ddffd0be31e1",
+          "proposer_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+          "recipient_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+          "kind": "rest",
+          "status": "completed",
+          "location_id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "location_name": "旧钟表工坊",
+          "room_id": "2ac2e02c-60da-4e5d-a011-119d721c5023",
+          "room_name": "旅途客舍独立客房",
+          "visit_host_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+          "starts_at": "2030-01-01T09:38:29.866335+00:00",
+          "ends_at": "2030-01-01T10:38:29.866335+00:00",
+          "minutes": 15,
+          "statement": "我选择先暂停刚到站的原旅行，邀请你在世界时间2030-01-01T09:38:29.866335+00:00到我已租住的旅途客舍独立客房一起休息15分钟，时间窗60分钟。",
+          "response": "我应下这次在旅途客舍独立客房一起休息十五分钟的安排，各自走门，到房里再开始。",
+          "reason": "双方实际完成了约定的相处。",
+          "repairs_id": null,
+          "replaces_id": null,
+          "repaired_by": null,
+          "source_event_id": "b528e888-8f93-48bf-9db1-78c73a827a2f",
+          "series_id": null,
+          "occurrence_index": null,
+          "meal_supply": "each_own",
+          "meal_provider_id": null,
+          "journey_id": "3d89a316-e58d-4ecc-8185-eac4f2f048ec",
+          "journey_stop_index": 0
+        }
+      ],
+      "place_options": [
+        {
+          "id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "name": "旧钟表工坊"
+        },
+        {
+          "id": "b49317fb-a3a0-49ad-8829-74d1511dc5fa",
+          "name": "晨星广场"
+        },
+        {
+          "id": "8178e7de-7a1e-4352-be84-21083874c031",
+          "name": "河畔住宅"
+        }
+      ],
+      "room_options": [
+        {
+          "id": "ef8a3eec-ebf5-436f-b13d-80a4bd6809e8",
+          "name": "旅途客舍公共门厅",
+          "location_id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "location_name": "旧钟表工坊",
+          "may_host": true
+        },
+        {
+          "id": "2ac2e02c-60da-4e5d-a011-119d721c5023",
+          "name": "旅途客舍独立客房",
+          "location_id": "23bdb814-da9c-4ac4-8592-89191d9c662d",
+          "location_name": "旧钟表工坊",
+          "may_host": false
+        }
+      ],
+      "series": []
+    },
+    "shared_plans": [],
+    "journeys": [
+      {
+        "id": "b93913b4-d4a6-4483-bb82-4e1cebcab902",
+        "proposer_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "recipient_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "status": "paused",
+        "phase": "stopped",
+        "title": "共同旅行",
+        "origin_id": "b49317fb-a3a0-49ad-8829-74d1511dc5fa",
+        "origin_name": "晨星广场",
+        "deadline_at": "2030-01-03T10:10:58.576243+00:00",
+        "next_index": 1,
+        "resume_requested_by": null,
+        "route": "旧钟表工坊(停留2分) → 晨星广场(停留0分)",
+        "breaks": []
+      }
+    ],
+    "overnights": [
+      {
+        "id": "3c2e374a-2cf8-414c-9103-83367900ac74",
+        "proposer_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "recipient_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "status": "pending",
+        "journey_id": "b93913b4-d4a6-4483-bb82-4e1cebcab902",
+        "room_id": "2ac2e02c-60da-4e5d-a011-119d721c5023",
+        "room_name": "旅途客舍独立客房",
+        "arrival_starts_at": "2030-01-01T22:00:00+00:00",
+        "arrival_ends_at": "2030-01-01T23:00:00+00:00",
+        "minutes": 480,
+        "visit_host_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "ends_at": null
+      }
+    ],
+    "shared_moments": [
+      {
+        "id": "84dbb8f5-e391-46b1-968a-7018053e945f",
+        "proposer_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "recipient_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "kind": "rest",
+        "status": "completed",
+        "minutes": 15,
+        "statement": "我选择先暂停刚到站的原旅行，邀请你在世界时间2030-01-01T09:38:29.866335+00:00到我已租住的旅途客舍独立客房一起休息15分钟，时间窗60分钟。",
+        "reason": "双方实际度过了约定的相处时间",
+        "source_event_id": "6b39306e-e417-4313-b361-65fdb93cf934",
+        "preparation_plan_id": null,
+        "meal_supply": "each_own",
+        "meal_provider_id": null,
+        "journey_id": null,
+        "journey_stop_index": null
+      },
+      {
+        "id": "52e7b035-085a-47ce-895e-4bdcb0b46f28",
+        "proposer_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "recipient_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "kind": "rest",
+        "status": "completed",
+        "minutes": 5,
+        "statement": "我还邀请你在这同一个已到站地点一起休息5分钟，原旅行继续暂停。你可以独立答应或拒绝，休息后不自动出发。",
+        "reason": "双方实际度过了约定的相处时间",
+        "source_event_id": "144a5683-88ef-41db-8529-448ca7ac52a6",
+        "preparation_plan_id": null,
+        "meal_supply": "each_own",
+        "meal_provider_id": null,
+        "journey_id": "6bb7b69d-1347-4611-abef-7c73c06652c9",
+        "journey_stop_index": 0
+      },
+      {
+        "id": "0804c0fa-5bb7-43f9-9320-b783e448f208",
+        "proposer_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "recipient_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "kind": "meal",
+        "status": "completed",
+        "minutes": 5,
+        "statement": "我邀请你在我们实际到达的旅行第1站共同用餐5分钟，同时选择暂停原行程。我愿意提供双方各一份自己的随身食物，不再采购。",
+        "reason": "双方实际度过了约定的相处时间",
+        "source_event_id": "a2554bf3-9426-439e-b23b-6bc4242c66e5",
+        "preparation_plan_id": null,
+        "meal_supply": "proposer",
+        "meal_provider_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "journey_id": "6bb7b69d-1347-4611-abef-7c73c06652c9",
+        "journey_stop_index": 0
+      }
+    ],
+    "lasting_memories": [
+      {
+        "id": "796ec460-8bd7-4745-83a4-8f697dda7893",
+        "world_id": "37c821b2-273b-4e0e-9180-01554093d911",
+        "owner_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "other_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "source_event_id": "19a6ec6f-a62b-48e0-9b8f-edd29fed4b4d",
+        "category": "shared",
+        "title": "双方用实际移动和停留完成了约定的共同旅行。",
+        "meaning": "双方用实际移动和停留完成了约定的共同旅行。",
+        "importance": 7,
+        "world_time": "2030-01-01T10:10:58.576243+00:00"
+      },
+      {
+        "id": "7cae9548-ec34-48f6-93a2-f48c69e5237a",
+        "world_id": "37c821b2-273b-4e0e-9180-01554093d911",
+        "owner_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "other_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "source_event_id": "6b39306e-e417-4313-b361-65fdb93cf934",
+        "category": "shared",
+        "title": "双方的一起休息完成：双方实际度过了约定的相处时间",
+        "meaning": "双方的一起休息完成：双方实际度过了约定的相处时间",
+        "importance": 7,
+        "world_time": "2030-01-01T09:58:29.866335+00:00"
+      },
+      {
+        "id": "6c923f90-caca-4d86-a731-3f8d9688ab35",
+        "world_id": "37c821b2-273b-4e0e-9180-01554093d911",
+        "owner_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "other_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "source_event_id": "7107af49-fd6e-44d1-b002-e8d53d5f6949",
+        "category": "shared",
+        "title": "双方用实际移动和停留完成了约定的共同旅行。",
+        "meaning": "双方用实际移动和停留完成了约定的共同旅行。",
+        "importance": 7,
+        "world_time": "2030-01-01T09:03:01.157427+00:00"
+      },
+      {
+        "id": "aa291e81-ea2b-4c27-a8a9-fed3ba12cf97",
+        "world_id": "37c821b2-273b-4e0e-9180-01554093d911",
+        "owner_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+        "other_id": "a3a6877a-b73a-48d0-84d5-9ac08455e4da",
+        "source_event_id": "2cf531e5-7d15-4d6c-8bb6-ec9a43f5df40",
+        "category": "shared",
+        "title": "双方用实际移动和停留完成了约定的共同旅行。",
+        "meaning": "双方用实际移动和停留完成了约定的共同旅行。",
+        "importance": 7,
+        "world_time": "2030-01-01T08:40:03.738611+00:00"
+      }
+    ],
+    "shared_experiences": [
+      {
+        "source_event_id": "14096b3e-4cb0-4085-b310-a8299930fd70",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "event_type": "social.appointment_overnight_proposed",
+        "summary": "原旅行暂停；提出有限长时住宿，房租、进屋和开始休息仍分别处理：我先暂停原旅行，邀请你在世界时间2030-01-01T22:00:00+00:00到我已租住的旅途客舍独立客房共同休息8小时，到场窗60分钟。我明确允许本次接待，房租已单独办理；我们各自进屋，由我到场后开始，结束后再商量恢复。"
+      },
+      {
+        "source_event_id": "aa419414-c25f-4c78-a481-56e4b733c151",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "event_type": "social.appointment_journey_paused",
+        "summary": "共同旅行已暂停：本人选择暂停原行程，另行邀请到站用餐或休息；结束后仍须双方重新同意恢复"
+      },
+      {
+        "source_event_id": "41bcbd65-7829-488c-b870-6725d4c8440a",
+        "occurred_at": "2030-01-01T10:16:27.284151+00:00",
+        "event_type": "social.appointment_journey_arrived",
+        "summary": "双方实际抵达约定站点，开始记录停留时间。"
+      },
+      {
+        "source_event_id": "56bd4986-03cf-4b91-80dd-699635f5ea3d",
+        "occurred_at": "2030-01-01T10:10:58.576243+00:00",
+        "event_type": "social.appointment_journey_departed",
+        "summary": "双方按各自真实路线开始共同旅行的一程，尚未抵达。"
+      }
+    ],
+    "consent_rule": "只有pending约定的另一方能accept；propose不代表对方同意。关系不授予物品、房间、身体接触或独占权限。"
+  },
+  "personal_experience": {
+    "emotion": {
+      "character_id": "f97c4f38-e84d-4f09-af87-872a0ba44af0",
+      "world_id": "37c821b2-273b-4e0e-9180-01554093d911",
+      "emotion": "安心",
+      "intensity": 30,
+      "stress": 0,
+      "expires_world_time": "2030-01-01T14:40:03.738611+00:00",
+      "source_event_id": "9b32082a-59f0-4466-9495-022825df0a48"
+    },
+    "wonder_context": {
+      "environment": null,
+      "known_wonders": []
+    },
+    "known_events": [
+      {
+        "summary": "原旅行暂停；提出有限长时住宿，房租、进屋和开始休息仍分别处理：我先暂停原旅行，邀请你在世界时间2030-01-01T22:00:00+00:00到我已租住的旅途客舍独立客房共同休息8小时，到场窗60分钟。我明确允许本次接待，房租已单独办理；我们各自进屋，由我到场后开始，结束后再商量恢复。",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "source_kind": "experienced",
+        "confidence": 1.0,
+        "id": "14096b3e-4cb0-4085-b310-a8299930fd70"
+      },
+      {
+        "summary": "共同旅行已暂停：本人选择暂停原行程，另行邀请到站用餐或休息；结束后仍须双方重新同意恢复",
+        "occurred_at": "2030-01-01T10:16:27.285151+00:00",
+        "source_kind": "experienced",
+        "confidence": 1.0,
+        "id": "aa419414-c25f-4c78-a481-56e4b733c151"
+      },
+      {
+        "summary": "双方实际抵达约定站点，开始记录停留时间。",
+        "occurred_at": "2030-01-01T10:16:27.284151+00:00",
+        "source_kind": "experienced",
+        "confidence": 1.0,
+        "id": "41bcbd65-7829-488c-b870-6725d4c8440a"
+      }
+    ],
+    "dispositions": {
+      "traits": [
+        {
+          "trait": "善良",
+          "intensity": 50,
+          "origin_type": "initial",
+          "origin_event_id": null,
+          "updated_world_time": "2030-01-01T08:00:00+00:00"
+        },
+        {
+          "trait": "谨慎",
+          "intensity": 50,
+          "origin_type": "initial",
+          "origin_event_id": null,
+          "updated_world_time": "2030-01-01T08:00:00+00:00"
+        }
+      ],
+      "recent_changes": []
+    }
+  },
+  "budget_trace": {
+    "mandatory": 3215,
+    "personal_experience.emotion": 67,
+    "personal_experience.wonder_context": 10,
+    "personal_experience.shared_appointments": 1,
+    "open_commitments": 1,
+    "recent_conversation": 278,
+    "knowledge_context": 1,
+    "player_activity_records": 1,
+    "conversation_episodes": 418,
+    "recent_private_memories": 355,
+    "recalled_past_conversation": 1,
+    "scene.recent_personal_events": 293,
+    "personal_experience.known_events": 289,
+    "personal_experience.beliefs": 1,
+    "personal_experience.dispositions": 74,
+    "personal_experience.life_goals": 1,
+    "total": 5022,
+    "limit": 8192,
+    "over_budget_tokens": 0
+  }
+}

@@ -19,6 +19,9 @@ from world_engine.registration.handlers.place import (
     SettlementHandler,
     StructureHandler,
 )
+from world_engine.registration.handlers.vehicle import VehicleHandler
+from world_engine.registration.handlers.vehicle_fuel import VehicleFuelProfileHandler
+from world_engine.registration.handlers.local_route import LocalRouteHandler
 
 __all__ = [
     "ActivityRecipeHandler",
@@ -32,4 +35,7 @@ __all__ = [
     "SettlementHandler",
     "StructureHandler",
     "WorkplaceBudgetHandler",
+    "VehicleHandler",
+    "VehicleFuelProfileHandler",
+    "LocalRouteHandler",
 ]

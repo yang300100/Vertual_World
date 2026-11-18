@@ -163,6 +163,7 @@ function openKnownProfile(characterId) {
   const person=state.living?.people.find((item)=>item.id===characterId);
   const known=state.living?.known_people.find((item)=>item.id===characterId);
   const name=person?.name || known?.name || "尚未认识的人";
+  elements.characterDialog.setAttribute("aria-label", `${name}的人物档案`);
   elements.characterProfile.innerHTML=`<header class="profile-head"><h1>${escapeHtml(name)}</h1></header><p>${known ? `关系阶段：${escapeHtml(known.stage)}，共同经历${known.shared_experiences}次。` : "你尚未了解这个人的身份。"}</p><p>${person ? `目前距你约${person.distance_m}米。` : `当前不在视野内${known?.last_seen ? `，最后见于${escapeHtml(formatWorldTime(known.last_seen))}` : known ? "，目前只从消息中听闻" : ""}。`}</p><div class="profile-actions"></div>`;
   if (person) {
     const button=document.createElement("button");button.type="button";button.className="button primary";button.textContent="与其交谈";

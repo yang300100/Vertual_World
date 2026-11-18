@@ -109,6 +109,14 @@ def test_land_cannot_cross_river_without_crossing() -> None:
     assert any("北岸桥" in requirement for requirement in plan_bridge.requirements)
 
 
+def test_short_walk_inside_river_cell_requires_real_crossing() -> None:
+    # 哥哥，同一粗粒度水格不证明短路线位于同一河岸。
+    terrain = TerrainService.from_memory({0: _cell(0, 0.0, 0.0, water="river")}, [])
+    plan = RoutePlanner().plan_on(terrain, origin=(0.0, 0.0), destination=(0.001, 0.0), movement_type="land")
+    assert not plan.reachable
+    assert "跨河" in (plan.unreachable_reason or "")
+
+
 def test_steep_slope_requires_mountain_pass() -> None:
     cells = {
         0: _cell(0, 0.0, 0.0, neighbors=[1]),

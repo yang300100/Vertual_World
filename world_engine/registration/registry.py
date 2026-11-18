@@ -20,6 +20,9 @@ from world_engine.registration.handlers import (
     SettlementHandler,
     StructureHandler,
     WorkplaceBudgetHandler,
+    VehicleHandler,
+    VehicleFuelProfileHandler,
+    LocalRouteHandler,
 )
 from world_engine.registration.models import (
     REGISTRATION_PAYLOAD_ADAPTER,
@@ -57,6 +60,9 @@ class WorldElementRegistry:
             CommodityHandler(),
             WorkplaceBudgetHandler(),
             RoutinePlanHandler(),
+            VehicleHandler(),
+            VehicleFuelProfileHandler(),
+            LocalRouteHandler(),
         ]
         self.handlers = {handler.element_type: handler for handler in handlers}
         self.catalog = WorldElementCatalog()
@@ -139,7 +145,10 @@ class WorldElementRegistry:
             source_event=source_event,
             now=now,
         )
-        if not auto_apply:
+        # 哥哥，实物载具一律先保留草案，只有明确确认才能写入位置和座位。
+        if not auto_apply or element_type in {
+            ElementType.VEHICLE, ElementType.VEHICLE_FUEL_PROFILE, ElementType.LOCAL_ROUTE,
+        }:
             connection.execute(
                 """
                 UPDATE element_registration_requests
@@ -345,7 +354,7 @@ class WorldElementRegistry:
             entity_sql="""INSERT INTO world_entities(
                 id, world_id, entity_type, entity_id, name, registration_id, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?)"""
-            if result.entity_type=="npc_routine":
+            if result.entity_type in {"npc_routine", "vehicle"}:
                 entity_sql += " ON CONFLICT(world_id,entity_type,entity_id) DO UPDATE SET name=excluded.name,registration_id=excluded.registration_id"
             connection.execute(
                 entity_sql,

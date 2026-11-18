@@ -72,9 +72,11 @@ def _ensure_registration(connection: sqlite3.Connection, world_id: str) -> str:
     event_id = str(uuid4())
     now = to_iso(utc_now())
     row = connection.execute(
-        "SELECT version FROM worlds WHERE id=?", (world_id,)
+        "SELECT w.version,w.current_time FROM worlds w WHERE w.id=?", (world_id,)
     ).fetchone()
-    world_version = int(row["version"]) if row is not None else 0
+    if row is None:
+        raise ValueError("世界不存在，不能初始化食物供给")
+    world_version = int(row["version"])
     connection.execute(
         """
         INSERT INTO world_events(
@@ -83,7 +85,7 @@ def _ensure_registration(connection: sqlite3.Connection, world_id: str) -> str:
         ) VALUES (?, ?, ?, ?, 'world.food_supply_initialized', '世界的基础食物供给已就位。',
                   'routine', '{}', ?)
         """,
-        (event_id, world_id, str(uuid4()), now, now),
+        (event_id, world_id, str(uuid4()), row["current_time"], now),
     )
     registration_id = str(uuid4())
     connection.execute(
@@ -119,6 +121,9 @@ def _ensure_generic_profile(connection: sqlite3.Connection, world_id: str) -> tu
         return str(existing["item_type_id"]), False
 
     registration_id = _ensure_registration(connection, world_id)
+    world = connection.execute("SELECT w.current_time FROM worlds w WHERE w.id=?", (world_id,)).fetchone()
+    if world is None:
+        raise ValueError("世界不存在，不能初始化食物供给")
     item_type_id = str(uuid4())
     connection.execute(
         "INSERT INTO item_types(id,name,category,stack_limit,slot_size,usable) "
@@ -136,7 +141,7 @@ def _ensure_generic_profile(connection: sqlite3.Connection, world_id: str) -> tu
             FOOD_RESOURCE_KEY,
             FOOD_DAILY_GROWTH,
             FOOD_RESOURCE_CAPACITY,
-            to_iso(utc_now()),
+            world["current_time"],
         ),
     )
     return item_type_id, True

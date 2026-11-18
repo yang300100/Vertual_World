@@ -2,7 +2,8 @@
     [ValidateRange(1, 65535)]
     [int]$Port = 8000,
     [switch]$NoBrowser,
-    [switch]$SkipInstall
+    [switch]$SkipInstall,
+    [switch]$NoLogViewer
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,15 @@ $ApiStdout = Join-Path $LogDirectory "api.stdout.log"
 $ApiStderr = Join-Path $LogDirectory "api.stderr.log"
 $WorkerStdout = Join-Path $LogDirectory "worker.stdout.log"
 $WorkerStderr = Join-Path $LogDirectory "worker.stderr.log"
+$ApiPortFile = Join-Path $RunDirectory "api.port"
+# 哥哥，默认启动沿用已验证的端口，显式传入的 Port 仍优先。
+if (-not $PSBoundParameters.ContainsKey("Port") -and (Test-Path -LiteralPath $ApiPortFile)) {
+    $taskSavedPort = 0
+    $taskPortText = [System.IO.File]::ReadAllText($ApiPortFile).Trim()
+    if ([int]::TryParse($taskPortText, [ref]$taskSavedPort) -and $taskSavedPort -ge 1 -and $taskSavedPort -le 65535) {
+        $Port = $taskSavedPort
+    }
+}
 $UiUrl = "http://127.0.0.1:$Port/"
 
 function Write-PidFile {
@@ -240,6 +250,7 @@ catch {
     Write-Warning "Could not read API debug status:$($_.Exception.Message)"
 }
 
+[System.IO.File]::WriteAllText($ApiPortFile, [string]$Port, [System.Text.UTF8Encoding]::new($false))
 Write-Host "Virtual World is ready: $UiUrl"
 Write-Host "Runtime logs: $LogDirectory"
 
@@ -276,4 +287,6 @@ if (-not $NoBrowser) {
     Start-Process $UiUrl
 }
 
-& $ViewerScript -LogDirectory $LogDirectory -UiUrl $UiUrl
+if (-not $NoLogViewer) {
+    & $ViewerScript -LogDirectory $LogDirectory -UiUrl $UiUrl
+}

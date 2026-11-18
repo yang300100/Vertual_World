@@ -195,14 +195,21 @@ def remove_legacy_player_controlled_social_records(connection: sqlite3.Connectio
             "SELECT name FROM sqlite_master WHERE type = 'table'"
         ).fetchall()
     }
-    required_tables = {"long_term_operation_requests", "npc_todos", "world_events"}
+    required_tables = {"long_term_operation_requests", "npc_todos", "world_events", "characters"}
     if not required_tables.issubset(tables):
         return
 
+    lodging_quote_filter = (
+        " AND NOT EXISTS (SELECT 1 FROM journey_lodging_quotes q WHERE q.request_id=r.id)"
+        if "journey_lodging_quotes" in tables
+        else ""
+    )
     cancelled_request_ids = {
         str(row["id"])
         for row in connection.execute(
-            "SELECT id FROM long_term_operation_requests WHERE status = 'cancelled'"
+            "SELECT r.id FROM long_term_operation_requests r JOIN characters p "
+            "ON p.id=r.requester_id AND p.world_id=r.world_id AND p.is_player=1 "
+            "WHERE r.status='cancelled'" + lodging_quote_filter
         ).fetchall()
     }
     player_todo_event_ids = {
@@ -269,18 +276,25 @@ def migrate_registration_element_types(connection: sqlite3.Connection) -> None:
         "SELECT sql FROM sqlite_master WHERE type = 'table' "
         "AND name = 'element_registration_requests'"
     ).fetchone()
-    if row is None or "npc_routine" in str(row["sql"] or ""):
+    if row is None or all(value in str(row["sql"] or "") for value in ("'vehicle'", "'vehicle_fuel_profile'", "'local_route'")):
         return
+    objects = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE tbl_name='element_registration_requests' "
+        "AND type IN ('index','trigger') AND sql IS NOT NULL"
+    ).fetchall()
+    original_foreign_keys = int(connection.execute("PRAGMA foreign_keys").fetchone()[0])
     connection.commit()
     connection.execute("PRAGMA foreign_keys = OFF")
     try:
+        # 哥哥，表重建也纳入同一事务，失败不能留下被删除的旧登记表。
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
             CREATE TABLE element_registration_requests_next (
                 id TEXT PRIMARY KEY,
                 world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
                 element_type TEXT NOT NULL CHECK(element_type IN (
-                    'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine'
+                    'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine','vehicle','vehicle_fuel_profile','local_route'
                 )),
                 requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
                 source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
@@ -311,6 +325,8 @@ def migrate_registration_element_types(connection: sqlite3.Connection) -> None:
             "ALTER TABLE element_registration_requests_next "
             "RENAME TO element_registration_requests"
         )
+        for schema_object in objects:
+            connection.execute(schema_object["sql"])
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_element_registrations_world_status "
             "ON element_registration_requests(world_id, status, created_at DESC)"
@@ -320,8 +336,11 @@ def migrate_registration_element_types(connection: sqlite3.Connection) -> None:
             "ON element_registration_requests(source_event_id)"
         )
         connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
-        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA foreign_keys = {original_foreign_keys}")
 
 
 def migrate_element_lifecycle_columns(connection: sqlite3.Connection) -> None:

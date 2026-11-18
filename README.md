@@ -4,6 +4,34 @@
 
 ## 设计文档
 
+与既有 NPC 建立挚友或恋人关系、持续相处与双方界限见[实施记录25](docs/design/25-intimate-relationships.md)。
+打开人物档案的“彼此的关系”表达心意；对方通过真实对话独立决定，双方明确同意后才成立。
+
+自然表达关系意愿、共同用餐与休息、单次亲昵同意和长期关系记忆见[实施记录26](docs/design/26-relationship-growth-and-shared-life.md)。
+可以直接对选中的人物说出明确的选择，也可以在档案的“一起度过的时光”中邀请相处；共同活动按真实资源和世界时间结算。
+
+婚姻、共同住所、家庭资金和养育登记见[实施记录27](docs/design/27-family-and-shared-homes.md)。
+NPC 主动约会、双方确认改期、实际到场和补约兑现见[实施记录28](docs/design/28-npc-appointments-and-follow-through.md)。
+真实房间约会、短时接待许可、逐门赴约和私人谈话边界见[实施记录29](docs/design/29-indoor-appointments-and-privacy.md)。
+有限周期相处、整份承诺独立确认、逐次排程与暂停恢复见[实施记录30](docs/design/30-recurring-companionship.md)。
+共同筹备、双方分工、真实劳动筹钱与备食核对见[实施记录31](docs/design/31-shared-preparation-and-roles.md)。
+筹备完成后另行邀请真实用餐、休息与聊天，保留来源、消耗与相处结果，见[实施记录32](docs/design/32-preparation-follow-through.md)。
+共同用餐可由邀请者明确提供双方食物，接受后真实转交与进食，见[实施记录33](docs/design/33-hosted-meals-and-sharing.md)。
+未来约会与有限周期可明确供餐人，改期与暂停恢复保留已确认条款，到场后核验并使用真实食物，见[实施记录34](docs/design/34-future-hosted-meals.md)。
+NPC 可跨日保留本人的相处偏好、顾虑与期待，自主考虑接续，并区分真实修复与搁置，见[实施记录35](docs/design/35-relationship-continuity.md)。
+双方可商量有限徒步旅行、逐程真实移动、各站停留与返程，保留单方暂停退出和双方确认恢复，见[实施记录36](docs/design/36-joint-journeys.md)。
+到站后可暂停原行程，另行邀请真实用餐或休息，结束后再由双方决定是否恢复旅行，见[实施记录37](docs/design/37-journey-meals-and-rest.md)。
+到站后可另约已有租住权或明确接待许可的房间短休，双方各自逐门进出，房租独立确认，见[实施记录38](docs/design/38-journey-indoor-rest.md)。
+到站后可另约4–12小时同房住宿，分别确认接待、实际进屋与开始休息；真实模型、浏览器及相关回归已验收，正式服务已更新，见[实施记录39](docs/design/39-journey-overnight-stays.md)。
+双方可分别入住两间真实客房、独立休息并在原站点会合，再另议恢复旅行；真实模型、浏览器及625项相关回归已分组验收，正式服务已更新，见[实施记录40](docs/design/40-separate-overnight-stays.md)。
+各自预算的住宿筹备支持真实房主规则审议、本人准确报价确认和各自回站报告；真实模型、浏览器及771项相关回归已验证，正式服务已更新并核验健康心跳，见[实施记录41](docs/design/41-budgeted-lodging-preparation.md)。
+订房筹备完成后可保留来源和各自房间，另行明确邀请分房休息与会合；820项回归和独立存档真实模型已验证，正式服务已更新。本次按用户选择交付代码与服务验收，浏览器实测待补，见[实施记录42](docs/design/42-lodging-to-separate-stays.md)。
+已确认分房安排可在入住前协商新的开始时间，对方接受前原时间继续生效；876项回归、真实模型履约及28项专项审计通过，正式服务已更新并通过16项交付核验，见[实施记录43](docs/design/43-separate-stay-rescheduling.md)。
+从人物档案的“家庭与共同住所”商量长期安排；旧玩家可在自己的档案补充尚未记录的世界人物年龄。
+
+不同种族与个性人物的邂逅、真实交谈及短时徒步同行见[实施记录24](docs/design/24-encounters-and-companions.md)。
+在“场景 → 在场的人”查看人物并交谈，可从档案邀请同行；对方会考虑关系、身体和自己的日程。
+
 周期作息、公开时段、实际执行与生计偏好见[实施记录20](docs/design/20-recurring-routines-and-livelihood.md)。
 生产备料、限额采购及制作/修理工具占用与磨损见[实施记录21](docs/design/21-production-supplies-and-tools.md)。
 门口拜访、住客应门、一次性进入邀请及实体钥匙见[实施记录22](docs/design/22-door-visits-and-physical-keys.md)。

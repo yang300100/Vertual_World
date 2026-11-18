@@ -140,3 +140,135 @@ def test_prepare_freezes_remaining_and_rechecks_prior_before_engine(
     monkeypatch.setattr("scripts.demo_science.WorldEngine", forbidden)
     with pytest.raises(ValueError, match="跨轮"):
         run(new, settings)
+
+
+def test_explicit_new_authorization_keeps_legacy_limits_and_prevents_reset(tmp_path, monkeypatch):
+    from world_engine import science_budget as budget
+
+    monkeypatch.setattr(budget, "AUTHORIZATION_DIRECTORY", tmp_path / "authorizations")
+    authorization = {"id": "new-user-budget", "max_calls": 60, "token_limit": 600000}
+    result = budget.budget_lineage((), "world", authorization=authorization)
+    assert result["remaining"] == {"max_calls": 60, "token_limit": 600000}
+    assert budget.budget_lineage((), "world")["total_limits"] == {
+        "max_calls": 12,
+        "token_limit": 200000,
+    }
+    output = tmp_path / "fresh"
+    budget.register_allocation(authorization, output, ())
+    assert (
+        budget.budget_lineage((), "world", authorization=authorization, current_run=output)
+        == result
+    )
+    with pytest.raises(ValueError, match="已登记账目"):
+        budget.budget_lineage((), "world", authorization=authorization)
+    with pytest.raises(ValueError, match="已登记账目|不一致"):
+        budget.budget_lineage(
+            (), "world", authorization=authorization | {"max_calls": 61}, current_run=output
+        )
+
+
+def test_old_budget_cannot_be_relabelled_as_new_authorization(prior, tmp_path, monkeypatch):
+    from world_engine import science_budget as budget
+
+    monkeypatch.setattr(budget, "AUTHORIZATION_DIRECTORY", tmp_path / "authorizations")
+    output, wid, _, _, _ = prior
+    with pytest.raises(ValueError, match="旧授权"):
+        budget.budget_lineage(
+            (output,), wid, authorization={"id": "new", "max_calls": 60, "token_limit": 600000}
+        )
+
+
+def test_new_prepare_starts_at_zero_and_freezes_finite_rations(
+    lab, settings, tmp_path, monkeypatch
+):
+    from scripts.demo_science import prepare
+    from world_engine import science_budget as budget
+
+    monkeypatch.setattr(budget, "AUTHORIZATION_DIRECTORY", tmp_path / "authorizations")
+    db, wid, actors, _, _, at = lab
+    output = tmp_path / "new-zero-run"
+    authorization = {"id": "zero-test", "max_calls": 60, "token_limit": 600000}
+    with db.read() as c:
+        before = c.execute(
+            "SELECT health,energy,satiety FROM characters WHERE id=?", (actors[0],)
+        ).fetchone()
+    frozen = prepare(
+        db.path,
+        wid,
+        output,
+        settings,
+        {
+            "budget_authorization": authorization,
+            "require_zero_technologies": True,
+            "initial_ration_quantity": 40,
+        },
+    )
+    assert frozen["budget"]["max_calls"] == 60
+    assert frozen["verification"]["initial_technologies"] == 0
+    with Database(output / "world.db", legacy_world_defaults=False).read() as c:
+        after = c.execute(
+            "SELECT health,energy,satiety FROM characters WHERE id=?", (actors[0],)
+        ).fetchone()
+        assert list(before) == list(after)
+        assert c.execute("SELECT count(*) FROM science_model_calls").fetchone()[0] == 0
+        for iid in frozen["verification"]["initial_rations"].values():
+            assert (
+                c.execute("SELECT quantity FROM item_instances WHERE id=?", (iid,)).fetchone()[0]
+                == 40
+            )
+
+
+def test_missing_authorization_summary_cannot_restore_full_budget(tmp_path, monkeypatch):
+    from world_engine import science_budget as budget
+
+    directory = tmp_path / "authorizations"
+    monkeypatch.setattr(budget, "AUTHORIZATION_DIRECTORY", directory)
+    authorization = {"id": "protected", "max_calls": 60, "token_limit": 600000}
+    budget.register_allocation(authorization, tmp_path / "run-one", ())
+    (directory / "protected.json").unlink()
+    with pytest.raises(ValueError, match="独立分配凭证"):
+        budget.budget_lineage((), "world", authorization=authorization)
+    with pytest.raises(ValueError, match="独立分配凭证"):
+        budget.register_allocation(authorization, tmp_path / "run-two", ())
+
+
+def test_prepare_and_runner_limit_requests_to_frozen_skilled_participants(
+    lab, settings, tmp_path, monkeypatch
+):
+    from test_science_runner import Backend, runner
+
+    from scripts.demo_science import prepare
+    from world_engine import science_budget as budget
+
+    monkeypatch.setattr(budget, "AUTHORIZATION_DIRECTORY", tmp_path / "authorizations")
+    db, wid, actors, _, _, at = lab
+    with db.write() as c:
+        c.execute("UPDATE characters SET skills_json='[]' WHERE id=?", (actors[1],))
+    output = tmp_path / "restricted"
+    frozen = prepare(
+        db.path,
+        wid,
+        output,
+        settings,
+        {
+            "budget_authorization": {"id": "limited", "max_calls": 60, "token_limit": 600000},
+            "participant_policy": "existing_skilled_npcs",
+            "initial_ration_quantity": 40,
+        },
+    )
+    assert frozen["verification"]["participants"] == [actors[0]]
+    fresh = Database(output / "world.db", legacy_world_defaults=False)
+    info = json.loads((output / "run.json").read_text(encoding="utf-8"))
+    with FrozenScienceDatabase(fresh.path, session_id=info["session_id"]).write() as c:
+        c.execute("UPDATE science_sessions SET status='running' WHERE id=?", (info["session_id"],))
+        assets = json.loads(c.execute("SELECT assets_json FROM science_workshops").fetchone()[0])
+        assert set(assets["actors"]) == {actors[0]}
+    backend = Backend()
+    r = runner(
+        FrozenScienceDatabase(fresh.path, session_id=info["session_id"]),
+        backend,
+        info["session_id"],
+    )
+    r.decide(wid, at)
+    with fresh.read() as c:
+        assert {x[0] for x in c.execute("SELECT actor_id FROM science_model_calls")} == {actors[0]}

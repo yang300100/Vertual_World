@@ -143,7 +143,11 @@ def science_context(c, actor_id, at, *, max_chars, knowledge=None):
             (actor_id, actor["world_id"], to_iso(at)),
         )
     ]
-    base["observations"] = [p for p in visible_evidence(c, actor_id, at).values()]
+    from world_engine.phenomena import actor_packet
+    from world_engine.phenomena_rules import REGISTRY
+
+    base["observations"] = [actor_packet(p) for p in visible_evidence(c, actor_id, at).values()]
+    base["phenomenon_mechanisms"] = REGISTRY.public_capabilities()
     base["known_methods"] = known_methods(c, actor_id, at)
     # 哥哥，曾经学到的方法不会让人物遥知远方之后的失效事件；执行器独立校验当前效力。
     for method in base["known_methods"]:
@@ -193,6 +197,16 @@ def science_context(c, actor_id, at, *, max_chars, knowledge=None):
             (R.actor(c, actor_id)["world_id"], actor_id, base["location_id"], actor_id),
         )
     ]
+    # 哥哥，只把本人已知的器具支持项整理成索引，不提供配方、读数或成功预测。
+    base["tool_operation_index"] = tool_operation_index(base, actor["world_id"])
+    from world_engine.science_types import ASSAY_SAMPLE_QUANTITY
+
+    base["measurement_policy"] = {
+        "science_assay_sample_quantity": ASSAY_SAMPLE_QUANTITY,
+        "sample_consumed_on_completion": True,
+        "material_output_returned": False,
+        "instrument_limits": "每次检测仍须满足本人量器的sample_capacity与duration_hours",
+    }
     base["public_knowledge"] = []
     if knowledge is not None:
         query = " ".join((str(base["identity"]), str(base["goals"])))
@@ -215,3 +229,24 @@ def science_context(c, actor_id, at, *, max_chars, knowledge=None):
     if len(encoded(base)) > max_chars:
         raise ValueError("当前方法与计划所需的完整上下文超出预算，不能截断证据后调用")
     return base
+
+
+def tool_operation_index(context, world_id):
+    """索引不代表可以立即开工；资源、权限与容量仍由真实执行器核验。"""
+    result = {"apparatus": {}, "instruments": {}}
+    for section, key, field in (
+        ("apparatus", "apparatus", "operations"),
+        ("instruments", "instruments", "method"),
+    ):
+        for tool in context[key]:
+            if tool["world_id"] != world_id or tool["condition"] <= 0:
+                continue
+            operations = tool[field] if field == "operations" else [tool[field]]
+            for operation in operations:
+                ids = result[section].setdefault(operation, [])
+                if tool["item_id"] not in ids:
+                    ids.append(tool["item_id"])
+        result[section] = {
+            op: sorted(ids) for op, ids in sorted(result[section].items())
+        }
+    return result

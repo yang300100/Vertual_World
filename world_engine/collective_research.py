@@ -89,12 +89,14 @@ class CollectiveResearchService:
             dict(x)
             for x in c.execute(
                 "SELECT id,kind,summary,content_json,world_time FROM collective_observations "
-                "WHERE character_id=? ORDER BY world_time,rowid",
-                (actor_id,),
+                "WHERE character_id=? AND world_time<=? ORDER BY world_time,rowid",
+                (actor_id, to_iso(at)),
             )
         ]
         for row in observations:
-            row["content"] = json.loads(row.pop("content_json"))
+            from world_engine.phenomena import actor_packet
+
+            row["content"] = actor_packet(json.loads(row.pop("content_json")))
         batches = [
             dict(x)
             for x in c.execute(

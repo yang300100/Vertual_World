@@ -161,6 +161,7 @@ class GroupDialogueMixin:
                     at=snapshot.world.current_time,
                     channel="group_scene",
                     reply=reply,
+                    source_event_id=outcome.event_id,
                 )
                 outcome.summary = self.actions.socialize_summary(
                     player.name, npc_actor["name"], intent, settled.reply

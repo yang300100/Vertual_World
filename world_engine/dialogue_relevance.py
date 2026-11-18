@@ -213,7 +213,7 @@ def compact_dialogue_item(
     if not isinstance(value, dict):
         return value
     fields = {
-        "knowledge_context": ("audience", "section", "content", "valid_from", "valid_until"),
+        "knowledge_context": ("audience", "section", "content", "valid_from", "valid_until", "provenance"),
         "beliefs": (
             "subject_name",
             "predicate",

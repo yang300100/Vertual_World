@@ -14,6 +14,10 @@ from world_engine.epistemics import KnowledgeService
 from world_engine.event_history import EventHistoryService
 from world_engine.geo import great_circle_distance_km
 from world_engine.inventory import InventoryError, InventoryService
+from world_engine.intimacy import IntimacyService
+from world_engine.shared_life import SharedLifeService
+from world_engine.families import FamilyService
+from world_engine.appointments import AppointmentService
 from world_engine.life import LifeActivityService
 from world_engine.proximity import same_room
 from world_engine.registration import ElementRegistrationSubmit, WorldElementRegistry
@@ -127,6 +131,11 @@ def build_living_router(database, engine):
                         "id": npc["id"],
                         "name": name,
                         "known_name": name if not name.startswith("陌生人") else None,
+                        "species": npc['species'],
+                        "species_name": (c.execute(
+                            'SELECT display_name FROM species_profiles WHERE id=?',
+                            (npc['species'],),
+                        ).fetchone() or [npc['species']])[0],
                         "distance_m": round(
                             great_circle_distance_km(
                                 player["longitude"],
@@ -140,6 +149,11 @@ def build_living_router(database, engine):
                     }
                 )
             known = []
+            confirmed_relationships = {}
+            family_agreements=FamilyService.rows(c,world_id,player["id"],at)
+            for bond in IntimacyService.rows(c, world_id, player["id"], at):
+                if bond["status"] == "active":
+                    confirmed_relationships.setdefault(bond["other_id"], []).append(bond["label"])
             for row in c.execute(
                 "SELECT * FROM character_acquaintances WHERE observer_id=? ORDER BY last_seen DESC",
                 (player["id"],),
@@ -157,6 +171,10 @@ def build_living_router(database, engine):
                 )
                 if rel and rel["trust"] >= 50 and row["shared_experiences"] >= 5:
                     stage = "信赖"
+                if row["subject_id"] in confirmed_relationships:
+                    stage = "、".join(confirmed_relationships[row["subject_id"]])
+                if any(a["kind"]=="marriage" and a["status"]=="active" and a["other_id"]==row["subject_id"] for a in family_agreements):
+                    stage="配偶"
                 known.append(
                     {
                         "id": row["subject_id"],
@@ -179,8 +197,8 @@ def build_living_router(database, engine):
                 entry = dict(row)
                 entry["payload"] = json.loads(entry.pop("payload_json"))
                 entry["history"] = EventHistoryService.view(c,entry["id"],player["id"])
-                entry["summary"] = SocietyService.mask_text(
-                    c, world_id, player["id"], entry["summary"]
+                entry["summary"] = SocietyService.event_summary(
+                    c, world_id, player["id"], entry["id"], entry["summary"]
                 )
                 if entry["source_kind"] == "heard" or player["id"] not in {
                     entry["actor_id"],
@@ -275,7 +293,22 @@ def build_living_router(database, engine):
                 "beliefs": KnowledgeService.view(c,player["id"],at),
                 "dispositions": CharacterGrowthService.view(c,player["id"]),
                 "people": people,
+                "companions": [dict(row) for row in c.execute(
+                    "SELECT * FROM companion_sessions WHERE leader_id=? AND status='active'",
+                    (player['id'],),
+                )],
                 "known_people": known,
+                "intimate_bonds": IntimacyService.rows(c, world_id, player["id"], at),
+                "relationship_memories": IntimacyService.landmarks(c, world_id, player["id"]),
+                "shared_moments": SharedLifeService.rows(c, world_id, player["id"], at),
+                "social_appointments": AppointmentService.rows(c, world_id, player["id"], at),
+                "family_agreements":family_agreements,
+                "family_children":[dict(row) for row in c.execute("SELECT p.id,p.name,p.species,p.birth_world_time,d.family_id,d.parenthood_id FROM family_dependents d JOIN characters p ON p.id=d.child_id JOIN character_lineages l ON l.child_character_id=p.id WHERE l.parent_character_id=? AND p.world_id=?",(player["id"],world_id))],
+                "relationship_boundaries": [dict(row) for row in c.execute(
+                    "SELECT character_id,other_id,statement,pause_contact,updated_at,source_event_id "
+                    "FROM intimate_boundaries WHERE world_id=? AND (character_id=? OR other_id=?)",
+                    (world_id, player["id"], player["id"]),
+                )],
                 "events": events,
                 "notifications": notifications,
                 "personal_state": SocietyService.personal_context(c, world_id, player["id"], at)[

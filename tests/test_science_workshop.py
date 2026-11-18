@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-pytest_plugins = ["test_collective_research"]
+pytest_plugins = ["collective_fixtures"]
 
 
 def workshop():

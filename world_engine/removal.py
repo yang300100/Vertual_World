@@ -486,6 +486,27 @@ class WorldElementRemover:
         if target_element_type == "vehicle":
             from world_engine.movement import MovementService
 
+            # 哥哥，真实登车记录尚未结束时，不能通过移除载具绕过本人安全下车。
+            occupied = connection.execute(
+                """
+                SELECT 1 FROM vehicle_rides AS r
+                JOIN vehicle_ride_members AS m ON m.ride_id = r.id
+                WHERE r.world_id = ? AND r.vehicle_id = ?
+                  AND m.boarded_at IS NOT NULL AND m.disembarked_at IS NULL
+                LIMIT 1
+                """,
+                (world_id, target_entity_id),
+            ).fetchone()
+            if occupied is not None:
+                raise ElementRemovalRejected("载具仍有在车人物，必须先安全下车")
+
+            # 哥哥，已装载的真实物资不能因载具移除而变成孤儿。
+            if connection.execute(
+                "SELECT 1 FROM item_instances WHERE world_id=? AND container_type='vehicle_fuel' "
+                "AND container_id=? LIMIT 1", (world_id, target_entity_id),
+            ).fetchone():
+                raise ElementRemovalRejected("载具仍装有燃料，请先由物主合法卸回")
+
             affected_movements = connection.execute(
                 """
                 SELECT character_id FROM character_movements

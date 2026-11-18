@@ -44,16 +44,20 @@ def _local_food_options(connection: sqlite3.Connection, actor: sqlite3.Row,
         ).fetchone()[0]
         if found is not None:
             price = found if price is None else min(price, found)
-    location = connection.execute("SELECT resources_json FROM locations WHERE id=?",
-                                  (actor["current_location_id"],)).fetchone()
-    resources = json.loads(location[0] or "{}") if location else {}
+    from world_engine.life import LifeSceneService
+
+    # 哥哥，地点归属不代表人在资源现场；规划必须遵守实际采集的距离与空间层。
+    location = None if actor["current_room_id"] else LifeSceneService.ground_location(connection, actor)
+    if location is not None and location["space_layer"] != actor["space_layer"]:
+        location = None
+    resources = json.loads(location["resources_json"] or "{}") if location else {}
     harvestable = any(
         profile["resource_key"] and resources.get(profile["resource_key"], 0) > 0
         for profile in connection.execute(
             "SELECT resource_key FROM world_item_profiles WHERE world_id=? AND nutrition>0 "
             "AND (resource_location_id=? OR resource_location_id IS NULL) "
             "AND (resource_owner_id IS NULL OR resource_owner_id=?)",
-            (actor["world_id"], actor["current_location_id"], actor["id"]),
+            (actor["world_id"], location["id"] if location else None, actor["id"]),
         )
     )
     return price, harvestable

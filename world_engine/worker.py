@@ -4,15 +4,17 @@ import argparse
 import logging
 import signal
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from datetime import timedelta
 
 from world_engine.bounded_calls import submit_call
 from world_engine.config import Settings
 from world_engine.console import configure_console_encoding
 from world_engine.database import Database
 from world_engine.diagnostic_logging import configure_runtime_logging
+from world_engine.domain import HeartbeatResult
 from world_engine.engine import ConcurrentWorldUpdateError, WorldEngine
-from world_engine.repository import WorldRepository, from_iso
+from world_engine.repository import WorldRepository, from_iso, utc_now
 from world_engine.retention import apply_retention
 from world_engine.world_pack import (
     check_pack_save,
@@ -32,7 +34,9 @@ class WorldWorker:
 
     def __init__(self, settings: Settings) -> None:
         self.settings, self.world_pack = resolve_pack_settings(settings)
-        self.database = Database(self.settings.database_path, legacy_world_defaults=self.world_pack is None)
+        self.database = Database(
+            self.settings.database_path, legacy_world_defaults=self.world_pack is None
+        )
         self.repository = WorldRepository()
         self.engine = WorldEngine(self.database, self.settings)
         self.stop_event = threading.Event()
@@ -52,19 +56,16 @@ class WorldWorker:
             if self.stop_event.is_set():
                 break
             try:
-                result = self.engine.heartbeat(
-                    world.id,
-                    elapsed_seconds=elapsed_seconds,
-                )
+                for result in self._world_heartbeats(world.id, elapsed_seconds):
+                    LOGGER.info(
+                        "世界 %s 心跳完成：%s -> %s，状态更新%s人，裁判=%s",
+                        world.name,
+                        result.previous_time.isoformat(),
+                        result.current_time.isoformat(),
+                        result.characters_updated,
+                        "是" if result.adjudication else "否",
+                    )
                 completed += 1
-                LOGGER.info(
-                    "世界 %s 心跳完成：%s -> %s，状态更新%s人，裁判=%s",
-                    world.name,
-                    result.previous_time.isoformat(),
-                    result.current_time.isoformat(),
-                    result.characters_updated,
-                    "是" if result.adjudication else "否",
-                )
             except ConcurrentWorldUpdateError:
                 LOGGER.info("世界 %s 正由另一进程推进，本轮跳过", world.name)
             except Exception:
@@ -83,7 +84,8 @@ class WorldWorker:
             def process_npc_contact():
                 from world_engine.outreach import process_outreach
                 for world in worlds:
-                    if self.stop_event.is_set():break
+                    if self.stop_event.is_set():
+                        break
                     process_outreach(self.engine,world.id)
             self._outreach_future=submit_call(process_npc_contact)
         self._rounds_since_maintenance += 1
@@ -91,6 +93,65 @@ class WorldWorker:
             self._rounds_since_maintenance = 0
             self._run_maintenance(worlds)
         return completed
+
+    def _world_heartbeats(
+        self, world_id: str, elapsed_seconds: float | None
+    ) -> Iterator[HeartbeatResult]:
+        """哥哥，逐段处理事件；中途停止时只提交已经结算的现实时间。"""
+        from world_engine.collective_clock import next_boundary
+        from world_engine.overnight import OvernightService
+        from world_engine.collective_runner import is_collective_world
+        from world_engine.science_runner import is_science_world
+
+        real_end = utc_now()
+        if elapsed_seconds is None:
+            # 哥哥，现实时间在写事务内按最新基线量取，刷新与后台交错也不会重复扣算。
+            progress = {}
+            while True:
+                result = self.engine.heartbeat(
+                    world_id, real_now=real_end, _single_boundary=True,
+                    _catchup_progress=progress,
+                )
+                yield result
+                if progress.get("complete") or result.real_elapsed_seconds == 0 or self.stop_event.is_set():
+                    return
+        remaining = elapsed_seconds
+        while True:
+            with self.database.read() as connection:
+                row = connection.execute(
+                    "SELECT w.current_time,c.time_scale,c.last_heartbeat_real_time "
+                    "FROM worlds w JOIN world_clock c ON c.world_id=w.id WHERE w.id=?",
+                    (world_id,),
+                ).fetchone()
+                if row is None:
+                    from world_engine.repository import WorldNotFoundError
+
+                    raise WorldNotFoundError(world_id)
+                if remaining is None:
+                    baseline = row["last_heartbeat_real_time"]
+                    remaining = (real_end - from_iso(baseline)).total_seconds() if baseline else 0
+                remaining = max(0.0, float(remaining))
+                step = remaining
+                scale = float(row["time_scale"])
+                if scale > 0 and remaining > 0 and (
+                    is_collective_world(connection, world_id)
+                    or is_science_world(connection, world_id)
+                    or connection.execute("SELECT 1 FROM social_appointments WHERE world_id=? AND status IN ('pending','accepted','active') LIMIT 1",(world_id,)).fetchone()
+                    or connection.execute("SELECT 1 FROM shared_preparation_plans WHERE world_id=? AND status IN ('pending','active') LIMIT 1",(world_id,)).fetchone()
+                    or OvernightService.has_live(connection, world_id)
+                ):
+                    at = from_iso(row["current_time"])
+                    boundary = next_boundary(connection, world_id, at,satiety_rate=self.settings.satiety_loss_per_world_hour)
+                    step = min(step, (boundary - at).total_seconds() / scale)
+
+            remaining = max(0.0, remaining - step)
+            yield self.engine.heartbeat(
+                world_id,
+                real_now=real_end - timedelta(seconds=remaining),
+                elapsed_seconds=step,
+            )
+            if remaining == 0 or self.stop_event.is_set():
+                return
 
     def _run_maintenance(self, worlds) -> None:
         """定期清理已完成的事件衍生数据，避免数据库随运行无限膨胀。"""

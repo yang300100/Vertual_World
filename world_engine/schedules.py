@@ -34,7 +34,7 @@ class ScheduleService:
         return start, start + timedelta(minutes=minutes)
 
     @classmethod
-    def validate(cls, c, wid, player_id, npc_id, terms, at, *, amendment=False):
+    def validate(cls, c, wid, player_id, npc_id, terms, at, *, amendment=False, exclude_contract_id=None):
         start, end = cls.parse_window(terms, at)
         parent = None
         if amendment:
@@ -52,6 +52,8 @@ class ScheduleService:
             ).fetchone()
             if parent is None:
                 raise ScheduleError("原约定不存在、不属于双方或已经结束")
+            if c.execute("SELECT 1 FROM social_appointments WHERE contract_id=?",(parent["request_id"],)).fetchone():
+                raise ScheduleError("共同安排请从约会入口提出改期，等待对方独立确认")
             if parent["required_units"] != 1:
                 raise ScheduleError("旧约定包含多次履约，请结束旧约定后分别商议见面时间")
             revision = terms.get("expected_revision")
@@ -83,17 +85,24 @@ class ScheduleService:
             ).fetchone()
             if actor is None or actor["health"] <= 0:
                 raise ScheduleError("见面参与者当前无法赴约")
-            arrival = cls.earliest_arrival(c, actor, location, at)
+            from world_engine.overnight import OvernightService
+            OvernightService.assert_interval_free(c,actor,start,end,location_id,terms.get("room_id"))
+            from world_engine.rides import RideService
+            ride=RideService.active(c,wid,actor["id"])
+            if ride and start < RideService.effective_deadline(c,ride,at) and end > from_iso(ride["proposed_at"]):
+                raise ScheduleError("这段时间与本人已接受的共乘安排冲突，请先处理原约定")
+            arrival = cls.earliest_arrival(c, actor, location, at, room_id=terms.get("room_id"))
             if arrival >= end:
                 raise ScheduleError("当前活动和路程无法在该时间窗内完成，请选择更晚的时间")
             for other in c.execute(
-                "SELECT f.request_id,l.longitude,l.latitude,w.starts_world_time,w.ends_world_time "
+                "SELECT f.request_id,l.longitude,l.latitude,w.starts_world_time,w.ends_world_time,a.room_id "
                 "FROM appointment_windows w JOIN contract_fulfillments f ON f.request_id=w.contract_id "
+                "LEFT JOIN social_appointments a ON a.contract_id=f.request_id "
                 "JOIN locations l ON l.id=f.location_id WHERE f.world_id=? AND f.status='active' "
                 "AND (f.requester_id=? OR f.recipient_id=?)",
                 (wid, person_id, person_id),
             ):
-                if parent and other["request_id"] == parent["request_id"]:
+                if other["request_id"] == exclude_contract_id or parent and other["request_id"] == parent["request_id"]:
                     continue
                 travel = timedelta(
                     hours=great_circle_distance_km(
@@ -104,6 +113,9 @@ class ScheduleService:
                     )
                     / max(1, actor["movement_speed_kmh"])
                 )
+                if terms.get("room_id") or other["room_id"]:
+                    from world_engine.appointment_rooms import AppointmentRoomService
+                    travel += timedelta(minutes=AppointmentRoomService.transition_minutes(c,wid,terms.get("room_id"),other["room_id"]))
                 if start < from_iso(other["ends_world_time"]) + travel and end + travel > from_iso(
                     other["starts_world_time"]
                 ):
@@ -111,7 +123,7 @@ class ScheduleService:
         return start, end, location_id, parent
 
     @staticmethod
-    def earliest_arrival(c, actor, location, at, *, include_activity=True):
+    def earliest_arrival(c, actor, location, at, *, include_activity=True, room_id=None):
         ready = at
         longitude, latitude = actor["longitude"], actor["latitude"]
         if include_activity:
@@ -131,16 +143,9 @@ class ScheduleService:
                 movement["destination_longitude"],
                 movement["destination_latitude"],
             )
-        if actor["current_room_id"]:
-            room_id = actor["current_room_id"]
-            for _ in range(4):
-                if not room_id:
-                    break
-                ready += timedelta(minutes=5)
-                row = c.execute(
-                    "SELECT parent_room_id FROM life_rooms WHERE id=?", (room_id,)
-                ).fetchone()
-                room_id = row[0] if row else None
+        if actor["current_room_id"] or room_id:
+            from world_engine.appointment_rooms import AppointmentRoomService
+            ready += timedelta(minutes=AppointmentRoomService.transition_minutes(c,actor["world_id"],actor["current_room_id"],room_id))
         distance = great_circle_distance_km(
             longitude, latitude, location["longitude"], location["latitude"]
         )
@@ -198,13 +203,14 @@ class ScheduleService:
         return to_iso(end)
 
     @classmethod
-    def assess(cls, c, actor, at):
+    def assess(cls, c, actor, at, *, exclude_contract_id=None):
         contract = c.execute(
             "SELECT f.*,w.starts_world_time,w.ends_world_time,w.revision,l.longitude,l.latitude,l.is_active "
             "FROM contract_fulfillments f LEFT JOIN appointment_windows w ON w.contract_id=f.request_id "
-            "JOIN locations l ON l.id=f.location_id WHERE f.world_id=? AND f.recipient_id=? "
+            "JOIN locations l ON l.id=f.location_id WHERE f.world_id=? AND (f.recipient_id=? OR f.requester_id=?) "
+            "AND (? IS NULL OR f.request_id<>?) "
             "AND f.kind='appointment' AND f.status='active' AND f.due_world_time>? ORDER BY f.due_world_time LIMIT 1",
-            (actor["world_id"], actor["id"], to_iso(at)),
+            (actor["world_id"], actor["id"], actor["id"], exclude_contract_id, exclude_contract_id, to_iso(at)),
         ).fetchone()
         if contract is None:
             return None
@@ -212,7 +218,9 @@ class ScheduleService:
             timedelta(0) if contract["starts_world_time"] else timedelta(hours=1)
         )
         end = from_iso(contract["due_world_time"])
-        travel = cls.earliest_arrival(c, actor, contract, at, include_activity=False) - at
+        date=c.execute("SELECT * FROM social_appointments WHERE contract_id=?",(contract["request_id"],)).fetchone()
+        room_id=date["room_id"] if date else None
+        travel = cls.earliest_arrival(c, actor, contract, at, include_activity=False,room_id=room_id) - at
         depart = start - travel - timedelta(minutes=10)
         reason = ""
         if at >= depart - timedelta(hours=2):
@@ -220,9 +228,12 @@ class ScheduleService:
                 reason = "约定地点已经不可用"
             elif actor["health"] < 40 or actor["satiety"] <= 10 or actor["energy"] <= 10:
                 reason = "需要先处理身体状况"
-            elif cls.earliest_arrival(c, actor, contract, at) >= end:
+            elif cls.earliest_arrival(c, actor, contract, at,room_id=room_id) >= end:
                 reason = "当前活动或路程可能导致迟到"
-        return {"contract": contract, "depart_at": depart, "due": at >= depart, "reason": reason}
+            elif date and room_id:
+                from world_engine.appointment_rooms import AppointmentRoomService
+                reason=AppointmentRoomService.risk(c,date,at)
+        return {"contract": contract, "depart_at": depart, "due": at >= depart, "reason": reason,"appointment":date}
 
     @classmethod
     def record_assessment(cls, c, actor, at, plan):
@@ -254,6 +265,13 @@ class ScheduleService:
             )
         event = None
         if plan and plan["reason"]:
+            # 哥哥，这是 NPC 本人的日程判断，不代表对方已收到消息。
+            actual_actor = c.execute(
+                "SELECT current_location_id FROM characters WHERE id=? AND world_id=?",
+                (actor["id"], actor["world_id"]),
+            ).fetchone()
+            if actual_actor is None:
+                raise ScheduleError("评估日程的人物已不存在")
             event = ActionService._record_event(
                 c,
                 world_id=actor["world_id"],
@@ -261,21 +279,10 @@ class ScheduleService:
                 occurred_at=at,
                 event_type="schedule.at_risk",
                 actor_id=actor["id"],
-                target_id=plan["contract"]["requester_id"],
-                location_id=plan["contract"]["location_id"],
+                target_id=None,
+                location_id=actual_actor["current_location_id"],
                 summary="约定可能延误；原时间仍然有效，可以重新商议时间。",
                 payload={"appointment_id": plan["contract"]["request_id"]},
-            )
-            c.execute(
-                "INSERT OR IGNORE INTO player_notifications(id,world_id,recipient_id,event_id,title,created_at) VALUES (?,?,?,?,?,?)",
-                (
-                    str(uuid4()),
-                    actor["world_id"],
-                    plan["contract"]["requester_id"],
-                    event,
-                    "一项约定可能延误，可查看时间并提出改期。",
-                    to_iso(at),
-                ),
             )
         c.execute(
             "INSERT INTO npc_schedule_assessments VALUES (?,?,?,?,?,?,?) ON CONFLICT(character_id) DO UPDATE SET signature=excluded.signature,contract_id=excluded.contract_id,reason=excluded.reason,checked_world_time=excluded.checked_world_time,source_event_id=excluded.source_event_id",

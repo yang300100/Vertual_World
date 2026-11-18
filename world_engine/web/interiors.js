@@ -4,7 +4,7 @@ function interiorButton(label, path, operation, disabled = false) {
   button.type = "button";
   button.className = "button secondary";
   button.textContent = label;
-  button.disabled = disabled || state.busy || Boolean(lifeScene?.activity);
+  button.disabled = disabled || Boolean(lifeScene?.activity);
   button.addEventListener("click", () => lifeMutation(path, { operation }));
   return button;
 }
@@ -21,7 +21,7 @@ function interiorTransferForm(fixture, item, deposit) {
   const button = document.createElement("button");
   button.type = "submit"; button.className = "button secondary";
   button.textContent = `${deposit ? "存入" : "取出"}${item.name}`;
-  button.disabled = state.busy || Boolean(lifeScene?.activity);
+  button.disabled = Boolean(lifeScene?.activity);
   form.append(label, button);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -51,7 +51,7 @@ function renderInterior(interior) {
     if (!door.inside) {
       const knock = document.createElement("button"); knock.type = "button";
       knock.className = "button secondary"; knock.textContent = `敲${door.name}的门`;
-      knock.disabled = state.busy || Boolean(lifeScene?.activity) || interior.seated;
+      knock.disabled = Boolean(lifeScene?.activity) || interior.seated;
       let requestId = null;
       knock.addEventListener("click", () => {
         requestId ||= crypto.randomUUID();
@@ -94,13 +94,12 @@ function renderInterior(interior) {
     if (visit.can_respond) for (const accept of [true, false]) {
       const button = document.createElement("button"); button.type = "button"; button.className = "button secondary";
       button.textContent = accept ? "开门并邀请进入" : "不接待这次拜访";
-      button.disabled = state.busy;
       button.addEventListener("click", () => lifeMutation(`visits/${encodeURIComponent(visit.id)}/respond`, {accept}));
       row.append(button);
     }
     if (["pending","invited"].includes(visit.status)) {
       const button = document.createElement("button"); button.type = "button"; button.className = "button secondary";
-      button.textContent = visit.mine ? "取消拜访" : "撤回邀请"; button.disabled = state.busy;
+      button.textContent = visit.mine ? "取消拜访" : "撤回邀请";
       button.addEventListener("click", () => lifeMutation(`visits/${encodeURIComponent(visit.id)}/withdraw`, {}));
       row.append(button);
     }

@@ -572,7 +572,7 @@ CREATE TABLE IF NOT EXISTS element_registration_requests (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     element_type TEXT NOT NULL CHECK(element_type IN (
-        'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine'
+        'character_birth','character_arrival','settlement','building','structure','lore','interior_room','activity_recipe','commodity','workplace_budget','npc_routine','vehicle','vehicle_fuel_profile','local_route'
     )),
     requested_by_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
     source_event_id TEXT NOT NULL REFERENCES world_events(id) ON DELETE RESTRICT,
@@ -914,11 +914,12 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=5.0)
+        # 哥哥，完整世界在整点可能需要数秒结算，交互可短暂排队而不直接失败。
+        connection = sqlite3.connect(self.path, timeout=15.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA busy_timeout = 5000")
+        connection.execute("PRAGMA busy_timeout = 15000")
         # WAL 下 NORMAL 已能保证崩溃不损坏数据库，只可能丢失最后一个未落盘事务，
         # 相比默认的 FULL 可省去每次 commit 的 WAL fsync。心跳循环写事务密集，收益明显。
         connection.execute("PRAGMA synchronous = NORMAL")
@@ -947,13 +948,109 @@ class Database:
             migrations.migrate_completion_columns(connection)
             migrations.migrate_life_kinds(connection)
             connection.executescript(world_schema.LIFE_SCHEMA)
+            from world_engine.life import LifeActivityService
+            LifeActivityService.install_aboard(connection)
+            from world_engine.vehicle_fuel_profile import install_vehicle_fuel_profiles
+            install_vehicle_fuel_profiles(connection)
+            from world_engine.vehicle_fuel_inventory import install_fuel_inventory
+            install_fuel_inventory(connection)
+            from world_engine.cross_layer import install_cross_layer
+            install_cross_layer(connection)
+            from world_engine.npc_stage_actions import install_selfcare_receipts
+            install_selfcare_receipts(connection)
             connection.executescript(world_schema.TASK_SCHEMA)
             connection.executescript(world_schema.CHECK_SCHEMA)
             connection.executescript(world_schema.SOCIETY_SCHEMA)
+            from world_engine.encounters import ENCOUNTER_SCHEMA
+
+            connection.executescript(ENCOUNTER_SCHEMA)
+            from world_engine.companions import COMPANION_SCHEMA
+
+            connection.executescript(COMPANION_SCHEMA)
+            from world_engine.companion_proposals import COMPANION_PROPOSAL_SCHEMA
+
+            connection.executescript(COMPANION_PROPOSAL_SCHEMA)
+            companion_columns = {row["name"] for row in connection.execute("PRAGMA table_info(companion_sessions)")}
+            if "proposal_id" not in companion_columns:
+                # 哥哥，旧同行保留历史；迁移不能补出过去没有表达过的同意。
+                connection.execute("ALTER TABLE companion_sessions ADD COLUMN proposal_id TEXT REFERENCES companion_proposals(id)")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_companion_session_proposal ON companion_sessions(proposal_id)")
+            from world_engine.intimacy import INTIMACY_SCHEMA
+
+            connection.executescript(INTIMACY_SCHEMA)
+            from world_engine.relationship_continuity import CONTINUITY_SCHEMA
+            connection.executescript(CONTINUITY_SCHEMA)
+            from world_engine.shared_life import SHARED_LIFE_SCHEMA
+
+            connection.executescript(SHARED_LIFE_SCHEMA)
+            from world_engine.meal_sharing import MEAL_SHARING_SCHEMA
+            connection.executescript(MEAL_SHARING_SCHEMA)
+            from world_engine.shared_plans import SHARED_PLAN_SCHEMA
+            connection.executescript(SHARED_PLAN_SCHEMA)
+            from world_engine.journeys import JOURNEY_SCHEMA
+            connection.executescript(JOURNEY_SCHEMA)
+            from world_engine.group_journeys import GroupJourneyService
+            # 哥哥，新增多人表只保存此后真实表达的条款与同意，旧记录不补授权。
+            GroupJourneyService.install(connection)
+            from world_engine.rides import RideService
+            RideService.install(connection)
+            journey_columns = {row["name"] for row in connection.execute("PRAGMA table_info(joint_journeys)")}
+            for name, definition in (
+                ("leader_id", "TEXT REFERENCES characters(id) CHECK(leader_id IS NULL OR leader_id=proposer_id OR leader_id=recipient_id)"),
+                ("follow_authorized_by", "TEXT REFERENCES characters(id)"),
+                ("follow_authorized_at", "TEXT"),
+                ("follow_source_event_id", "TEXT REFERENCES world_events(id)"),
+                ("follow_terms_json", "TEXT"),
+            ):
+                if name not in journey_columns:
+                    # 哥哥，旧记录继续按过去的玩家领路解释，不能补造一次跟随授权。
+                    connection.execute(f"ALTER TABLE joint_journeys ADD COLUMN {name} {definition}")
+            connection.execute("CREATE INDEX IF NOT EXISTS idx_journey_follow_due ON joint_journeys(world_id,leader_id,status,phase,next_depart_at)")
+            from world_engine.journey_breaks import JOURNEY_BREAK_SCHEMA
+            connection.executescript(JOURNEY_BREAK_SCHEMA)
+            from world_engine.journey_room_appointments import JOURNEY_ROOM_SCHEMA
+            connection.executescript(JOURNEY_ROOM_SCHEMA)
+            from world_engine.overnight import OVERNIGHT_SCHEMA
+            connection.executescript(OVERNIGHT_SCHEMA)
+            from world_engine.separate_stays import SEPARATE_STAY_SCHEMA
+            connection.executescript(SEPARATE_STAY_SCHEMA)
+            from world_engine.lodging_plans import LODGING_PLAN_SCHEMA
+            connection.executescript(LODGING_PLAN_SCHEMA)
+            # 哥哥，旧分房记录保留原样，新的明确邀请才会关联已完成的订房筹备。
+            separate_columns = {row["name"] for row in connection.execute("PRAGMA table_info(journey_separate_stays)")}
+            if "source_lodging_plan_id" not in separate_columns:
+                connection.execute(
+                    "ALTER TABLE journey_separate_stays ADD COLUMN source_lodging_plan_id "
+                    "TEXT REFERENCES journey_lodging_plans(id)"
+                )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_separate_stay_lodging_source "
+                "ON journey_separate_stays(source_lodging_plan_id)"
+            )
+            from world_engine.separate_stay_changes import SEPARATE_STAY_CHANGE_SCHEMA
+
+            connection.executescript(SEPARATE_STAY_CHANGE_SCHEMA)
+            from world_engine.families import FAMILY_SCHEMA
+
+            connection.executescript(FAMILY_SCHEMA)
             connection.executescript(world_schema.ECONOMY_SCHEMA)
+            from world_engine.local_routes import LOCAL_ROUTE_SCHEMA
+
+            connection.executescript(LOCAL_ROUTE_SCHEMA)
             connection.executescript(world_schema.LIVING_SCHEMA)
             connection.executescript(world_schema.SEQUENCE_SCHEMA)
             connection.executescript(world_schema.SCHEDULE_SCHEMA)
+            from world_engine.appointments import APPOINTMENT_SCHEMA
+
+            connection.executescript(APPOINTMENT_SCHEMA)
+            from world_engine.appointment_meals import APPOINTMENT_MEAL_SCHEMA
+            connection.executescript(APPOINTMENT_MEAL_SCHEMA)
+            from world_engine.appointment_series import APPOINTMENT_SERIES_SCHEMA
+            connection.executescript(APPOINTMENT_SERIES_SCHEMA)
+            appointment_columns={row["name"] for row in connection.execute("PRAGMA table_info(social_appointments)")}
+            for column,definition in (("room_id","TEXT REFERENCES life_rooms(id)"),("visit_host_id","TEXT REFERENCES characters(id)")):
+                if column not in appointment_columns:
+                    connection.execute(f"ALTER TABLE social_appointments ADD COLUMN {column} {definition}")
             connection.executescript(world_schema.ROUTINE_SCHEMA)
             connection.executescript(world_schema.GOAL_SCHEMA)
             connection.executescript(world_schema.AGENCY_SCHEMA)
@@ -978,6 +1075,12 @@ class Database:
             from world_engine.science_schema import install_science_schema
 
             install_science_schema(connection)
+            from world_engine.principle_schema import install_principle_schema
+
+            install_principle_schema(connection)
+            from world_engine.phenomena_schema import install_phenomena_schema
+
+            install_phenomena_schema(connection)
             steering_columns = {row["name"] for row in connection.execute(
                 "PRAGMA table_info(player_steering)")}
             for column in ("advanced_world", "expires_world", "expires_real", "started_state_json"):
@@ -1015,6 +1118,11 @@ class Database:
             )
             from world_engine.wonder_schema import initialize as initialize_wonders
             initialize_wonders(connection)
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_characters_observer_position "
+                "ON characters(world_id,space_layer,current_room_id,latitude,longitude) "
+                "WHERE health>0"
+            )
             migrations.remove_legacy_player_controlled_social_records(connection)
             if self.legacy_world_defaults:
                 migrations.ensure_default_species_profiles(connection)

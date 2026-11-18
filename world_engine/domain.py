@@ -138,6 +138,7 @@ class CharacterState(BaseModel):
     id: str
     world_id: str
     name: str
+    species: str = 'human'
     location_id: str
     longitude: float = Field(default=0.0, ge=-180, le=180)
     latitude: float = Field(default=0.0, ge=-90, le=90)

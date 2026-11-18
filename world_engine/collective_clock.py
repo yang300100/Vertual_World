@@ -12,11 +12,21 @@ from world_engine.materials import MaterialService as M
 from world_engine.repository import from_iso
 
 
-def next_boundary(c, world_id, at, limit_hours=1):
+def next_boundary(c, world_id, at, limit_hours=1,*,satiety_rate=3):
     if not math.isfinite(limit_hours) or limit_hours <= 0 or limit_hours > 1:
         raise ValueError("心跳边界上限须在0到1世界小时内")
     result = at + timedelta(hours=limit_hours)
     queries = (
+        ("SELECT deadline_at FROM joint_journeys WHERE world_id=? AND status IN ('pending','accepted','active','paused','resume_pending')",),
+        ("SELECT next_depart_at FROM joint_journeys WHERE world_id=? AND status='active' AND phase='stopped'",),
+        ("SELECT wait_until FROM joint_journeys WHERE world_id=? AND status='active'",),
+        ("SELECT meet_wait_until FROM joint_journeys WHERE world_id=? AND status='accepted'",),
+        ("SELECT deadline_at FROM shared_preparation_plans WHERE world_id=? AND status IN ('pending','active')",),
+        ("SELECT r.retry_at FROM shared_preparation_roles r JOIN shared_preparation_plans p ON p.id=r.plan_id WHERE p.world_id=? AND p.status='active'",),
+        ("SELECT starts_at FROM social_appointments WHERE world_id=? AND status IN ('pending','accepted')",),
+        ("SELECT ends_at FROM social_appointments WHERE world_id=? AND status IN ('accepted','active')",),
+        ("SELECT s.next_world_time FROM npc_daily_states s JOIN social_appointments a ON (a.proposer_id=s.character_id OR a.recipient_id=s.character_id) WHERE a.world_id=? AND a.status='accepted' AND a.room_id IS NOT NULL",),
+        ("SELECT until_world_time FROM companion_sessions WHERE world_id=? AND status='active'",),
         (
             "SELECT estimated_arrival_world FROM character_movements WHERE world_id=? AND status='moving'",
         ),
@@ -47,6 +57,18 @@ def next_boundary(c, world_id, at, limit_hours=1):
                 due = from_iso(row[0])
                 if at < due < result:
                     result = due
+    # 哥哥，短约会也要在真实出发时刻唤醒日常调度，不能整小时跨过去。
+    for actor in c.execute("SELECT DISTINCT a.* FROM characters a JOIN joint_journeys j ON (j.proposer_id=a.id OR j.recipient_id=a.id) WHERE j.world_id=? AND j.status='active' AND a.is_player=0",(world_id,)):
+        hour=7 if "巡夜" in (actor["identity"] or "") or "夜行" in json.loads(actor["traits_json"] or "[]") else 22
+        due=at.replace(hour=hour,minute=0,second=0,microsecond=0)
+        if due<=at:due+=timedelta(days=1)
+        if at<due<result:result=due
+    from world_engine.schedules import ScheduleService
+    for actor in c.execute("SELECT DISTINCT p.* FROM characters p JOIN contract_fulfillments f ON (f.recipient_id=p.id OR f.requester_id=p.id) "
+        "WHERE p.world_id=? AND f.kind='appointment' AND f.status='active'",(world_id,)):
+        plan=ScheduleService.assess(c,actor,at)
+        if plan and at<plan["depart_at"]<result:
+            result=plan["depart_at"]
     for row in c.execute(
         "SELECT last_consumed_at FROM collective_regions WHERE world_id=?", (world_id,)
     ):
@@ -75,7 +97,16 @@ def next_boundary(c, world_id, at, limit_hours=1):
                 delay = (actor["satiety"] - 60 - actor["residual"]) / rate
                 if delay > 1e-8:
                     result = min(result, at + timedelta(hours=delay))
-    return result
+    from world_engine.overnight import OvernightService
+    from world_engine.companion_proposals import CompanionProposalService
+    result = CompanionProposalService.boundary(c,world_id,at,result)
+    from world_engine.journey_follow import JourneyFollowService
+    result = JourneyFollowService.boundary(c,world_id,at,result)
+    from world_engine.group_journeys import GroupJourneyService
+    result = GroupJourneyService.boundary(c,world_id,at,result,satiety_rate)
+    from world_engine.rides import RideService
+    result = RideService.boundary(c,world_id,at,result)
+    return OvernightService.boundary(c,world_id,at,result,satiety_rate)
 
 
 def advance_materials(c, world_id, hours):
@@ -91,7 +122,8 @@ def advance_materials(c, world_id, hours):
     ).fetchall():
         # 土壤返溶已包含在根系/活力的联合积分中，不能再推进一次。
         skip.add(crop["soil_id"])
-        ProductionService._grow(c, crop, at + timedelta(hours=hours))
+        # 哥哥，时钟已写入本轮结束时间，作物不能再多长一个区间。
+        ProductionService._grow(c, crop, at)
     for row in c.execute(
         "SELECT inputs_json,spec_json FROM collective_work_orders w JOIN collective_proposals p ON p.id=w.proposal_id WHERE p.world_id=? AND w.status='working'",
         (world_id,),
@@ -165,11 +197,28 @@ def basic_life(c, world_id, at):
     from world_engine.collective_research import CollectiveResearchService as R
     from world_engine.economy import EconomyService
     from world_engine.life import LifeActivityService
+    from world_engine.group_journeys import GroupJourneyService
+
+    GroupJourneyService.maintain(c, world_id, at)
+    from world_engine.rides import RideService
+    RideService.maintain(c, world_id, at)
+    travelling = set()
+    for actor in c.execute(
+        "SELECT DISTINCT a.* FROM characters a JOIN group_journey_members m ON m.character_id=a.id "
+        "JOIN group_journeys g ON g.id=m.journey_id WHERE a.world_id=? AND a.is_player=0 "
+        "AND a.health>0 AND m.left_at IS NULL AND g.status IN ('accepted','active')", (world_id,),
+    ).fetchall():
+        if GroupJourneyService.perform(c, actor, at):
+            travelling.add(actor["id"])
 
     for actor in c.execute(
         "SELECT a.* FROM characters a JOIN collective_people p ON p.character_id=a.id WHERE a.world_id=? AND p.enabled=1 AND a.health>0 ORDER BY a.rowid",
         (world_id,),
     ).fetchall():
+        if actor["id"] in travelling:
+            continue
+        if RideService.aboard(c, actor["id"]):
+            continue
         if LifeActivityService.running(c, actor["id"]):
             continue
         moving = c.execute(

@@ -3,7 +3,7 @@
 const VISIBLE_PERSON_RADIUS_KM = 0.1;
 
 const state = {
-  worlds: [], worldId: null, snapshot: null, events: [], logs: [], adjudications: [], health: null,
+  worlds: [], worldId: new URLSearchParams(location.search).get("world"), snapshot: null, events: [], logs: [], adjudications: [], health: null,
   agentRuns: [], agentProposals: [],
   registrations: [], constructionProjects: [], contacts: [], todos: [], longTermRequests: [], selectedContactId: null, messages: [],
   busy: false, responsePending: false, currentRoom: window.location.hash.slice(1) || "scene", eventFilter: "all",
@@ -102,9 +102,35 @@ async function api(path, options = {}) {
   return response.status === 204 ? null : response.json();
 }
 
+const busyRegions = new Map();
+let busyFocus = null;
+function closeDialogFromBackdrop(event) {
+  const dialog = event.currentTarget;
+  if (event.target !== dialog) return;
+  const rect = dialog.getBoundingClientRect();
+  // 哥哥，弹窗里的留白也属于内容，只有点到外面的遮罩才关闭。
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+}
 function setBusy(busy, message = "正在处理") {
   state.busy = busy; elements.busyMessage.textContent = message; elements.busyOverlay.hidden = !busy;
-  $$('button, input, textarea, select').forEach((node) => { if (!node.closest("#character-dialog")) node.disabled = busy; });
+  // 哥哥，暂时锁定操作区域，保留控件由业务规则决定的禁用状态。
+  if (busy && !busyRegions.size) {
+    busyFocus = document.activeElement;
+    $$('main, .masthead, dialog:not(#character-dialog)').forEach((node) => {
+      busyRegions.set(node, { inert: node.inert, ariaBusy: node.getAttribute("aria-busy") });
+      node.inert = true;
+      node.setAttribute("aria-busy", "true");
+    });
+  } else if (!busy) {
+    busyRegions.forEach((previous, node) => {
+      node.inert = previous.inert;
+      if (previous.ariaBusy === null) node.removeAttribute("aria-busy");
+      else node.setAttribute("aria-busy", previous.ariaBusy);
+    });
+    busyRegions.clear();
+    if (document.activeElement === document.body && busyFocus?.isConnected && busyFocus.checkVisibility() && !busyFocus.disabled) busyFocus.focus({ preventScroll: true });
+    busyFocus = null;
+  }
 }
 
 function beginResponse(message) {
@@ -217,19 +243,37 @@ function renderDialogueTargets() {
 }
 function currentMovement() { const player = currentPlayer(); if (state.gameSceneWorldId === state.worldId && state.gameScene?.steering?.active) return null; return player ? (state.snapshot?.movements || []).find((item) => item.character_id === player.id && item.status === "moving") || null : null; }
 
-async function refreshAll({ reloadWorlds = false, silent = false } = {}) {
+const pendingRefreshes = new Set();
+function refreshAll(options = {}) {
+  // 哥哥，上一轮还没读完时，后台轮询先等候，避免叠加整套世界请求。
+  if (options.silent && pendingRefreshes.size) return Promise.allSettled([...pendingRefreshes]);
+  const request = refreshWorldState(options).finally(() => pendingRefreshes.delete(request));
+  pendingRefreshes.add(request);
+  return request;
+}
+async function refreshWorldState({ reloadWorlds = false, silent = false } = {}) {
+  let loadedWorldId = null;
+  if (elements.dashboard.hidden && !silent) {
+    $("#world-load-state").hidden = false;
+    $("#world-load-state").setAttribute("role", "status");
+    $("#world-load-state h1").textContent = "正在翻开旅人之书";
+    $("#world-load-message").textContent = "正在读取世界与人物记录，请稍候……";
+    $("#world-load-retry").hidden = true;
+  }
   try {
     const previousWorldId = state.worldId;
     if (reloadWorlds || !state.worlds.length) {
       state.worlds = await api("/api/worlds"); renderWorldOptions();
-      if (!state.worlds.length) { elements.dashboard.hidden = true; elements.emptyState.hidden = false; return; }
+      if (!state.worlds.length) { elements.dashboard.hidden = true; elements.emptyState.hidden = false; $("#world-load-state").hidden = true; return; }
       if (!state.worldId || !state.worlds.some((world) => world.id === state.worldId)) state.worldId = state.worlds[0].id;
     }
     if (state.worldId !== previousWorldId) {
       state.mapImage = null; state.mapFiles = []; resetMapView(); loadMapFiles();
       state.conversationTargetId = null; state.groupDialogueMode = false; state.selectedDialogueIds = [];
     }
-    elements.worldSelect.value = state.worldId;
+    const worldId = state.worldId;
+    loadedWorldId = worldId;
+    elements.worldSelect.value = worldId;
     const [snapshot, events, adjudications, health, agentRuns, agentProposals, registrations, constructionProjects, contacts, todos, longTermRequests] = await Promise.all([
       api(`/api/worlds/${state.worldId}`), api(`/api/worlds/${state.worldId}/events?limit=200&scope=chronicle`),
       api(`/api/worlds/${state.worldId}/adjudications?limit=40`), api("/api/health"),
@@ -237,24 +281,34 @@ async function refreshAll({ reloadWorlds = false, silent = false } = {}) {
       api(`/api/worlds/${state.worldId}/registrations?limit=100`), api(`/api/worlds/${state.worldId}/construction-projects`),
       api(`/api/worlds/${state.worldId}/contacts`), api(`/api/worlds/${state.worldId}/todos`), api(`/api/worlds/${state.worldId}/long-term-requests`),
     ]);
+    if (worldId !== state.worldId) return;
     const player = snapshot.characters.find((item) => item.is_player);
     const logUrl = player ? `/api/worlds/${state.worldId}/events?limit=200&scope=log&participant_id=${encodeURIComponent(player.id)}` : `/api/worlds/${state.worldId}/events?limit=200&scope=log`;
     const logs = await api(logUrl);
-    if (player) { const [experience, market, sequences] = await Promise.all([api(`/api/worlds/${state.worldId}/player/experience`), api(`/api/worlds/${state.worldId}/player/market`), api(`/api/worlds/${state.worldId}/player/sequences`)]); state.living = experience; state.market = market; state.pendingSequences = sequences; }
+    if (player) { const [experience, market, sequences] = await Promise.all([api(`/api/worlds/${worldId}/player/experience`), api(`/api/worlds/${worldId}/player/market`), api(`/api/worlds/${worldId}/player/sequences`)]); if (worldId !== state.worldId) return; state.living = experience; state.market = market; state.pendingSequences = sequences; }
+    if (worldId !== state.worldId) return;
     const capturedAt = performance.now(); let liveClockBase = new Date(snapshot.world.current_time);
     if (state.snapshot?.world.id === snapshot.world.id && state.liveClockBase) { const previousElapsed = Math.max(0, (capturedAt - state.liveClockCapturedAt) / 1000 * Number(state.snapshot.world.time_scale)); const previousShown = new Date(state.liveClockBase.getTime() + previousElapsed * 1000); const workerFresh = snapshot.world.last_worker_seen_at && Date.now() - new Date(snapshot.world.last_worker_seen_at).getTime() < 180000; if (workerFresh && previousShown > liveClockBase) liveClockBase = previousShown; }
     state.snapshot = snapshot; state.events = events; state.logs = logs; state.adjudications = adjudications; state.health = health;
     state.agentRuns = agentRuns; state.agentProposals = agentProposals;
     state.registrations = registrations; state.constructionProjects = constructionProjects; state.contacts = contacts; state.todos = todos; state.longTermRequests = longTermRequests;
     state.liveClockBase = liveClockBase; state.liveClockCapturedAt = capturedAt;
-    elements.emptyState.hidden = true; elements.dashboard.hidden = false; setConnection(true); renderAll();
+    elements.emptyState.hidden = true; elements.dashboard.hidden = false; $("#world-load-state").hidden = true; setConnection(true); renderAll();
     if (typeof refreshLife === "function") await refreshLife(state.worldId);
   } catch (error) {
+    if (loadedWorldId && loadedWorldId !== state.worldId) return;
     if (error.status === 404 && !reloadWorlds) {
       state.worlds = []; state.worldId = null;
-      return refreshAll({ reloadWorlds: true, silent });
+      return refreshWorldState({ reloadWorlds: true, silent });
     }
-    setConnection(false); if (!silent) showToast(error.message, true);
+    setConnection(false);
+    if (elements.dashboard.hidden) {
+      $("#world-load-state").hidden = false;
+      $("#world-load-state").setAttribute("role", "alert");
+      $("#world-load-state h1").textContent = "暂时无法翻开旅人之书";
+      $("#world-load-message").textContent = `暂时无法读取世界：${error.message}。请检查服务连接后重试。`;
+      $("#world-load-retry").hidden = false;
+    } else if (!silent) showToast(error.message, true);
   }
 }
 
@@ -264,7 +318,15 @@ function renderWorldOptions() {
 }
 function setConnection(ok) { elements.connectionStatus.dataset.state = ok ? "online" : "offline"; elements.connectionStatus.textContent = ok ? "已同步" : "连接中断"; }
 
+function syncWorldUrl() {
+  if (!state.worldId) return;
+  const url = new URL(location.href);
+  url.searchParams.set("world", state.worldId);
+  history.replaceState(null, "", url);
+}
+
 function renderAll() {
+  syncWorldUrl();
   const worldName = state.snapshot.world.name;
   document.title = `${worldName} · 旅人之书`;
   $("#brand-world-name").textContent = worldName;
@@ -273,16 +335,23 @@ function renderAll() {
   const player = currentPlayer(); elements.playerSetup.hidden = Boolean(player); elements.playerContent.forEach((node) => { node.hidden = !player; });
   if (!player) { renderPlayerCreation(state.snapshot.locations); return; }
   renderDialogueTargets(); renderPlayerExperience(state.snapshot); renderClock(state.snapshot.world); renderEvents(); renderLogs(); renderStoryCards(); renderSceneConversation(); renderSceneAside(); renderMap(); renderRelationshipGraph(state.snapshot);
-  renderNotebookReferences(); loadNotebook(); renderCharacters(state.snapshot.characters); renderInterventionOptions(state.snapshot.characters); renderAdjudications(state.adjudications); renderAgentAudit(); renderRegistrations(); renderSocialSystems(); if (typeof renderLiving === "function") renderLiving(); switchRoom(state.currentRoom, false);
+  renderNotebookReferences(); loadNotebook(); renderCharacters(state.snapshot.characters); renderInterventionOptions(state.snapshot.characters); renderAdjudications(state.adjudications); renderAgentAudit(); renderRegistrations(); renderSocialSystems(); if (typeof renderLiving === "function") renderLiving(); switchRoom(state.currentRoom, false, true);
 }
 
+function fuelProfileProposalDetails(item) {
+  const p = item.payload || {};
+  return `<p>车辆 ID：${escapeHtml(p.vehicle_id ?? "缺失")}；燃料类型 ID：${escapeHtml(p.item_type_id ?? "缺失")}</p>` +
+    `<p>容量：${escapeHtml(p.capacity_units ?? "缺失")} 份；每公里消耗：${escapeHtml(p.rate_numerator ?? "缺失")} / ${escapeHtml(p.rate_denominator ?? "缺失")} 份。</p>` +
+    `<p>来源事件 ID：${escapeHtml(item.source_event_id ?? "缺失")}。这是待确认的世界设定，并不代表实测。</p>`;
+}
 function renderRegistrations() {
   if (!elements.registrationList || !elements.constructionList) return;
   if (typeof renderInteriorOptions === "function") renderInteriorOptions();
   if (typeof renderRoutineOptions === "function") renderRoutineOptions();
+  if (typeof fuelProfileSyncWorld === "function") fuelProfileSyncWorld();
   if (typeof loadTaskCatalog === "function") loadTaskCatalog();
   elements.registrationCount.textContent = `${state.registrations.length} 项`;
-  elements.registrationList.replaceChildren(...state.registrations.map((item) => { const node = document.createElement("article"); const pending = item.status === "proposed"; node.className = "registration-item"; node.innerHTML = `<strong>${escapeHtml(item.payload?.name || item.payload?.title || item.element_type)}</strong><span>${escapeHtml(item.element_type)} · ${escapeHtml(item.status)}</span>${item.rejection_reason ? `<small>${escapeHtml(item.rejection_reason)}</small>` : ""}${item.element_type === "interior_room" && typeof interiorProposalDetails === "function" ? interiorProposalDetails(item.payload) : ""}${item.element_type === "activity_recipe" && typeof recipeProposalDetails === "function" ? recipeProposalDetails(item.payload) : ""}${["commodity","workplace_budget"].includes(item.element_type) && typeof economyProposalDetails === "function" ? economyProposalDetails(item.payload) : ""}${item.element_type === "npc_routine" && typeof routineProposalDetails === "function" ? routineProposalDetails(item.payload) : ""}${pending ? `<div class="registration-actions"><button class="button primary" data-registration-confirm="${escapeHtml(item.id)}" type="button">确认登记</button><button class="button danger" data-registration-reject="${escapeHtml(item.id)}" type="button">拒绝</button></div>` : ""}`; return node; }));
+  elements.registrationList.replaceChildren(...state.registrations.map((item) => { const node = document.createElement("article"); const pending = item.status === "proposed"; node.className = "registration-item"; node.innerHTML = `<strong>${escapeHtml(item.payload?.name || item.payload?.title || item.element_type)}</strong><span>${escapeHtml(item.element_type)} · ${escapeHtml(item.status)}</span>${item.rejection_reason ? `<small>${escapeHtml(item.rejection_reason)}</small>` : ""}${item.element_type === "interior_room" && typeof interiorProposalDetails === "function" ? interiorProposalDetails(item.payload) : ""}${item.element_type === "activity_recipe" && typeof recipeProposalDetails === "function" ? recipeProposalDetails(item.payload) : ""}${["commodity","workplace_budget"].includes(item.element_type) && typeof economyProposalDetails === "function" ? economyProposalDetails(item.payload) : ""}${item.element_type === "npc_routine" && typeof routineProposalDetails === "function" ? routineProposalDetails(item.payload) : ""}${item.element_type === "vehicle_fuel_profile" ? fuelProfileProposalDetails(item) : ""}${item.element_type === "local_route" && typeof localRouteProposalDetails === "function" ? localRouteProposalDetails(item.payload) : ""}${pending ? `<div class="registration-actions"><button class="button primary" data-registration-confirm="${escapeHtml(item.id)}" type="button">确认登记</button><button class="button danger" data-registration-reject="${escapeHtml(item.id)}" type="button">拒绝</button></div>` : ""}`; return node; }));
   if (!state.registrations.length) elements.registrationList.append(emptyElement("p", "暂无注册记录", "empty-list"));
   elements.constructionList.replaceChildren(...state.constructionProjects.map((item) => { const node = document.createElement("article"); node.className = "registration-item"; const canStart = ["planned", "surveyed"].includes(item.status); const canCancel = item.status === "constructing"; node.innerHTML = `<strong>${escapeHtml(item.target_name)}</strong><span>${escapeHtml(item.project_type)} · ${escapeHtml(item.status)} · ${(Number(item.progress) * 100).toFixed(1)}%</span>${canStart ? `<button class="button secondary" data-construction-start="${escapeHtml(item.registration_id)}" type="button">开始施工</button>` : ""}${canCancel ? `<button class="button danger" data-construction-cancel="${escapeHtml(item.registration_id)}" type="button">取消并退款</button>` : ""}`; return node; }));
   if (!state.constructionProjects.length) elements.constructionList.append(emptyElement("p", "暂无建设项目", "empty-list"));
@@ -523,7 +592,7 @@ function renderSuggestions(nearby, locations, player) {
   locations.filter((item) => item.id !== player.location_id && (item.space_layer || "ground") === (player.space_layer || "ground")).slice(0, 2).forEach((item) => suggestions.push({ label: `前往${item.name}`, intent: `前往${item.name}` }));
   elements.suggestedActions.replaceChildren(...suggestions.map((suggestion) => { const button = document.createElement("button"); button.type = "button"; button.textContent = suggestion.label; button.addEventListener("click", () => fillIntent(suggestion.intent, suggestion.targetId || null, Boolean(suggestion.group))); return button; }));
 }
-function fillIntent(text, targetCharacterId = null, groupDialogue = false) { setComposerMode(targetCharacterId || groupDialogue ? "dialogue" : "action"); state.selectedDialogueIds = groupDialogue ? dialogueTargetsInRange().map((item) => item.id) : targetCharacterId ? [targetCharacterId] : []; renderDialogueTargets(); elements.playerIntent.value = text; elements.playerIntent.dataset.presetValue = text; elements.playerIntentForm.classList.remove("suggestions-open"); $("#suggestion-toggle").setAttribute("aria-expanded", "false"); saveIntentDraft(); elements.playerIntent.focus(); }
+function fillIntent(text, targetCharacterId = null, groupDialogue = false) { switchRoom("scene"); setComposerMode(targetCharacterId || groupDialogue ? "dialogue" : "action"); state.selectedDialogueIds = groupDialogue ? dialogueTargetsInRange().map((item) => item.id) : targetCharacterId ? [targetCharacterId] : []; renderDialogueTargets(); elements.playerIntent.value = text; elements.playerIntent.dataset.presetValue = text; elements.playerIntentForm.classList.remove("suggestions-open"); $("#suggestion-toggle").setAttribute("aria-expanded", "false"); saveIntentDraft(); elements.playerIntent.focus(); }
 
 function eventCategory(event) { const type = normalizedEventType(event.event_type); if (["world.major_death"].includes(type)) return "conflict"; if (["world.treaty", "world.regime_change"].includes(type)) return "politics"; if (["world.catastrophe"].includes(type)) return "disaster"; return "other"; }
 function knownEvents() { return state.living?.events || []; }
@@ -789,7 +858,10 @@ function renderMap(positionOverride = null) {
   const mapNpcs = visibleNpcs.filter((person) => (person.space_layer || "ground") === (player.space_layer || "ground") && mapContains(map, person.longitude, person.latitude));
   renderMapNpcPicker(map, mapNpcs);
   mapNpcs.forEach((person) => {
-    const point = createMapPoint(person.longitude, person.latitude, "npc", person.name, map, person.identity || "NPC");
+    const visibleName = typeof livingName === "function" ? livingName(person) : person.name;
+    const identity = state.living?.people.find((known) => known.id === person.id)?.known_name
+      ? person.identity : "身份尚未得知";
+    const point = createMapPoint(person.longitude, person.latitude, "npc", visibleName, map, identity);
     point.dataset.characterId = person.id; point.classList.toggle("selected", person.id === state.selectedMapNpcId); points.push(point);
   });
   points.push(createMapPoint(predictedPlayer.longitude, predictedPlayer.latitude, "player", "我", map));
@@ -822,9 +894,9 @@ function renderWonderPanel() {
   }
 }
 function renderMapNpcPicker(map, people) {
-  const key = `${state.worldId}:${map.id}:${people.map((person) => person.id).join("|")}`;
+  const key = `${state.worldId}:${map.id}:${people.map((person) => `${person.id}:${typeof livingName === "function" ? livingName(person) : person.name}`).join("|")}`;
   if (key !== state.mapNpcListKey) {
-    elements.mapNpcSelect.replaceChildren(new Option(`本图 ${people.length} 位 NPC · 选择定位`, ""), ...people.map((person) => new Option(person.name, person.id)));
+    elements.mapNpcSelect.replaceChildren(new Option(`本图 ${people.length} 位 NPC · 选择定位`, ""), ...people.map((person) => new Option(typeof livingName === "function" ? livingName(person) : person.name, person.id)));
     state.mapNpcListKey = key;
   }
   if (state.selectedMapNpcId && !people.some((person) => person.id === state.selectedMapNpcId)) {
@@ -890,6 +962,11 @@ function drawPlayerFrame() {
   if (!state.manualView) elements.mapCoordinate.textContent = formatCoordinate(player.longitude, player.latitude);
 }
 async function inspectMapNpc(characterId) {
+  // 哥哥，旅人点击地图人物时查看自己的见闻，不读取对方的私人目标和行动日志。
+  if (!state.currentRoom.startsWith("observer") && typeof openKnownProfile === "function") {
+    openCharacterProfile(characterId);
+    return;
+  }
   const person = characterById(characterId);
   if (!person) return;
   focusMapNpc(characterId);
@@ -1095,7 +1172,7 @@ function enableNodeDrag(svg, group, id, lineLayer) { let dragging = false; const
 
 async function openCharacterProfile(characterId) {
   if (!state.currentRoom.startsWith("observer") && typeof openKnownProfile === "function" && characterId !== currentPlayer()?.id) { openKnownProfile(characterId); return; }
-  const character = characterById(characterId); if (!character) return; const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude, character.space_layer || "ground"); const rel = relationFor(character.id); const activationLabel = character.is_player ? "主视角" : character.activation_state === "active" ? "激活NPC" : "背景NPC"; const avatar = avatarMarkup(character, "profile-avatar"); const player = currentPlayer(); const canExchangeContact = !character.is_player && player && distanceKm(player.longitude, player.latitude, character.longitude, character.latitude) <= VISIBLE_PERSON_RADIUS_KM; elements.characterProfile.innerHTML = `<header class="profile-head">${avatar}<div><p class="kicker">人物档案 · ${activationLabel}</p><h1>${escapeHtml(character.name)}</h1><p>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(location?.name || "位置未知")}</p><strong>${formatCoordinate(character.longitude, character.latitude)}</strong></div></header><dl class="profile-stats"><div><dt>生命</dt><dd>${character.health}</dd></div><div><dt>精力</dt><dd>${character.energy}</dd></div><div><dt>饱食</dt><dd>${character.satiety}</dd></div><div><dt>亲和</dt><dd>${rel?.affinity ?? "未知"}</dd></div><div><dt>信任</dt><dd>${rel?.trust ?? "未知"}</dd></div></dl><section><h2>近期回忆</h2><div id="profile-memories"><p class="empty-list">正在读取……</p></div></section><div class="profile-actions">${character.is_player ? `<label class="button secondary avatar-upload-control">上传我的头像<input id="player-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" /></label>` : `<button class="button primary" data-profile-action="talk" type="button">与其交谈</button><button class="button danger" data-profile-action="attack" type="button">向其攻击</button>${canExchangeContact ? `<button class="button secondary" data-profile-action="contact" type="button">交换信笺</button>` : ""}`}</div>`;
+  const character = characterById(characterId); if (!character) return; const location = locationById(character.current_location_id) || resolveLocationAt(character.longitude, character.latitude, character.space_layer || "ground"); const rel = relationFor(character.id); const activationLabel = character.is_player ? "主视角" : character.activation_state === "active" ? "激活NPC" : "背景NPC"; const avatar = avatarMarkup(character, "profile-avatar"); const player = currentPlayer(); const canExchangeContact = !character.is_player && player && distanceKm(player.longitude, player.latitude, character.longitude, character.latitude) <= VISIBLE_PERSON_RADIUS_KM; elements.characterDialog.setAttribute("aria-label", `${character.name}的人物档案`); elements.characterProfile.innerHTML = `<header class="profile-head">${avatar}<div><p class="kicker">人物档案 · ${activationLabel}</p><h1>${escapeHtml(character.name)}</h1><p>${escapeHtml(character.identity || "身份未明")} · ${escapeHtml(location?.name || "位置未知")}</p><strong>${formatCoordinate(character.longitude, character.latitude)}</strong></div></header><dl class="profile-stats"><div><dt>生命</dt><dd>${character.health}</dd></div><div><dt>精力</dt><dd>${character.energy}</dd></div><div><dt>饱食</dt><dd>${character.satiety}</dd></div><div><dt>亲和</dt><dd>${rel?.affinity ?? "未知"}</dd></div><div><dt>信任</dt><dd>${rel?.trust ?? "未知"}</dd></div></dl><section><h2>近期回忆</h2><div id="profile-memories"><p class="empty-list">正在读取……</p></div></section><div class="profile-actions">${character.is_player ? `<label class="button secondary avatar-upload-control">上传我的头像<input id="player-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" /></label>` : `<button class="button primary" data-profile-action="talk" type="button">与其交谈</button><button class="button danger" data-profile-action="attack" type="button">向其攻击</button>${canExchangeContact ? `<button class="button secondary" data-profile-action="contact" type="button">交换信笺</button>` : ""}`}</div>`;
   if (character.is_player) $("#player-avatar-file").addEventListener("change", (event) => uploadPlayerAvatar(event.target.files?.[0], character.id));
   if (!character.is_player) { const stats = elements.characterProfile.querySelector(".profile-stats"); for (const [label, value] of [["性别", character.gender || "未知"], ["年龄", character.age_years == null ? "未知" : `${character.age_years}岁`]]) { const item = document.createElement("div"); const heading = document.createElement("dt"); const detail = document.createElement("dd"); heading.textContent = label; detail.textContent = value; item.append(heading, detail); stats.append(item); } }
   elements.characterProfile.querySelectorAll("[data-profile-action]").forEach((button) => button.addEventListener("click", () => { const action = button.dataset.profileAction; if (action === "contact") { perform("正在询问对方是否交换信笺", () => api(`/api/worlds/${state.worldId}/contacts`, { method: "POST", body: JSON.stringify({ recipient_id: character.id }) }), "联络请求已得到回应", (result) => showToast(result.response, result.status !== "accepted")); elements.characterDialog.close(); return; } const prefix = { talk: "与", attack: "攻击" }[action]; fillIntent(action === "talk" ? `与${character.name}交谈` : `${prefix}${character.name}`, action === "talk" ? character.id : null); elements.characterDialog.close(); }));
@@ -1400,8 +1477,38 @@ function setSceneView(view) {
   const active = state.currentRoom === "scene";
   $('button[data-room="scene"]')?.classList.toggle("active", active && sceneView === "dialogue");
   $("#nav-scene-details")?.classList.toggle("active", active && sceneView === "details");
+  $$('.side-navigation .nav-item').forEach((button) => {
+    if (button.classList.contains("active")) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
 }
-function switchRoom(room, updateHash = true) {
+const mobileNavigation = window.matchMedia("(max-width: 760px)");
+const navigationRegions = new Map();
+function setMobileNavigation(open, restoreFocus = true) {
+  const expanded = mobileNavigation.matches && open;
+  const focusInNavigation = elements.sideNavigation.contains(document.activeElement);
+  elements.sideNavigation.classList.toggle("open", expanded);
+  elements.sideNavigation.inert = mobileNavigation.matches && !expanded;
+  elements.mobileNavToggle.setAttribute("aria-expanded", String(expanded));
+  elements.mobileNavToggle.setAttribute("aria-label", expanded ? "关闭导航" : "打开导航");
+  $("#navigation-backdrop").hidden = !expanded;
+  document.body.classList.toggle("navigation-open", expanded);
+  if (expanded) {
+    $$('.room-stack, #floating-desk, #player-intent-form').forEach((node) => {
+      if (!navigationRegions.has(node)) navigationRegions.set(node, node.inert);
+      node.inert = true;
+    });
+    elements.sideNavigation.querySelector(".nav-item.active")?.focus();
+  } else {
+    navigationRegions.forEach((inert, node) => { node.inert = inert; });
+    navigationRegions.clear();
+    if (restoreFocus && focusInNavigation) elements.mobileNavToggle.focus();
+  }
+}
+mobileNavigation.addEventListener("change", () => setMobileNavigation(false));
+setMobileNavigation(false, false);
+
+function switchRoom(room, updateHash = true, preserveNavigation = false) {
   const valid = $(`[data-room-panel="${CSS.escape(room)}"]`) ? room : "scene";
   if (valid !== "map") stopSteering();
   state.currentRoom = valid; document.body.dataset.room = valid;
@@ -1409,7 +1516,12 @@ function switchRoom(room, updateHash = true) {
   $$('button[data-room]').forEach((button) => button.classList.toggle("active", button.dataset.room === valid));
   setSceneView(sceneView);
   if (updateHash) history.replaceState(null, "", `#${valid}`);
-  elements.sideNavigation.classList.remove("open");
+  const navigationWasOpen = !preserveNavigation && elements.sideNavigation.classList.contains("open");
+  if (!preserveNavigation) setMobileNavigation(false, false);
+  if (navigationWasOpen) {
+    const heading = $(`[data-room-panel="${CSS.escape(valid)}"] h1`);
+    if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+  }
   if (valid === "notebook") loadActivityRecords(); if (valid === "map") { renderMap(); refreshGameScene(); }
   if (valid === "relationships") { state.relationshipKey = ""; renderRelationshipGraph(state.snapshot); }
 }
@@ -1480,7 +1592,7 @@ async function previewPlayerIntent(intent) {
   if (state.busy || state.responsePending || !state.worldId) return;
   const payload = { intent };
   if (state.conversationTargetId) payload.target_character_id = state.conversationTargetId;
-  let directTargetId = null, shouldExecute = false, sequencePlan = null, inspectionText = null;
+  let directTargetId = null, shouldExecute = false, sequencePlan = null, inspectionText = null, socialPreview = null;
   beginResponse("已收到输入，正在检查意图与所需参数");
   try {
     const preview = await api(`/api/worlds/${state.worldId}/player/intents/preview`, {
@@ -1488,7 +1600,10 @@ async function previewPlayerIntent(intent) {
     });
     inspectionText = intentInspectionText(preview);
     addResponseStep(inspectionText);
-    if (preview.sequence_steps?.length >= 2) {
+    if (preview.route_kind === "social_choice") {
+      socialPreview = preview;
+      finishResponse("已识别你明确表达的选择，正在交给世界结算");
+    } else if (preview.sequence_steps?.length >= 2) {
       sequencePlan = preview.sequence_steps;
       finishResponse("已识别为多步行动，等待逐步执行");
     } else if (preview.requires_form) {
@@ -1502,7 +1617,8 @@ async function previewPlayerIntent(intent) {
     showToast(error.message, true);
     finishResponse(error.message, true);
   }
-  if (sequencePlan) executeSequencePlan(sequencePlan, inspectionText);
+  if (socialPreview) executeNaturalSocialChoice(intent, socialPreview);
+  else if (sequencePlan) executeSequencePlan(sequencePlan, inspectionText);
   else if (shouldExecute) executePlayerIntent(intent, directTargetId, true);
 }
 function canonicalIntentFromForm(preview, values, targetName) { const item = values.item_name?.trim(); const amount = Number(values.amount); const skill = values.skill_name?.trim(); const priced = ["purchase", "sell", "trade"].includes(preview.operation); if (priced && (!item || !Number.isInteger(amount) || amount <= 0)) throw new Error("请填写有效的物品名称和正整数金额"); if (preview.operation === "transfer" && !item) throw new Error("请填写要转交的物品"); if (preview.operation === "learn" && (!skill || !Number.isInteger(amount) || amount < 0)) throw new Error("请填写技能名称和非负学费"); if (preview.operation === "repair" && !item) throw new Error("请填写要修理的物品"); if (preview.operation === "purchase" || (preview.operation === "trade" && values.trade_direction === "purchase")) return `向${targetName}支付${amount}铜币购买${item}`; if (preview.operation === "sell" || preview.operation === "trade") return `向${targetName}出售${item}获得${amount}铜币`; if (preview.operation === "transfer") return `将${item}赠与${targetName}`; if (preview.operation === "learn") return `向${targetName}学习${skill}，支付${amount}铜币`; if (preview.operation === "repair") return `请${targetName}修理${item}`; return `请${targetName}治疗我`; }
@@ -1605,9 +1721,27 @@ elements.dialogueTargetAll.addEventListener("click", () => { const ids = dialogu
 elements.dialogueTargetPicker.addEventListener("toggle", () => { if (elements.dialogueTargetPicker.open) { elements.playerIntentForm.classList.remove("suggestions-open"); $("#suggestion-toggle").setAttribute("aria-expanded", "false"); } });
 $("#suggestion-toggle").addEventListener("click", (event) => { const open = elements.playerIntentForm.classList.toggle("suggestions-open"); if (open) elements.dialogueTargetPicker.open = false; event.currentTarget.setAttribute("aria-expanded", String(open)); });
 $$('[data-room-jump]').forEach((button) => button.addEventListener("click", () => switchRoom(button.dataset.roomJump)));
-elements.mobileNavToggle.addEventListener("click", () => elements.sideNavigation.classList.toggle("open"));
+elements.mobileNavToggle.addEventListener("click", () => setMobileNavigation(!elements.sideNavigation.classList.contains("open")));
+document.addEventListener("click", (event) => {
+  if (elements.sideNavigation.classList.contains("open") && !event.target.closest("#side-navigation, #mobile-nav-toggle")) setMobileNavigation(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (elements.sideNavigation.classList.contains("open")) { event.preventDefault(); setMobileNavigation(false); }
+    if (elements.dialogueTargetPicker.open) { elements.dialogueTargetPicker.open = false; elements.dialogueTargetPicker.querySelector("summary").focus(); }
+    elements.playerIntentForm.classList.remove("suggestions-open");
+    $("#suggestion-toggle").setAttribute("aria-expanded", "false");
+  }
+  if (event.key !== "Tab" || !elements.sideNavigation.classList.contains("open")) return;
+  const controls = [elements.mobileNavToggle, ...elements.sideNavigation.querySelectorAll("button:not(:disabled)")];
+  const index = controls.indexOf(document.activeElement);
+  const next = (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+  event.preventDefault();
+  controls[next].focus();
+});
 elements.worldSelect.addEventListener("change", async (event) => { state.worldId = event.target.value; state.conversationTargetId = null; state.groupDialogueMode = false; state.selectedDialogueIds = []; resetMapView(); state.relationshipKey = ""; state.mapImage = null; await refreshAll(); loadMapFiles(); elements.playerIntent.value = localStorage.getItem(`virtual-world-intent:${state.worldId}`) || ""; });
 elements.refreshButton.addEventListener("click", () => refreshAll({ reloadWorlds: true }));
+$("#world-load-retry").addEventListener("click", () => refreshAll({ reloadWorlds: true }));
 elements.playerCreateLocation.addEventListener("change", updatePlayerCreationMapSelection);
 elements.playerCreateMapMarkers.addEventListener("click", (event) => { const marker = event.target.closest("[data-location-id]"); if (marker) { elements.playerCreateLocation.value = marker.dataset.locationId; updatePlayerCreationMapSelection(); } });
 elements.playerCreateSecondaryLocations.addEventListener("click", (event) => { const button = event.target.closest("[data-location-id]"); if (button) { elements.playerCreateLocation.value = button.dataset.locationId; updatePlayerCreationMapSelection(); } });
@@ -1617,7 +1751,13 @@ elements.playerIntentForm.addEventListener("submit", (event) => { event.preventD
 elements.intentFormDialogClose.addEventListener("click", () => elements.intentFormDialog.close());
 elements.intentFormCancel.addEventListener("click", () => elements.intentFormDialog.close());
 elements.intentForm.addEventListener("submit", (event) => { event.preventDefault(); const preview = state.intentPreview; if (!preview) return; const values = Object.fromEntries(new FormData(elements.intentForm).entries()); const target = (preview.target_options || []).find((item) => item.id === values.target_character_id); if (!target) return showToast("请选择附近的交互对象", true); try { const intent = canonicalIntentFromForm(preview, values, target.name); elements.intentFormDialog.close(); if (preview.operation === "learn") requestLearning(target.id, values.skill_name.trim(), Number(values.amount)); else if (preview.operation === "letter_exchange") requestLetterExchange(target.id); else executePlayerIntent(intent, target.id); } catch (error) { showToast(error.message, true); } });
-elements.playerIntent.addEventListener("input", () => { delete elements.playerIntent.dataset.presetValue; saveIntentDraft(); }); elements.playerIntent.addEventListener("keydown", (event) => { if (event.key !== "Enter" || event.ctrlKey) return; event.preventDefault(); elements.playerIntentForm.requestSubmit(); });
+elements.playerIntent.addEventListener("input", () => { delete elements.playerIntent.dataset.presetValue; saveIntentDraft(); });
+elements.playerIntent.addEventListener("keydown", (event) => {
+  // 哥哥，输入法选字和换行时，先让哥哥把话写完。
+  if (event.key !== "Enter" || event.isComposing || event.keyCode === 229 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return;
+  event.preventDefault();
+  elements.playerIntentForm.requestSubmit();
+});
 elements.mapShell.addEventListener("wheel", (event) => { event.preventDefault(); zoomMap(Math.exp(-event.deltaY * 0.0015), event.clientX, event.clientY); }, { passive: false });
 elements.mapShell.addEventListener("pointerdown", (event) => { if (event.button !== 0 || event.target.closest(".map-point.npc")) return; const view = state.mapView; const marker = event.target.closest(".map-point.location[data-location-id]"); view.dragging = true; view.moved = false; view.clickedLocationId = marker?.dataset.locationId || null; view.startX = event.clientX; view.startY = event.clientY; view.originX = view.x; view.originY = view.y; elements.mapShell.setPointerCapture(event.pointerId); });
 elements.mapPoints.addEventListener("click", (event) => { const npc = event.target.closest(".map-point.npc[data-character-id]"); if (npc) inspectMapNpc(npc.dataset.characterId); });
@@ -1659,10 +1799,12 @@ if (elements.registrationList) elements.registrationList.addEventListener("click
 elements.messageForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = state.selectedContactId; const content = elements.messageContent.value.trim(); if (!recipientId || !content) return showToast("请选择联系人并写下信笺内容", true); perform("信使正在投递信笺", () => api(`/api/worlds/${state.worldId}/messages`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, content }) }), "回笺已送达", () => { elements.messageContent.value = ""; loadMessages(); }); });
 elements.longTermForm.addEventListener("submit", (event) => { event.preventDefault(); const recipientId = elements.longTermRecipient.value; if (!recipientId) return showToast("请先选择事务对象", true); const payment = Number(elements.longTermPayment.value); if (!Number.isInteger(payment) || payment < 0) return showToast("报酬必须是非负整数", true); const terms = { payment, title: elements.longTermTitle.value.trim(), details: elements.longTermDetails.value.trim(), duration_days: Number($("#long-term-duration").value) }; const kind = elements.longTermType.value; if (["约定","约定改期"].includes(kind)) { const value = $("#long-term-meeting-time").value; const date = new Date(value); if (!value || !Number.isFinite(date.getTime())) return showToast("请填写明确的世界见面时间",true); delete terms.duration_days; terms.meeting_world_time=date.toISOString(); terms.meeting_minutes=Number($("#long-term-meeting-minutes").value); terms.location_id=$("#long-term-meeting-location").value; if(kind === "约定改期") { const original=state.living?.appointments.find((item)=>item.id===$("#long-term-appointment").value); if(!original) return showToast("请选择仍可改期的约定",true); terms.appointment_id=original.id; terms.expected_revision=original.revision; terms.payment=0; }} if (kind === "住房") { terms.room_id = $("#long-term-room").value; if (!terms.room_id) return showToast("请选择对方的可租住房间", true); } if (kind === "借贷") terms.direction = $("#long-term-direction").value; if (kind === "租赁") { terms.vehicle_id = $("#long-term-vehicle").value; if (!terms.vehicle_id) return showToast("对方没有可租赁的载具", true); } if (["委托", "雇佣"].includes(kind)) { terms.fulfillment_action = "work"; terms.work_units = Number($("#long-term-units").value); } perform("正在请NPC审阅长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests`, { method: "POST", body: JSON.stringify({ recipient_id: recipientId, operation_type: elements.longTermType.value, terms }) }), "NPC 已作出回应", (result) => { elements.longTermForm.reset(); updateContractFields(); showToast(result.npc_response, result.status === "npc_rejected"); }); });
 elements.longTermList.addEventListener("click", (event) => { const confirm = event.target.closest("[data-long-term-confirm]"); const remove = event.target.closest("[data-long-term-remove]"); const repay = event.target.closest("[data-contract-repay]"); if (repay) perform("正在结清借款", () => api(`/api/worlds/${state.worldId}/long-term-requests/${repay.dataset.contractRepay}/repay`, { method: "POST" }), "借款已结清"); if (confirm) perform("正在原子执行已确认事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${confirm.dataset.longTermConfirm}/confirm`, { method: "POST", body: JSON.stringify({ accept_counter_terms: true }) }), "长期事务已执行并写入双方记忆"); if (remove) perform("正在结束长期事务", () => api(`/api/worlds/${state.worldId}/long-term-requests/${remove.dataset.longTermRemove}`, { method: "DELETE" }), "事务及其长期待办已移除"); });
-elements.characterDialogClose.addEventListener("click", () => elements.characterDialog.close()); elements.characterDialog.addEventListener("click", (event) => { if (event.target === elements.characterDialog) elements.characterDialog.close(); }); elements.playerProfileButton.addEventListener("click", () => { const player = currentPlayer(); if (player) openCharacterProfile(player.id); });
+elements.characterDialogClose.addEventListener("click", () => elements.characterDialog.close()); elements.characterDialog.addEventListener("click", (event) => { closeDialogFromBackdrop(event); }); elements.playerProfileButton.addEventListener("click", () => { const player = currentPlayer(); if (player) openCharacterProfile(player.id); });
 $("#open-card-import").addEventListener("click", () => openSillyTavernImport());
 $("#card-import-close").addEventListener("click", () => elements.cardImportDialog.close());
 $("#card-import-cancel").addEventListener("click", () => elements.cardImportDialog.close());
+elements.cardImportDialog.addEventListener("click", closeDialogFromBackdrop);
+elements.intentFormDialog.addEventListener("click", closeDialogFromBackdrop);
 elements.cardImportMode.addEventListener("change", syncCardImportMode);
 elements.cardImportFile.addEventListener("change", () => {
   resetSillyTavernSelection();
@@ -1677,7 +1819,7 @@ $("#card-import-person").addEventListener("change", () => {
 });
 $("#card-import-related").addEventListener("change", previewSelectedSillyTavernPerson);
 elements.cardImportForm.addEventListener("submit", submitSillyTavernImport);
-elements.openPhotoDialog.addEventListener("click", () => { const player = currentPlayer(); if (!player) return; renderPhotoControls(player); elements.photoDialog.showModal(); }); elements.photoDialogClose.addEventListener("click", () => elements.photoDialog.close()); elements.photoDialog.addEventListener("click", (event) => { if (event.target === elements.photoDialog) elements.photoDialog.close(); });
+elements.openPhotoDialog.addEventListener("click", () => { const player = currentPlayer(); if (!player) return; renderPhotoControls(player); elements.photoDialog.showModal(); }); elements.photoDialogClose.addEventListener("click", () => elements.photoDialog.close()); elements.photoDialog.addEventListener("click", (event) => { closeDialogFromBackdrop(event); });
 elements.portraitUploadOnly.addEventListener("click", async () => { if (state.busy) return; setBusy(true, "正在保存人设图"); try { const portrait = await uploadSelectedPortrait({ required: true }); await refreshAll({ reloadWorlds: true, silent: true }); showToast("人设图已保存，可以用于后续拍照"); return portrait; } catch (error) { showToast(error.message, true); } finally { setBusy(false); } });
 elements.photoForm.addEventListener("submit", async (event) => { event.preventDefault(); if (state.busy) return; setBusy(true, "正在根据世界现场生成照片"); try { await captureWorldPhoto(); showToast("照片已生成并留存到世界相册"); } catch (error) { showToast(error.message, true); } finally { setBusy(false); } });
 $$('[data-desk]').forEach((button) => button.addEventListener("click", () => { const panel = $(`#desk-${button.dataset.desk}`); $$('[id^="desk-"]').filter((item) => item.classList.contains("desk-panel")).forEach((item) => { item.hidden = item !== panel || !panel.hidden; }); })); $$('[data-desk-close]').forEach((button) => button.addEventListener("click", () => { button.closest(".desk-panel").hidden = true; }));

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from world_engine.collective_cooperation import CooperativeService as C
 from world_engine.collective_evidence import known_evidence
 from world_engine.collective_research import CollectiveResearchService as R
@@ -12,7 +14,13 @@ from world_engine.collective_types import CollectiveCommand
 from world_engine.collective_work import WorkService as W
 from world_engine.materials import encoded, material_transaction
 from world_engine.repository import to_iso
-from world_engine.science_types import AssayStep, CraftCommand, MethodSpec, ScienceProgram
+from world_engine.science_types import (
+    ASSAY_SAMPLE_QUANTITY,
+    AssayStep,
+    CraftCommand,
+    MethodSpec,
+    ScienceProgram,
+)
 
 
 def resolve(value, bindings):
@@ -105,7 +113,7 @@ def start_execution(
             "worker_id": actor_id,
             "batch_id": ref(step.input),
             "operation": step.op,
-            "quantity": getattr(step, "quantity", 1),
+            "quantity": getattr(step, "quantity", ASSAY_SAMPLE_QUANTITY),
             "hours": getattr(step, "hours", 0.5),
             "depends_on": [tasks[-1]["key"]] if tasks else [],
             "purpose": "执行本人提交的方法",
@@ -287,6 +295,59 @@ def settle_executions(c, world_id, at):
 
 class ScienceService:
     @staticmethod
+    def preview(c, session_id, actor_id, program, at):
+        """哥哥，沿真实入口检查可开始的阶段，临时劳动与物质变更全部回滚。"""
+        report = {"status": "rejected", "commands": [], "errors": []}
+        try:
+            spec = (
+                program if isinstance(program, ScienceProgram)
+                else ScienceProgram.model_validate(program)
+            ).model_copy(update={"phase": "execute"})
+        except ValidationError as exc:
+            report["errors"] = [
+                {"location": list(e["loc"]), "reason": e["msg"]}
+                for e in exc.errors(include_url=False, include_context=False, include_input=False)
+            ]
+            return report
+        savepoint = "science_preview_" + uuid4().hex
+        c.execute(f"SAVEPOINT {savepoint}")
+        try:
+            pid = ScienceService.submit(c, session_id, actor_id, spec, at)
+            row = c.execute("SELECT status FROM science_programs WHERE id=?", (pid,)).fetchone()
+            for index, command in enumerate(spec.commands):
+                actual = c.execute(
+                    "SELECT status,error FROM science_commands WHERE program_id=? "
+                    "AND command_index=?", (pid, index),
+                ).fetchone()
+                status = {
+                    "completed": "checked", "running": "ready_to_start",
+                    "rejected": "rejected", "pending": "deferred",
+                }[actual["status"]]
+                result = {
+                    "command_index": index,
+                    "operation": getattr(command, "operation", command.op),
+                    "status": status,
+                }
+                if actual["error"]:
+                    result["reason"] = actual["error"]
+                report["commands"].append(result)
+            report["status"] = (
+                "rejected" if row["status"] == "rejected"
+                else "ready_to_start" if spec.commands else "no_action"
+            )
+        except ValueError as exc:
+            from world_engine.science_planning import SampleAllocationError
+
+            location = ["commands", exc.index, "input"] if isinstance(
+                exc, SampleAllocationError
+            ) else []
+            report["errors"].append({"location": location, "reason": str(exc)})
+        finally:
+            c.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            c.execute(f"RELEASE SAVEPOINT {savepoint}")
+        return report
+
+    @staticmethod
     def submit(c, session_id, actor_id, program, at, *, call_id=None):
         spec = (
             program
@@ -307,6 +368,25 @@ class ScienceService:
         referenced = {eid for h in spec.hypotheses for eid in h.evidence_ids}
         if referenced - known_evidence(c, actor_id, at):
             raise ValueError("假说不能引用本人未知、私有或未来证据")
+        if spec.phase == "preview":
+            report = ScienceService.preview(c, session_id, actor_id, spec, at)
+            content = {
+                "kind": "science_preflight", "submitted_program": spec.model_dump(mode="json"),
+                "report": report,
+            }
+            # 哥哥，同一程序与同一检查结果不反复制造新回执；变化仍由本人重新检查。
+            prior = c.execute(
+                "SELECT id FROM collective_observations WHERE character_id=? AND world_id=? "
+                "AND kind='science_preflight' AND content_json=? AND world_time<=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                (actor_id, actor["world_id"], encoded(content), to_iso(at)),
+            ).fetchone()
+            if prior:
+                return prior[0]
+            return R.record_observation(c, actor_id, at, "本人程序的执行前检查回执", content)
+        from world_engine.science_planning import check_sample_allocation
+
+        check_sample_allocation(c, actor_id, spec)
         pid = str(uuid4())
         with material_transaction(c):
             c.execute(

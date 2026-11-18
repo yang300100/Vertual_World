@@ -6,7 +6,7 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
-from world_engine.geo import great_circle_distance_km
+from world_engine.geo import great_circle_distance_km, nearby_coordinate_bounds
 from world_engine.proximity import same_room
 from world_engine.repository import from_iso, to_iso, utc_now
 
@@ -79,6 +79,12 @@ class SocietyService:
         )
         if actor is None:
             return
+        from world_engine.encounters import EncounterService
+
+        # 哥哥，只按事件发生时已更新的真实位置结束旧场次，出发意图不等于已经走远。
+        EncounterService.end_separated(
+            c, event["world_id"], {actor["id"], *([target["id"]] if target else [])}, at,
+        )
         public = event["event_type"] in {
             "world.wonder_invitation",
             "world.wonder_decision",
@@ -114,8 +120,17 @@ class SocietyService:
         if target:
             observers[target["id"]] = "participant"
         if public:
+            south, north, ranges = nearby_coordinate_bounds(
+                actor['longitude'], actor['latitude'], radius,
+            )
+            # 哥哥，只读取同房间、同空间层的附近候选人，真实球面距离仍作最后裁定。
+            longitude_filter = " OR ".join("longitude BETWEEN ? AND ?" for _ in ranges)
+            parameters = [event['world_id'], actor['space_layer'], actor['current_room_id'],
+                          south, north, *(value for pair in ranges for value in pair)]
             for person in c.execute(
-                "SELECT * FROM characters WHERE world_id=? AND health>0", (event["world_id"],)
+                "SELECT * FROM characters WHERE world_id=? AND health>0 AND space_layer=? "
+                "AND current_room_id IS ? AND latitude BETWEEN ? AND ? AND ("
+                + longitude_filter + ")", parameters,
             ):
                 if (
                     same_room(actor, person)
@@ -139,7 +154,15 @@ class SocietyService:
         payload["witness_character_ids"] = [
             cid for cid in observers if cid not in {actor["id"], event["target_id"]}
         ]
-        payload["information_scope"] = "public" if public and voice != "whisper" else "private"
+        private_room=False
+        if actor["current_room_id"]:
+            private_room=bool(c.execute(
+                "WITH RECURSIVE chain(id,parent_room_id,access_policy,depth) AS ("
+                "SELECT id,parent_room_id,access_policy,0 FROM life_rooms WHERE id=? UNION ALL "
+                "SELECT r.id,r.parent_room_id,r.access_policy,chain.depth+1 FROM life_rooms r JOIN chain ON r.id=chain.parent_room_id WHERE chain.depth<4) "
+                "SELECT 1 FROM chain WHERE access_policy='private' LIMIT 1",(actor["current_room_id"],)).fetchone())
+        payload["perception_room_id"]=actor["current_room_id"]
+        payload["information_scope"] = "public" if public and voice != "whisper" and not private_room else "private"
         c.execute(
             "UPDATE world_events SET payload_json=? WHERE id=?",
             (json.dumps(payload, ensure_ascii=False), event_id),
@@ -220,6 +243,11 @@ class SocietyService:
                     (gain, to_iso(at), actor["id"], target["id"]),
                 )
             cls._emotion(c, event["world_id"], target["id"], "安心", 30, event_id, at)
+        if target and event["event_type"] in {"action.attack", "contract.overdue", "contract.completed"}:
+            from world_engine.intimacy import IntimacyService
+
+            IntimacyService.remember_event(c, event["world_id"], actor["id"], target["id"], event_id, at,
+                                         "conflict" if event["event_type"] != "contract.completed" else "repair", event["summary"])
         player = c.execute(
             "SELECT id FROM characters WHERE world_id=? AND is_player=1", (event["world_id"],)
         ).fetchone()
@@ -361,7 +389,7 @@ class SocietyService:
             return
         news = c.execute(
             "SELECT k.character_id,k.event_id,k.confidence,k.hops,e.location_id "
-            "FROM character_event_knowledge k JOIN world_events e ON e.id=k.event_id "
+            "FROM world_events e CROSS JOIN character_event_knowledge k ON k.event_id=e.id "
             "WHERE k.world_id=? AND e.world_id=? AND e.importance='major' AND k.hops<3 "
             "AND k.learned_world_time>=? AND k.learned_world_time<=? "
             "AND json_extract(e.payload_json,'$.information_scope')='public' "
@@ -456,7 +484,7 @@ class SocietyService:
         # 心跳开始时取消息快照：这轮刚听到的人不能立即再向下一地区广播。
         news = c.execute(
             "SELECT k.character_id,k.event_id,k.confidence,k.hops,k.learned_world_time "
-            "FROM character_event_knowledge k JOIN world_events e ON e.id=k.event_id "
+            "FROM world_events e CROSS JOIN character_event_knowledge k ON k.event_id=e.id "
             "WHERE k.world_id=? AND e.world_id=? AND e.importance='major' AND k.hops<3 "
             "AND e.occurred_at>=? AND e.occurred_at<=? "
             "AND k.learned_world_time<=? "
@@ -526,13 +554,16 @@ class SocietyService:
             dict(row)
             for row in c.execute(
                 "SELECT e.id,e.summary,e.occurred_at,k.source_kind,k.source_character_id,k.confidence,k.hops "
-                "FROM character_event_knowledge k JOIN world_events e ON e.id=k.event_id "
-                "WHERE k.world_id=? AND k.character_id=? ORDER BY k.learned_world_time DESC LIMIT 8",
+                "FROM character_event_knowledge k JOIN world_events e ON e.id=k.event_id AND e.world_id=k.world_id "
+                "JOIN worlds w ON w.id=e.world_id "
+                "WHERE k.world_id=? AND k.character_id=? "
+                "AND e.occurred_at<=w.current_time AND k.learned_world_time<=w.current_time "
+                "ORDER BY k.learned_world_time DESC LIMIT 8",
                 (wid, cid),
             )
         ]
         for entry in news:
-            entry["summary"] = cls.mask_text(c, wid, cid, entry["summary"])
+            entry["summary"] = cls.event_summary(c, wid, cid, entry["id"], entry["summary"])
         from world_engine.character_growth import CharacterGrowthService
         from world_engine.epistemics import KnowledgeService
         beliefs=KnowledgeService.view(c,cid,at,limit=6)
@@ -543,7 +574,6 @@ class SocietyService:
         growth["recent_changes"]=growth["recent_changes"][:3]
         from world_engine.food import FoodService
         from world_engine.npc_goals import NpcGoalService
-
         from world_engine.wonders import WonderService
         return {"emotion": dict(emotion) if emotion else None, "known_events": news,"beliefs":beliefs,"dispositions":growth,
                 "wonder_context": WonderService.context(c,wid,cid),
@@ -568,6 +598,32 @@ class SocietyService:
             text,
         )
 
+    @classmethod
+    def event_summary(cls, c, wid, observer, event_id, summary):
+        """哥哥，门外目击到进出，不等于知道私人房间的内部名称。"""
+        event = c.execute(
+            "SELECT event_type,actor_id,target_id,payload_json FROM world_events WHERE id=? AND world_id=?",
+            (event_id, wid),
+        ).fetchone()
+        if event and observer not in {event["actor_id"], event["target_id"]} and event["event_type"] in {
+            "action.interior_enter", "action.interior_exit",
+        }:
+            try:
+                room_id = json.loads(event["payload_json"]).get("room_id")
+            except (AttributeError, TypeError, ValueError):
+                room_id = None
+            rooms = c.execute(
+                "WITH RECURSIVE chain(id,parent_room_id,access_policy,depth) AS ("
+                "SELECT id,parent_room_id,access_policy,0 FROM life_rooms WHERE id=? AND world_id=? "
+                "UNION ALL SELECT r.id,r.parent_room_id,r.access_policy,chain.depth+1 "
+                "FROM life_rooms r JOIN chain ON r.id=chain.parent_room_id WHERE chain.depth<4) "
+                "SELECT access_policy FROM chain", (room_id, wid),
+            ).fetchall()
+            if not rooms or any(room["access_policy"] == "private" for room in rooms):
+                verb = "进入" if event["event_type"] == "action.interior_enter" else "离开"
+                summary = f"看见{cls.label(c, observer, event['actor_id'])}{verb}了一处室内空间。"
+        return cls.mask_text(c, wid, observer, summary)
+
     @staticmethod
     def label(c, observer, subject):
         if observer == subject:
@@ -583,6 +639,10 @@ class SocietyService:
 
     @classmethod
     def tick(cls, c, wid, at):
+        from world_engine.families import FamilyService
+
+        FamilyService.maintain(c,wid,at)
+        FamilyService.care_dependents(c,wid,at)
         c.execute(
             "DELETE FROM character_emotions WHERE world_id=? AND expires_world_time<=?",
             (wid, to_iso(at)),
@@ -595,34 +655,23 @@ class SocietyService:
         if player is None:
             return
         cls.goal_tick(c, wid, player, at)
-        for npc in c.execute(
-            "SELECT * FROM characters WHERE world_id=? AND is_player=0 AND health>0", (wid,)
-        ).fetchall():
-            if (
-                same_room(npc, player)
-                and great_circle_distance_km(
-                    npc["longitude"], npc["latitude"], player["longitude"], player["latitude"]
-                )
-                <= 0.1
-                and not c.execute(
-                    "SELECT 1 FROM character_acquaintances WHERE observer_id=? AND subject_id=?",
-                    (player["id"], npc["id"]),
-                ).fetchone()
-            ):
-                from world_engine.actions import ActionService
+        continuity_owners = {r[0] for r in c.execute("SELECT DISTINCT owner_id FROM relationship_considerations WHERE world_id=? AND other_id=? AND status='active' AND kind IN ('concern','hope') AND updated_at<=?", (wid,player["id"],to_iso(at-timedelta(days=1))))}
+        # 哥哥，先按真实旧约筛候选，避免为全世界没有共同约定的居民逐人查库。
+        missed_partners = {r[0] for r in c.execute(
+            "SELECT CASE WHEN proposer_id=? THEN recipient_id ELSE proposer_id END "
+            "FROM social_appointments WHERE world_id=? AND status='missed' AND repaired_by IS NULL "
+            "AND ends_at<=? AND (proposer_id=? OR recipient_id=?)",
+            (player["id"], wid, to_iso(at), player["id"], player["id"]),
+        )}
+        from world_engine.encounters import EncounterService
 
-                ActionService._record_event(
-                    c,
-                    world_id=wid,
-                    tick_id=str(uuid4()),
-                    occurred_at=at,
-                    event_type="action.encounter",
-                    actor_id=player["id"],
-                    target_id=npc["id"],
-                    location_id=player["current_location_id"] or player["location_id"],
-                    summary="你留意到附近一位尚未认识的人。",
-                    payload={},
-                )
+        for npc in c.execute(
+            "SELECT * FROM characters WHERE world_id=? AND is_player=0", (wid,)
+        ).fetchall():
+            # 哥哥，先核对本次真实接近或分离；暂停联系和离世也不会留下假场次。
+            EncounterService.observe_pair(c, wid, npc["id"], player["id"], at)
+            if npc["health"] <= 0:
+                continue
             contact = c.execute(
                 "SELECT id FROM character_contacts WHERE world_id=? AND status='accepted' AND ((requester_id=? AND recipient_id=?) OR (requester_id=? AND recipient_id=?))",
                 (wid, npc["id"], player["id"], player["id"], npc["id"]),
@@ -634,48 +683,186 @@ class SocietyService:
                 )
                 <= 0.02
             )
-            relation = c.execute(
-                "SELECT trust,affinity FROM relationships WHERE world_id=? AND source_character_id=? AND target_character_id=?",
-                (wid, npc["id"], player["id"]),
-            ).fetchone()
             important = c.execute(
                 "SELECT request_id FROM contract_fulfillments WHERE world_id=? AND recipient_id=? AND requester_id=? AND status='active' AND due_world_time<=?",
                 (wid, npc["id"], player["id"], to_iso(at + timedelta(days=1))),
             ).fetchone()
+            shared_plan_attention=None
+            if not important:
+                shared_plan_attention=c.execute("SELECT p.id FROM shared_preparation_plans p JOIN shared_preparation_roles r ON r.plan_id=p.id AND r.character_id=? WHERE p.world_id=? AND p.status='active' "
+                    "AND (p.proposer_id=? OR p.recipient_id=?) AND (p.deadline_at<=? OR r.private_reason<>'') LIMIT 1",
+                    (npc["id"],wid,player["id"],player["id"],to_iso(at+timedelta(days=1)))).fetchone()
+                important=shared_plan_attention
+            preparation_follow_up=None
+            if not important:
+                preparation_follow_up=c.execute(
+                    "SELECT p.id FROM shared_preparation_plans p JOIN world_events e ON e.id=p.source_event_id "
+                    "WHERE p.world_id=? AND p.status='completed' AND (p.proposer_id=? OR p.recipient_id=?) "
+                    "AND (p.proposer_id=? OR p.recipient_id=?) AND e.occurred_at>=? "
+                    "AND NOT EXISTS (SELECT 1 FROM preparation_follow_through f JOIN shared_life_moments m ON m.id=f.moment_id "
+                    "WHERE f.plan_id=p.id) LIMIT 1",
+                    (wid,npc["id"],npc["id"],player["id"],player["id"],to_iso(at-timedelta(days=1))),
+                ).fetchone()
+                important=preparation_follow_up
             risk = c.execute("SELECT a.* FROM npc_schedule_assessments a JOIN contract_fulfillments f ON f.request_id=a.contract_id WHERE a.character_id=? AND f.requester_id=? AND f.status='active' AND a.reason!=''",(npc["id"],player["id"])).fetchone()
-            from world_engine.character_growth import CharacterGrowthService
-            if not important and not risk and CharacterGrowthService.level(c,npc["id"],"谨慎")>=60 and (not relation or relation["trust"]<10):
+            from world_engine.intimacy import IntimacyService
+
+            if IntimacyService.paused(c, wid, npc["id"], player["id"]):
                 continue
-            cooperative=CharacterGrowthService.level(c,npc["id"],"乐于合作")>=20
+            close = IntimacyService.connected(c, wid, npc["id"], player["id"])
+            close = close or bool(c.execute("SELECT 1 FROM family_agreements WHERE world_id=? AND status='active' AND ((proposer_id=? AND recipient_id=?) OR (proposer_id=? AND recipient_id=?))",(wid,npc["id"],player["id"],player["id"],npc["id"])).fetchone())
+            pending_heart = c.execute(
+                "SELECT 1 FROM intimate_bonds WHERE world_id=? AND first_id=? AND second_id=? "
+                "AND proposer_id=? AND status='pending' AND expires_at>?",
+                (wid, *sorted((npc["id"], player["id"])), player["id"], to_iso(at)),
+            ).fetchone()
+            if not pending_heart:
+                pending_heart = c.execute(
+                    "SELECT 1 FROM shared_life_moments WHERE world_id=? AND proposer_id=? AND recipient_id=? AND status='pending' AND expires_at>?",
+                    (wid, player["id"], npc["id"], to_iso(at)),
+                ).fetchone()
+            if not pending_heart:
+                pending_heart=c.execute("SELECT 1 FROM social_appointments WHERE world_id=? AND proposer_id=? AND recipient_id=? AND status='pending' AND starts_at>?",
+                    (wid,player["id"],npc["id"],to_iso(at))).fetchone()
+            if not pending_heart:
+                pending_heart=c.execute("SELECT 1 FROM social_appointment_series WHERE world_id=? AND status='resume_pending' AND resume_requested_by=? AND (proposer_id=? OR recipient_id=?)",
+                    (wid,player["id"],npc["id"],npc["id"])).fetchone()
+            if not pending_heart:
+                pending_heart=c.execute("SELECT 1 FROM shared_preparation_plans WHERE world_id=? AND proposer_id=? AND recipient_id=? AND status='pending' AND deadline_at>?",
+                    (wid,player["id"],npc["id"],to_iso(at))).fetchone()
+            pending_companion = None
+            if not pending_heart:
+                pending_companion = c.execute(
+                    "SELECT id,source_event_id FROM companion_proposals WHERE world_id=? AND proposer_id=? "
+                    "AND recipient_id=? AND status='pending' AND expires_at>? ORDER BY rowid DESC LIMIT 1",
+                    (wid,player["id"],npc["id"],to_iso(at)),
+                ).fetchone()
+                pending_heart = pending_companion
+            pending_group = None
+            if not pending_heart:
+                pending_group = c.execute(
+                    "SELECT g.id,g.proposal_event_id FROM group_journeys g "
+                    "JOIN group_journey_members n ON n.journey_id=g.id AND n.character_id=? "
+                    "JOIN group_journey_members p ON p.journey_id=g.id AND p.character_id=? "
+                    "WHERE g.world_id=? AND g.status='pending' AND g.deadline_at>? "
+                    "AND n.decision='pending' AND n.left_at IS NULL AND p.left_at IS NULL "
+                    "AND p.decision<>'declined' ORDER BY g.rowid LIMIT 1",
+                    (npc["id"],player["id"],wid,to_iso(at)),
+                ).fetchone()
+                pending_heart = pending_group
+            from world_engine.relationship_continuity import RelationshipContinuityService
+            from world_engine.appointment_followup import AppointmentFollowupService
+            # 哥哥，旧约定只提供本人可拒绝的考虑机会，不推定对方到场或失约原因。
+            appointment_followup = AppointmentFollowupService.opportunity(c,wid,npc["id"],player["id"],at) if npc["id"] in missed_partners and not important and not risk and not pending_heart else None
+            continuity_attention = RelationshipContinuityService.opportunity(c,wid,npc["id"],player["id"],at) if npc["id"] in continuity_owners and not important and not risk and not pending_heart and not appointment_followup else None
+            from world_engine.travel_interaction import TravelInteractionService
+            may_consider_scene = nearby and not (
+                important or risk or pending_heart or continuity_attention or appointment_followup
+            )
+            travel_attention = (
+                TravelInteractionService.shared_motion(c, wid, npc["id"], player["id"], at)
+                if may_consider_scene else None
+            )
+            encounter_attention = (
+                EncounterService.opportunity(c, wid, npc["id"], player["id"], at)
+                if may_consider_scene and not travel_attention else None
+            )
+            # 哥哥，真实见面提供一次自主考虑，性格和信任留给本人决定是否开口。
             if not (
-                important or risk
-                or (
-                    nearby
-                    and (
-                        ("热情" in json.loads(npc["traits_json"] or "[]") or cooperative)
-                        or relation
-                        and relation["trust"] >= 10
-                    )
-                )
+                important or risk or close or pending_heart or continuity_attention or appointment_followup
+                or travel_attention or encounter_attention
             ):
                 continue
             if not nearby and not contact:
                 continue
-            c.execute(
+            reason = (
+                "共同筹备有需要商量的情况，请结合真实期限和本人实际困难，自主决定是否说明、调整或退出"
+                if shared_plan_attention
+                else "双方已共同核对筹备，可自主决定是否另行邀请一次真实用餐、休息或聊天，引用原计划；对方仍需独立同意，财物仍各自保管，也可以暂不联系"
+                if preparation_follow_up
+                else "有临近期限的共同事务，可以决定是否提醒对方"
+                if important
+                else "对方表达了尚待回应的关系心意或共同生活邀请，可以独立决定答应、拒绝、继续了解或暂不联系；不要替对方作决定"
+                if pending_heart
+                else AppointmentFollowupService.REASON
+                if appointment_followup
+                else "本人有跨日保留的相处事项，可以结合私密记忆自主决定是否继续商量、提出合适邀请、表达顾虑或暂不联系，不替对方作决定"
+                if continuity_attention
+                else "与对方有双方确认的亲密关系，可根据共同经历、界限与自身日程决定是否问候、分享近况、主动提出未来约会或商量一次真实补约；也可以表达顾虑或不联系，不替对方确认"
+                if close
+                else "遇见对方，可以根据关系和当前处境决定是否主动交谈"
+            )
+            if important or risk or pending_heart or continuity_attention or appointment_followup or travel_attention:
+                EncounterService.preempt_unclaimed(c, wid, npc["id"], player["id"], at, reason)
+            job_id = str(uuid4())
+            inserted = c.execute(
                 "INSERT OR IGNORE INTO npc_outreach_jobs(id,world_id,npc_id,player_id,contact_id,channel,reason,world_day) VALUES (?,?,?,?,?,?,?,?)",
                 (
-                    str(uuid4()),
+                    job_id,
                     wid,
                     npc["id"],
                     player["id"],
                     contact["id"] if contact else None,
                     "in_person" if nearby else "letter",
-                    "有临近期限的共同事务，可以决定是否提醒对方"
-                    if important
-                    else "遇见对方，可以根据关系和当前处境决定是否主动交谈",
+                    reason,
                     at.date().isoformat(),
                 ),
-            )
+            ).rowcount
+            if pending_companion and not important and not risk:
+                # 哥哥，收到邀请只提供一次自主考虑机会，不替本人答应，也不增加每日联系额度。
+                c.execute(
+                    "UPDATE npc_outreach_jobs SET reason=?,source_event_id=? WHERE world_id=? AND npc_id=? "
+                    "AND player_id=? AND world_day=? AND status='pending' AND attempts=0 AND source_event_id IS NULL",
+                    ("对方提出了尚待回应的短时同行邀请；结合本人处境和时长，自主决定接受、婉拒、反提或暂不回应，不替玩家同意。",
+                     pending_companion["source_event_id"],wid,npc["id"],player["id"],at.date().isoformat()),
+                )
+            if pending_group and not important and not risk:
+                c.execute(
+                    "UPDATE npc_outreach_jobs SET reason=?,source_event_id=? WHERE world_id=? AND npc_id=? "
+                    "AND player_id=? AND world_day=? AND status='pending' AND attempts=0 AND source_event_id IS NULL",
+                    ("本人收到完整有限多人旅行提议，可以独立接受、婉拒或暂不回应；一位成员的选择不代表其他人。",
+                     pending_group["proposal_event_id"],wid,npc["id"],player["id"],at.date().isoformat()),
+                )
+            if appointment_followup:
+                # 哥哥，保留已考虑的旧任务；只让尚未考虑的普通机会承接新来源。
+                c.execute(
+                    "UPDATE npc_outreach_jobs SET reason=?,source_event_id=? WHERE world_id=? AND npc_id=? "
+                    "AND player_id=? AND world_day=? AND status='pending' AND attempts=0 AND source_event_id IS NULL "
+                    "AND reason NOT LIKE '有临近%' AND NOT EXISTS(SELECT 1 FROM relationship_continuity_followups f "
+                    "WHERE f.job_id=npc_outreach_jobs.id)",
+                    (AppointmentFollowupService.REASON, appointment_followup, wid, npc["id"], player["id"], at.date().isoformat()),
+                )
+            if travel_attention:
+                # 哥哥，只绑定当前真实共同移动的这一程，仍沿用原来每对人物每日一次的机会。
+                c.execute(
+                    "UPDATE npc_outreach_jobs SET reason=?,source_event_id=? WHERE world_id=? AND npc_id=? "
+                    "AND player_id=? AND world_day=? AND status='pending' AND attempts=0 AND source_event_id IS NULL "
+                    "AND reason NOT LIKE '有临近%' AND NOT EXISTS(SELECT 1 FROM relationship_continuity_followups f "
+                    "WHERE f.job_id=npc_outreach_jobs.id)",
+                    (TravelInteractionService.JOB_PREFIX + "；双方仍在途中，可以自愿说话、提出暂停或暂不联系；"
+                     "说话本身不会停止移动，调整路线仍须双方另外决定。",
+                     travel_attention["source_event_id"],wid,npc["id"],player["id"],at.date().isoformat()),
+                )
+            if encounter_attention:
+                encounter_job = c.execute(
+                    "SELECT id FROM npc_outreach_jobs WHERE world_id=? AND npc_id=? AND player_id=? "
+                    "AND world_day=? AND channel='in_person' AND status='pending' AND attempts=0 "
+                    "AND source_event_id IS NULL AND (reason=? OR reason LIKE '与对方有双方确认的亲密关系%') "
+                    "AND NOT EXISTS(SELECT 1 FROM relationship_continuity_followups f "
+                    "WHERE f.job_id=npc_outreach_jobs.id)",
+                    (wid,npc["id"],player["id"],at.date().isoformat(),
+                     "遇见对方，可以根据关系和当前处境决定是否主动交谈"),
+                ).fetchone()
+                if encounter_job:
+                    EncounterService.attach(c, encounter_job["id"], encounter_attention, at)
+            if inserted and continuity_attention:
+                RelationshipContinuityService.attach(c,job_id,continuity_attention)
+            elif continuity_attention:
+                # 哥哥，清晨排下但尚未考虑的普通问候，可以承接稍后到期的持续事项。
+                existing = c.execute("SELECT id FROM npc_outreach_jobs WHERE world_id=? AND npc_id=? AND player_id=? AND world_day=? AND status='pending' AND attempts=0 AND source_event_id IS NULL AND reason NOT LIKE '有临近%' AND NOT EXISTS(SELECT 1 FROM relationship_continuity_followups f WHERE f.job_id=npc_outreach_jobs.id)", (wid,npc["id"],player["id"],at.date().isoformat())).fetchone()
+                if existing:
+                    c.execute("UPDATE npc_outreach_jobs SET reason=? WHERE id=?",("本人有跨日保留的相处事项，可以结合私密记忆自主决定是否继续商量或暂不联系，不替对方作决定",existing[0]))
+                    RelationshipContinuityService.attach(c,existing[0],continuity_attention)
             if risk:
                 c.execute("UPDATE npc_outreach_jobs SET reason=?,source_event_id=? WHERE world_id=? AND npc_id=? AND player_id=? AND world_day=? AND status='pending' AND attempts=0",("有临近的约定出现困难："+risk["reason"]+"。可以商议改期，但双方确认前原时间仍然有效。",risk["source_event_id"],wid,npc["id"],player["id"],at.date().isoformat()))
 

@@ -17,14 +17,27 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from world_engine.agent_llm import AgentLLMError
 from world_engine.api_deps import require_world_time_text as _world_time
+from world_engine.appointments import AppointmentIntent
 from world_engine.bounded_calls import submit_call
 from world_engine.character_growth import CharacterGrowthService
+from world_engine.companion_proposals import CompanionIntent
 from world_engine.contracts import KINDS, ContractError, ContractService
+from world_engine.families import FamilyIntent
 from world_engine.geo import great_circle_distance_km
+from world_engine.rides import RideIntent, RideService
+from world_engine.group_journeys import GroupJourneyIntent
+from world_engine.intimacy import RelationshipIntent, RelationshipReflection
+from world_engine.journeys import JourneyIntent
+from world_engine.lodging_plans import LodgingPlanIntent
+from world_engine.lodging_review import review as review_lodging
 from world_engine.model_availability import is_model_billing_error
+from world_engine.overnight import OvernightIntent
 from world_engine.proximity import VISIBLE_PERSON_RADIUS_KM, same_room
 from world_engine.repository import from_iso, to_iso, utc_now
 from world_engine.roleplay import npc_reply_system_prompt
+from world_engine.separate_stays import SeparateStayIntent
+from world_engine.shared_life import SharedLifeIntent
+from world_engine.shared_plans import SharedPlanIntent
 
 
 class ContactRequest(BaseModel):
@@ -48,6 +61,19 @@ class NpcTextResult(BaseModel):
     reply: str = Field(min_length=1, max_length=900)
     social_move: Literal["answer", "question", "evade", "boundary", "refuse", "offer"] = "answer"
     topic: str | None = Field(default=None, max_length=160)
+    relationship_intent: RelationshipIntent | None = None
+    relationship_reflection: RelationshipReflection | None = None
+    shared_life_intent: SharedLifeIntent | None = None
+    family_intent: FamilyIntent | None = None
+    appointment_intent: AppointmentIntent | None = None
+    shared_plan_intent: SharedPlanIntent | None = None
+    journey_intent: JourneyIntent | None = None
+    group_journey_intent: GroupJourneyIntent | None = None
+    ride_intent: RideIntent | None = None
+    overnight_intent: OvernightIntent | None = None
+    separate_stay_intent: SeparateStayIntent | None = None
+    lodging_plan_intent: LodgingPlanIntent | None = None
+    companion_intent: CompanionIntent | None = None
 
 
 class LongTermRequest(BaseModel):
@@ -152,7 +178,8 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
         player_text: str,
         interaction: str,
         details: dict[str, object],
-    ) -> str:
+        structured: bool = False,
+    ) -> str | NpcTextResult:
         """通过统一上下文管线生成 NPC 可见文本；模型故障时不以模板替代。"""
 
         backend = engine.agent_model_backend
@@ -198,7 +225,7 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
                 status_code=503,
                 detail="NPC 对话模型返回了不安全的内容，请稍后重试",
             )
-        return reply
+        return result.data if structured else reply
 
     def _contact_decision(
         connection: sqlite3.Connection, world_id: str, player: sqlite3.Row, npc: sqlite3.Row
@@ -232,7 +259,7 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
         npc: sqlite3.Row,
         content: str,
         world_time: str,
-    ) -> str:
+    ) -> NpcTextResult:
         """以 NPC 身份回复远程信笺，不使用任何文本模板。"""
 
         player = connection.execute(
@@ -267,6 +294,7 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
                 "incoming_letter": content,
                 "recent_letters": history,
             },
+            structured=True,
         )
 
     def _long_term_decision(
@@ -296,13 +324,10 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             except ScheduleError as exc:
                 return "npc_rejected",None,str(exc)
         if operation_type in {"住房","lodging"}:
-            room=connection.execute("SELECT r.*,p.nightly_rate FROM life_rooms r JOIN room_rental_rates p ON p.room_id=r.id WHERE r.id=? AND r.world_id=? AND r.owner_character_id=?",(terms.get("room_id"),world_id,npc["id"])).fetchone()
-            if room is None:return "npc_rejected",None,"该房间不属于对方或尚未开放出租。"
-            if connection.execute("SELECT 1 FROM contract_fulfillments WHERE kind='lodging' AND asset_id=? AND status='active'",(room["id"],)).fetchone():return "npc_rejected",None,"房间已有有效租约。"
-            days=terms.get("duration_days",1);payment=terms.get("payment",0)
-            if not isinstance(days,int) or isinstance(days,bool) or days<1:return "npc_rejected",None,"住房天数需要是正整数。"
-            price=room["nightly_rate"]*days
-            if not isinstance(payment,int) or payment<price:return "npc_countered",{**terms,"payment":price},"需要先确认完整租金，才会授予限期使用权。"
+            return review_lodging(
+                connection, world_id, player, npc, terms,
+                from_iso(_world_time(connection, world_id)),
+            )
         if operation_type in {"学习", "learning"}:
             skill = str(terms.get("skill") or "").strip()
             known_skills = set(json.loads(npc["skills_json"] or "[]"))
@@ -334,6 +359,18 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
         if len(encoded) > 4000:
             raise HTTPException(status_code=400, detail="事务条款过长")
         return raw
+
+    def _protect_lodging_plan_request(connection: sqlite3.Connection, request_id: str) -> None:
+        """哥哥，筹备房租须保留准确报价与逐笔确认，不能绕入旧事务入口。"""
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='journey_lodging_quotes'"
+        ).fetchone() and connection.execute(
+            "SELECT 1 FROM journey_lodging_quotes WHERE request_id=?", (request_id,)
+        ).fetchone():
+            raise HTTPException(
+                status_code=409,
+                detail="这份住房属于订房筹备，请使用对应筹备操作；准确报价、付款和租约审计需要保留",
+            )
 
     @router.post("/contacts")
     def request_contact(world_id: str, payload: ContactRequest) -> dict[str, object]:
@@ -448,7 +485,7 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             now, world_time = to_iso(utc_now()), _world_time(connection, world_id)
             message_id = str(uuid4())
             content = payload.content.strip()
-            reply = _letter_reply(
+            letter_result = _letter_reply(
                 connection,
                 world_id=world_id,
                 contact_id=contact["id"],
@@ -456,6 +493,7 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
                 content=content,
                 world_time=world_time,
             )
+            reply = letter_result.reply
         with database.write() as connection:
             if repository.get_snapshot(connection, world_id).world.version != version:
                 raise HTTPException(status_code=409, detail="世界状态已变化，请重新寄送")
@@ -472,11 +510,34 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (reply_id, world_id, contact["id"], npc["id"], player["id"], reply, world_time, now),
             )
-            _record_social_fact(
+            event_id = _record_social_fact(
                 connection, world_id=world_id, actor_id=player["id"], target_id=npc["id"],
                 event_type="social.letter", summary=f"{player['name']}与{npc['name']}通过联络信笺交换了消息。",
                 payload={"contact_id": contact["id"], "message_id": message_id, "reply_id": reply_id}, importance=4,
             )
+            # 哥哥，远程关系和感受只能在版本核验后的写事务里落定。
+            from world_engine.decisions import NpcReply
+            from world_engine.npc_performance import settle_npc_reply
+
+            settled = settle_npc_reply(
+                connection, npc=npc, player_id=player["id"], at=from_iso(world_time), channel="letter",
+                reply=NpcReply(reply=reply[:500], relationship_intent=letter_result.relationship_intent,
+                               relationship_reflection=letter_result.relationship_reflection,
+                               shared_life_intent=letter_result.shared_life_intent,
+                               family_intent=letter_result.family_intent,
+                               appointment_intent=letter_result.appointment_intent,
+                               shared_plan_intent=letter_result.shared_plan_intent,
+                               journey_intent=letter_result.journey_intent,
+                               group_journey_intent=letter_result.group_journey_intent,
+                               ride_intent=letter_result.ride_intent,
+                               overnight_intent=letter_result.overnight_intent,
+                               separate_stay_intent=letter_result.separate_stay_intent,
+                               lodging_plan_intent=letter_result.lodging_plan_intent,
+                               companion_intent=letter_result.companion_intent),
+                source_event_id=event_id,
+            )
+            reply = settled.reply
+            connection.execute("UPDATE character_messages SET content=? WHERE id=?", (reply, reply_id))
             connection.execute("UPDATE worlds SET version = version + 1, updated_at = ? WHERE id = ?", (now, world_id))
             return {"id": message_id, "reply_id": reply_id, "reply": reply, "status": "sent"}
 
@@ -517,14 +578,19 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
     ) -> list[dict[str, object]]:
         with database.read() as connection:
             _world_time(connection, world_id)
+            player = connection.execute(
+                "SELECT id FROM characters WHERE world_id=? AND is_player=1", (world_id,)
+            ).fetchone()
+            if player is None:
+                raise HTTPException(status_code=404, detail="当前世界没有玩家角色")
             rows = connection.execute(
                 """SELECT r.*, p.name AS requester_name, n.name AS recipient_name
                    FROM long_term_operation_requests r
                    JOIN characters p ON p.id = r.requester_id
                    JOIN characters n ON n.id = r.recipient_id
-                   WHERE r.world_id = ?
+                   WHERE r.world_id = ? AND (r.requester_id=? OR r.recipient_id=?)
                    ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
-                (world_id, limit, offset),
+                (world_id, player["id"], player["id"], limit, offset),
             ).fetchall()
             # 一次性取回本页涉及的履约记录，避免逐条查询（原实现是每请求一次 SELECT）。
             request_ids = [str(row["id"]) for row in rows]
@@ -563,6 +629,9 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             if player is None or npc is None:
                 raise HTTPException(status_code=404, detail="人物不存在")
             terms = _safe_terms(payload.terms)
+            if payload.operation_type.strip() in {"住房", "lodging"}:
+                # 哥哥，原审议默认一天，保存时也写清一天，避免履约时变成七天。
+                terms = {"duration_days": 1, **terms}
             status, counter_terms, decision_basis = _long_term_decision(
                 connection, world_id, player, npc, payload.operation_type.strip(), terms
             )
@@ -637,14 +706,21 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             ).fetchone()
             if request is None:
                 raise HTTPException(status_code=404, detail="长期事务不存在")
+            if player is None or request["requester_id"] != player["id"]:
+                raise HTTPException(status_code=403, detail="只有提出该事务的玩家可以结束它")
+            _protect_lodging_plan_request(connection, request_id)
             contract = connection.execute("SELECT * FROM contract_fulfillments WHERE request_id=?", (request_id,)).fetchone()
+            if connection.execute("SELECT 1 FROM social_appointments WHERE contract_id=?",(request_id,)).fetchone():
+                try:
+                    ContractService.cancel(connection,contract,_world_time(connection,world_id))
+                except ValueError as exc:
+                    raise HTTPException(409,str(exc)) from exc
+                connection.execute("UPDATE worlds SET version=version+1 WHERE id=?",(world_id,))
+                return {"id":request_id,"status":"cancelled","summary":"约会已结束，双方约定与实际履行记录继续保留。"}
             try:
                 ContractService.cancel(connection, contract, _world_time(connection, world_id))
             except ContractError as exc:
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
-            if player is None or request["requester_id"] != player["id"]:
-                raise HTTPException(status_code=403, detail="只有提出该事务的玩家可以结束它")
-
             # 事务在确认时可能生成待办与双方记忆；取消后它们不能继续作为世界中的有效约定。
             event_ids: list[str] = []
             for event in connection.execute(
@@ -686,6 +762,12 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             ).fetchone()
             if request is None:
                 raise HTTPException(status_code=404, detail="长期事务不存在")
+            player = connection.execute(
+                "SELECT * FROM characters WHERE world_id=? AND is_player=1", (world_id,)
+            ).fetchone()
+            if player is None or request["requester_id"] != player["id"]:
+                raise HTTPException(status_code=403, detail="只有提出该事务的玩家可以确认执行")
+            _protect_lodging_plan_request(connection, request_id)
             if request["status"] not in {"npc_accepted", "npc_countered"}:
                 raise HTTPException(status_code=409, detail="该事务当前不能确认")
             if request["status"] == "npc_countered" and not payload.accept_counter_terms:
@@ -695,14 +777,15 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
             except (json.JSONDecodeError, TypeError) as exc:
                 raise HTTPException(status_code=409, detail="事务条款已损坏，不能执行") from exc
             terms = _safe_terms(terms)
+            if request["operation_type"] in {"住房", "lodging"}:
+                terms = {"duration_days": 1, **terms}
             try:
                 payment = int(terms.get("payment", terms.get("amount", 0)))
             except (TypeError, ValueError) as exc:
                 raise HTTPException(status_code=400, detail="报酬必须是非负整数") from exc
             if payment < 0 or payment > 1_000_000:
                 raise HTTPException(status_code=400, detail="报酬超出可执行范围")
-            player = connection.execute("SELECT * FROM characters WHERE id = ?", (request["requester_id"],)).fetchone()
-            npc = connection.execute("SELECT * FROM characters WHERE id = ?", (request["recipient_id"],)).fetchone()
+            npc = connection.execute("SELECT * FROM characters WHERE id = ? AND world_id=?", (request["recipient_id"], world_id)).fetchone()
             if player is None or npc is None:
                 raise HTTPException(status_code=409, detail="事务参与者已不存在")
             if KINDS.get(request["operation_type"], request["operation_type"]) == "learning" and int(player["money"]) < payment:
@@ -764,6 +847,17 @@ def build_dialogue_router(database, engine, repository, resolved_settings) -> AP
     @router.post("/long-term-requests/{request_id}/repay")
     def repay_long_term(world_id: str, request_id: str) -> dict[str, object]:
         with database.write() as connection:
+            request = connection.execute(
+                "SELECT * FROM long_term_operation_requests WHERE id=? AND world_id=?",
+                (request_id, world_id),
+            ).fetchone()
+            if request is None:
+                raise HTTPException(status_code=404, detail="借贷事务不存在")
+            player = connection.execute(
+                "SELECT id FROM characters WHERE world_id=? AND is_player=1", (world_id,)
+            ).fetchone()
+            if player is None or request["requester_id"] != player["id"]:
+                raise HTTPException(status_code=403, detail="只有提出该事务的玩家可以办理还款")
             contract = connection.execute(
                 "SELECT * FROM contract_fulfillments WHERE request_id=? AND world_id=?",
                 (request_id, world_id),

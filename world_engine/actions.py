@@ -53,6 +53,13 @@ class ActionService:
         connection.execute("SAVEPOINT action_attempt")
         try:
             actor = self._get_actor(connection, world_id, proposal.actor_id)
+            # 哥哥，不能让生命已耗尽的 NPC 自己行动或用药抹去既有伤亡。
+            if not actor["is_player"] and actor["health"] <= 0:
+                raise ActionRuleError("当前身体状态无法自行行动")
+            selfcare_ride = None
+            if proposal.metadata.get("_npc_aboard_selfcare"):
+                from world_engine.npc_stage_actions import _blocked_aboard_actor
+                actor, selfcare_ride, _ = _blocked_aboard_actor(connection, actor, occurred_at)
             inventory_before = (
                 InventoryService.snapshot(connection, world_id)
                 if proposal.action in {ActionType.USE, ActionType.GATHER, ActionType.EAT,
@@ -64,6 +71,23 @@ class ActionService:
             work_completed = proposal.action is ActionType.WORK and connection.execute(
                 "SELECT money FROM characters WHERE id=?", (actor["id"],)
             ).fetchone()["money"] > actor["money"]
+            event_location = current_location_id(actor)
+            if proposal.action is ActionType.SOCIALIZE:
+                event_location = self._social_event_location(connection, actor)
+            if selfcare_ride is not None:
+                from world_engine.rides import RideService
+                vehicle_state = RideService.state(connection, world_id, selfcare_ride["vehicle_id"])
+                event_location = vehicle_state["current_location_id"]
+            aboard_activity = None
+            if proposal.metadata.get("life_activity_id"):
+                aboard_activity = connection.execute(
+                    "SELECT b.ride_id,b.vehicle_id,a.location_id FROM aboard_life_activities b "
+                    "JOIN character_life_activities a ON a.id=b.activity_id "
+                    "WHERE b.activity_id=? AND b.world_id=? AND b.character_id=?",
+                    (proposal.metadata["life_activity_id"],world_id,actor["id"]),
+                ).fetchone()
+                if aboard_activity:
+                    event_location = aboard_activity["location_id"]
             event_id = self._record_event(
                 connection,
                 world_id=world_id,
@@ -72,7 +96,7 @@ class ActionService:
                 event_type=f"action.{proposal.action.value}",
                 actor_id=actor["id"],
                 target_id=target_id,
-                location_id=current_location_id(actor),
+                location_id=event_location,
                 summary=summary,
                 payload={
                     "reason": proposal.reason,
@@ -83,6 +107,8 @@ class ActionService:
                     "input_kind": proposal.metadata.get("input_kind"),
                     "player_action_text": proposal.metadata.get("player_action_text"),
                     "delivery": proposal.metadata.get("delivery", "normal"),
+                    **({"aboard_activity": {"ride_id":aboard_activity["ride_id"],"vehicle_id":aboard_activity["vehicle_id"]}} if aboard_activity else {}),
+                    **({"aboard_selfcare": {"ride_id": selfcare_ride["id"], "vehicle_id": selfcare_ride["vehicle_id"]}} if selfcare_ride else {}),
                 },
             )
             if proposal.metadata.get("life_activity_id"):
@@ -162,6 +188,25 @@ class ActionService:
                 event_id=event_id,
                 rejection_reason=str(exc),
             )
+
+    @staticmethod
+    def _social_event_location(connection: sqlite3.Connection, actor: sqlite3.Row) -> str | None:
+        """哥哥，在车交流只使用载具和本人一致的真实地点；途中允许没有地点。"""
+        from world_engine.rides import RideService
+
+        ride = RideService.aboard(connection, actor["id"])
+        if ride is None:
+            return current_location_id(actor)
+        if ride["world_id"] != actor["world_id"]:
+            raise ActionRuleError("在车记录与人物世界不一致，不能记载交流地点")
+        state = RideService.state(connection, actor["world_id"], ride["vehicle_id"])
+        if (actor["space_layer"] != state["space_layer"] or actor["current_room_id"]
+                or actor["current_fixture_id"] or actor["current_location_id"] != state["current_location_id"]
+                or actor["longitude"] is None or actor["latitude"] is None
+                or great_circle_distance_km(actor["longitude"], actor["latitude"],
+                                             state["longitude"], state["latitude"]) > 0.00001):
+            raise ActionRuleError("在车人物与载具实际位置不一致，不能记载交流地点")
+        return state["current_location_id"]
 
     @staticmethod
     def _observed_state(connection: sqlite3.Connection, actor_id: str,

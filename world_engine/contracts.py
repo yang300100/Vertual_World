@@ -24,8 +24,32 @@ class ContractError(ValueError):
 
 
 class ContractService:
+    @classmethod
+    def _blocked_lease_reacquisition(cls, connection, ride, request, terms, at):
+        """哥哥，新租约仍须双方明确确认；这里只识别原控制者的占用例外。"""
+        if ride["status"] != "blocked" or ride["controller_id"] != request["requester_id"]:
+            return False
+        actual = connection.execute(
+            "SELECT * FROM long_term_operation_requests WHERE id=? AND world_id=?",
+            (request["id"], request["world_id"]),
+        ).fetchone()
+        if actual is None or actual["status"] not in {"npc_accepted", "npc_countered"}:
+            return False
+        if any(actual[key] != request[key] for key in ("requester_id", "recipient_id", "operation_type", "status")):
+            return False
+        try:
+            accepted = json.loads(actual["counter_terms_json"] if actual["status"] == "npc_countered" else actual["terms_json"])
+            if cls.normalize("lease", accepted) != terms or terms["vehicle_id"] != ride["vehicle_id"]:
+                return False
+            from world_engine.ride_recovery import RideRecoveryService
+            # 哥哥，原在车者、原驾驶者和真实挂起路线必须仍完整；不授予陌生人接管权。
+            RideRecoveryService._snapshot(connection, ride, at)
+        except (ValueError, LookupError, TypeError, KeyError):
+            return False
+        return True
+
     @staticmethod
-    def vehicle_for(connection, world_id, character_id, vehicle_id):
+    def vehicle_for(connection, world_id, character_id, vehicle_id, *, at=None):
         vehicle = connection.execute(
             "SELECT * FROM vehicles WHERE id=? AND world_id=? AND is_available=1",
             (vehicle_id, world_id),
@@ -37,13 +61,13 @@ class ContractService:
             (vehicle_id,),
         ).fetchone()
         if lease:
-            now = connection.execute(
+            now = at or from_iso(connection.execute(
                 'SELECT "current_time" FROM worlds WHERE id=?', (world_id,)
-            ).fetchone()[0]
+            ).fetchone()[0])
             return (
                 vehicle
                 if lease["requester_id"] == character_id
-                and from_iso(now) < from_iso(lease["due_world_time"])
+                and from_iso(lease['started_world_time']) <= now < from_iso(lease["due_world_time"])
                 else None
             )
         return vehicle if vehicle["owner_character_id"] == character_id else None
@@ -127,7 +151,10 @@ class ContractService:
             moving = connection.execute(
                 "SELECT 1 FROM character_movements WHERE vehicle_id=? AND status='moving'", (asset,)
             ).fetchone()
-            if vehicle is None or in_use or moving:
+            ride = connection.execute("SELECT * FROM vehicle_rides WHERE vehicle_id=? AND status IN ('pending','accepted','boarding','moving','arrived','blocked')", (asset,)).fetchone()
+            reacquire = bool(ride and vehicle is not None and not in_use and not moving and
+                cls._blocked_lease_reacquisition(connection,ride,request,terms,from_iso(world_time)))
+            if vehicle is None or in_use or moving or ride and not reacquire:
                 raise ContractError("载具不存在、不归对方所有或正在使用中")
             cls._pay(connection, player, npc, amount)
         elif kind == "lodging":
@@ -266,6 +293,14 @@ class ContractService:
     def cancel(cls, connection, contract, world_time):
         if contract is None or contract["status"] in {"completed", "expired", "cancelled"}:
             return
+        appointment=connection.execute("SELECT id FROM social_appointments WHERE contract_id=?",(contract["request_id"],)).fetchone()
+        if appointment:
+            from world_engine.appointments import AppointmentIntent, AppointmentService
+            actor=connection.execute("SELECT * FROM characters WHERE id=?",(contract["requester_id"],)).fetchone()
+            other=connection.execute("SELECT * FROM characters WHERE id=?",(contract["recipient_id"],)).fetchone()
+            AppointmentService.apply(connection,actor,other,from_iso(world_time),AppointmentIntent(
+                operation="cancel",appointment_id=appointment["id"],statement="我取消了这份未来的共同安排。"))
+            return
         if contract["kind"] == "loan":
             cls.repay(connection, contract, world_time)
             return
@@ -287,15 +322,18 @@ class ContractService:
 
     @staticmethod
     def _release_vehicle(connection, contract):
+        from world_engine.rides import RideService
+        RideService.suspend_vehicle(connection, contract['asset_id'])
         # 到期停止租用中的行程，保留当前位置，避免返还导致瞬移。
         connection.execute(
             "UPDATE character_movements SET status='cancelled' WHERE vehicle_id=? "
-            "AND status='moving'",
+            "AND status='moving' AND id NOT IN (SELECT movement_id FROM vehicle_rides WHERE movement_id IS NOT NULL)",
             (contract["asset_id"],),
         )
         connection.execute(
             "UPDATE characters SET active_vehicle_id=NULL, movement_type='land', "
-            "movement_speed_kmh=5 WHERE active_vehicle_id=?",
+            "movement_speed_kmh=5 WHERE active_vehicle_id=? AND id NOT IN "
+            "(SELECT character_id FROM vehicle_ride_members WHERE boarded_at IS NOT NULL AND disembarked_at IS NULL)",
             (contract["asset_id"],),
         )
 
@@ -308,6 +346,9 @@ class ContractService:
             (world_id,),
         ).fetchall()
         for contract in rows:
+            # 哥哥，未来共同安排使用实际共同活动回执，一句交谈不能冒充完整赴约。
+            if connection.execute("SELECT 1 FROM social_appointments WHERE contract_id=?",(contract["request_id"],)).fetchone():
+                continue
             window = connection.execute("SELECT * FROM appointment_windows WHERE contract_id=?",(contract["request_id"],)).fetchone()
             if contract["kind"] in {"commission", "employment", "appointment"}:
                 desired = "action.socialize" if contract["kind"] == "appointment" else "action.work"

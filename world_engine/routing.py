@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import math
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import Any
 
 from world_engine.config import PROJECT_ROOT
 from world_engine.geo import great_circle_distance_km
-from world_engine.navigation import TerrainService
+from world_engine.navigation import TerrainService, load_terrain
 
 SLOPE_BLOCK_DEGREES = 35.0
 LAND_CROSSINGS = ("bridge", "ford", "ferry", "port")
@@ -43,7 +44,7 @@ class RoutePlan:
     dataset_id: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "reachable": self.reachable,
             "distance_km": round(self.distance_km, 3),
             "estimated_hours": round(self.estimated_hours, 3),
@@ -58,6 +59,15 @@ class RoutePlan:
             "dataset_id": self.dataset_id,
             "movement_type": self.movement_type,
         }
+        bindings = []
+        for edge in self.edges:
+            if "local_route_id" in edge:
+                binding = {key: edge[f"local_route_{key}"] for key in ("id", "revision", "geometry_sha256", "direction")}
+                if binding not in bindings:
+                    bindings.append(binding)
+        if bindings:
+            result["local_routes"] = bindings
+        return result
 
 
 class RoutePlanner:
@@ -83,8 +93,8 @@ class RoutePlanner:
                 unreachable_reason="当前世界没有审核通过的导航数据集",
             )
         asset_root = self._resolve_asset_root(dataset["asset_root"])
-        terrain = TerrainService(asset_root)
-        return self.plan_on(
+        terrain = load_terrain(asset_root)
+        terrain_plan = self.plan_on(
             terrain,
             origin=origin,
             destination=destination,
@@ -93,6 +103,82 @@ class RoutePlanner:
             dataset_status=dataset["review_status"],
             dataset_version=dataset.get("version"),
             dataset_id=dataset["id"],
+        )
+        if movement_type != "land":
+            return terrain_plan
+        from world_engine.local_routes import LocalRouteService
+
+        best = terrain_plan
+        for local_route in LocalRouteService.available(connection, world_id, dataset["id"], movement_type):
+            directions = ("forward", "reverse") if local_route["bidirectional"] else ("forward",)
+            for direction in directions:
+                candidate = self._local_route_plan(
+                    terrain, local_route, direction, origin, destination, vehicle_metadata or {}, dataset,
+                )
+                if candidate is not None and (not best.reachable or candidate.estimated_hours < best.estimated_hours):
+                    best = candidate
+        return best
+
+    def _local_route_plan(self, terrain, local_route, direction, origin, destination, vehicle_metadata, dataset):
+        """哥哥，审核折线之外的两端连接仍各自通过地形规划。"""
+        canonical = [[float(point[0]), float(point[1])] for point in local_route["polyline"]]
+        points = canonical if direction == "forward" else list(reversed(canonical))
+        speed = min(max(0.1, float(vehicle_metadata.get("speed_kmh", 5.0))), float(local_route["speed_limit_kmh"]))
+        pieces = []
+        if tuple(origin) != tuple(points[0]):
+            entry = self.plan_on(
+                terrain, origin=origin, destination=tuple(points[0]), movement_type="land",
+                vehicle_metadata=vehicle_metadata, dataset_status=dataset["review_status"],
+                dataset_version=dataset.get("version"), dataset_id=dataset["id"],
+            )
+            if not entry.reachable:
+                return None
+            pieces.append(entry)
+        local_edges = []
+        for index in range(len(points) - 1):
+            canonical_index = index if direction == "forward" else len(canonical) - 2 - index
+            local_edges.append({
+                "length_km": great_circle_distance_km(*points[index], *points[index + 1]),
+                "speed_kmh": speed,
+                "surface": "surveyed_path",
+                "crossing_type": None,
+                "local_route_id": local_route["id"],
+                "local_route_revision": local_route["revision"],
+                "local_route_geometry_sha256": local_route["geometry_sha256"],
+                "local_route_direction": direction,
+                "local_route_segment_index": canonical_index,
+            })
+        local_distance = sum(edge["length_km"] for edge in local_edges)
+        pieces.append(RoutePlan(
+            reachable=True, origin=tuple(points[0]), destination=tuple(points[-1]), movement_type="land",
+            polyline=points, edges=local_edges, distance_km=local_distance,
+            estimated_hours=local_distance / speed, requirements=[f"经{local_route['name']}"],
+            dataset_status=dataset["review_status"], dataset_version=dataset.get("version"), dataset_id=dataset["id"],
+        ))
+        if tuple(points[-1]) != tuple(destination):
+            exit_plan = self.plan_on(
+                terrain, origin=tuple(points[-1]), destination=destination, movement_type="land",
+                vehicle_metadata=vehicle_metadata, dataset_status=dataset["review_status"],
+                dataset_version=dataset.get("version"), dataset_id=dataset["id"],
+            )
+            if not exit_plan.reachable:
+                return None
+            pieces.append(exit_plan)
+        polyline = []
+        edges = []
+        requirements = []
+        for piece in pieces:
+            if polyline and polyline[-1] != piece.polyline[0]:
+                return None
+            polyline.extend(piece.polyline if not polyline else piece.polyline[1:])
+            edges.extend(piece.edges)
+            requirements.extend(item for item in piece.requirements if item not in requirements)
+        distance = sum(float(edge["length_km"]) for edge in edges)
+        hours = sum(float(edge["length_km"]) / float(edge["speed_kmh"]) for edge in edges)
+        return RoutePlan(
+            reachable=True, origin=origin, destination=destination, movement_type="land", polyline=polyline,
+            edges=edges, distance_km=distance, estimated_hours=hours, requirements=requirements,
+            dataset_status=dataset["review_status"], dataset_version=dataset.get("version"), dataset_id=dataset["id"],
         )
 
     def plan_on(
@@ -433,10 +519,28 @@ class RoutePlanner:
         # 折线 = 真实起点 + 途经格中心 + 真实终点，边与折线严格对齐，供逐段推进。
         points: list[list[float]] = [[origin[0], origin[1]]]
         cell_ids: list[int] = []
-        for cell_id in path:
+        local_ground = len(path) == 1 and movement_type == 'land'
+        if local_ground:
+            distance_km = great_circle_distance_km(*origin, *destination)
+            steps = max(1, math.ceil(distance_km / .025))
+            delta_lon = (destination[0] - origin[0] + 180) % 360 - 180
+            for i in range(steps + 1):
+                fraction = i / steps
+                lon = (origin[0] + delta_lon * fraction + 180) % 360 - 180
+                lat = origin[1] + (destination[1] - origin[1]) * fraction
+                cell = terrain.nearest_cell(lon, lat)
+                if (cell is None or int(cell['cell_id']) != path[0]
+                        or cell.get('water_kind') is not None
+                        or not self._passable(terrain, cell, movement_type, vehicle_metadata)[0]):
+                    local_ground = False
+                    break
+        # 哥哥，同格内逐段核对后的陆地路线直接连接真实坐标，不强迫绕到格中心。
+        for cell_id in ([] if local_ground else path):
             cell = cells[cell_id]
             points.append([cell["longitude"], cell["latitude"]])
             cell_ids.append(cell_id)
+        if local_ground:
+            cell_ids = list(path)
         points.append([destination[0], destination[1]])
 
         distance = 0.0

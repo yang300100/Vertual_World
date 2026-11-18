@@ -140,7 +140,8 @@ def test_character_birth_creates_lineage_and_state(database: Database) -> None:
     registry = WorldElementRegistry()
     planned_request = ElementRegistrationSubmit.model_validate(
         {
-            "requested_by_character_id": actor_id,
+            # 此用例验收编年者已核实的出生登记；人物的双向同意另由家庭流程验收。
+            "requested_by_character_id": None,
             "source_event_id": event_id,
             "idempotency_key": "birth:river-child:planned:v1",
             "payload": {
@@ -163,7 +164,7 @@ def test_character_birth_creates_lineage_and_state(database: Database) -> None:
         )
         born_request = ElementRegistrationSubmit.model_validate(
             {
-                "requested_by_character_id": actor_id,
+                "requested_by_character_id": None,
                 "source_event_id": event_id,
                 "idempotency_key": "birth:river-child:born:v1",
                 "payload": {

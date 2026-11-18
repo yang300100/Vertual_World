@@ -14,6 +14,7 @@ import json
 import math
 import sqlite3
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -21,6 +22,20 @@ from uuid import uuid4
 from world_engine.config import PROJECT_ROOT
 from world_engine.geo import great_circle_distance_km
 from world_engine.repository import to_iso
+
+
+@lru_cache(maxsize=4)
+def _cached_terrain(asset_root: Path, fingerprint: tuple):
+    """哥哥，共享只读地形；文件版本变化时自然换一份缓存。"""
+    return TerrainService(asset_root)
+
+
+def load_terrain(asset_root: Path):
+    root = Path(asset_root).resolve()
+    files = ('terrain-index.json', 'terrain.geojson', 'crossings.geojson', 'movement-rules.json')
+    fingerprint = tuple((path.stat().st_mtime_ns, path.stat().st_size) for path in
+                        (root / name for name in files))
+    return _cached_terrain(root, fingerprint)
 
 _BIOME_LABELS = {
     "marine": "海洋",

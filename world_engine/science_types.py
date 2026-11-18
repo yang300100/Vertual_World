@@ -15,6 +15,7 @@ Number = Annotated[float, Field(strict=True, allow_inf_nan=False)]
 Identifier = Annotated[str, Field(min_length=1, max_length=100)]
 Role = Annotated[str, Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_]{0,39}$")]
 PositiveInt = Annotated[int, Field(strict=True, ge=1)]
+ASSAY_SAMPLE_QUANTITY = 1
 MethodReference = TypeAliasType(
     "MethodReference",
     Annotated[
@@ -270,6 +271,7 @@ ScienceCommand = Annotated[
 
 class ScienceProgram(StrictModel):
     reason: str = Field(min_length=1, max_length=2400)
+    phase: Literal["execute", "preview"] = "execute"
     hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=8)
     commands: list[ScienceCommand] = Field(default_factory=list, max_length=24)
 
